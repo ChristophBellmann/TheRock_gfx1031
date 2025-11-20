@@ -19,8 +19,22 @@ else()
   set(LLVM_BUILD_LLVM_DYLIB ON)
   set(LLVM_LINK_LLVM_DYLIB ON)
   set(LLVM_ENABLE_LIBCXX ON)
-  set(LLVM_ENABLE_PROJECTS "clang;lld;clang-tools-extra;flang" CACHE STRING "Enable LLVM projects" FORCE)
-  set(LLVM_ENABLE_RUNTIMES "compiler-rt;libunwind;libcxx;libcxxabi;openmp;offload" CACHE STRING "Enabled runtimes" FORCE)
+  # NOTE: Flang removed for low-memory builds - it's not needed for basic HIP development
+  set(LLVM_ENABLE_PROJECTS "clang;lld;clang-tools-extra" CACHE STRING "Enable LLVM projects" FORCE)
+  # NOTE: Only compiler-rt builtins enabled - required for clang to link executables
+  # Sanitizers, OpenMP, and other runtimes disabled to reduce memory usage
+  set(LLVM_ENABLE_RUNTIMES "compiler-rt" CACHE STRING "Enabled runtimes" FORCE)
+  # Pass compiler-rt configuration to runtimes build
+  set(RUNTIMES_CMAKE_ARGS
+    "-DCMAKE_FIND_PACKAGE_PREFER_CONFIG=ON"
+    "-DCOMPILER_RT_BUILD_BUILTINS=ON"
+    "-DCOMPILER_RT_BUILD_SANITIZERS=OFF"
+    "-DCOMPILER_RT_BUILD_XRAY=OFF"
+    "-DCOMPILER_RT_BUILD_LIBFUZZER=OFF"
+    "-DCOMPILER_RT_BUILD_PROFILE=OFF"
+    "-DCOMPILER_RT_BUILD_MEMPROF=OFF"
+    "-DCOMPILER_RT_BUILD_ORC=OFF"
+    CACHE STRING "Runtime args" FORCE)
   if("offload" IN_LIST LLVM_ENABLE_RUNTIMES)
     set(OPENMP_ENABLE_LIBOMPTARGET ON)
     set(LIBOMPTARGET_BUILD_DEVICE_FORTRT ON)
@@ -37,7 +51,8 @@ else()
     set(RUNTIMES_CMAKE_ARGS "-DCMAKE_FIND_PACKAGE_PREFER_CONFIG=ON")
 
     # TODO: Guard for amd-staging only. Remove condition when compiler branch is updated.
-    if(EXISTS "${THEROCK_SOURCE_DIR}/compiler/amd-llvm/openmp/device/CMakeLists.txt")
+    # NOTE: Disabled flang-rt for low-memory builds
+    if(FALSE AND EXISTS "${THEROCK_SOURCE_DIR}/compiler/amd-llvm/openmp/device/CMakeLists.txt")
       list(APPEND LLVM_ENABLE_RUNTIMES "flang-rt")
       set(LLVM_RUNTIME_TARGETS "default;amdgcn-amd-amdhsa")
       set(RUNTIMES_amdgcn-amd-amdhsa_LLVM_ENABLE_RUNTIMES "openmp")
