@@ -5,7 +5,8 @@
 
 set -e  # Exit on error
 
-THEROCK_BUILD="/home/hashcat/TheRock/build/dist/rocm"
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+THEROCK_BUILD="$SCRIPT_DIR/build/dist/rocm"
 INSTALL_DIR="/opt/rocm"
 BACKUP_SUFFIX="backup.$(date +%Y%m%d_%H%M%S)"
 

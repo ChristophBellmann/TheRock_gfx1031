@@ -1,14 +1,17 @@
 #!/bin/bash
 set -e
 
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+THEROCK_BUILD="$SCRIPT_DIR/build/dist/rocm"
+
 echo "=========================================="
 echo "Installing TheRock Build to /opt/rocm"
 echo "=========================================="
 echo ""
 
 # Check if TheRock build exists
-if [ ! -d "/home/hashcat/TheRock/build/dist/rocm" ]; then
-    echo "ERROR: TheRock build not found at /home/hashcat/TheRock/build/dist/rocm"
+if [ ! -d "$THEROCK_BUILD" ]; then
+    echo "ERROR: TheRock build not found at $THEROCK_BUILD"
     exit 1
 fi
 
@@ -23,7 +26,7 @@ fi
 # Copy TheRock build to /opt/rocm
 echo ""
 echo "Copying TheRock build to /opt/rocm..."
-sudo cp -a /home/hashcat/TheRock/build/dist/rocm /opt/rocm
+sudo cp -a "$THEROCK_BUILD" /opt/rocm
 echo "✓ TheRock build installed to /opt/rocm"
 
 # Set proper ownership

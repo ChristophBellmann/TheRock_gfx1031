@@ -23,7 +23,8 @@ ulimit -v 8388608 || echo "Warning: Could not set memory limit"
 # Force single-threaded linking for LLVM to reduce memory spikes
 export LLVM_PARALLEL_LINK_JOBS=1
 
-# Build with limited parallelism
-# Using nice to lower priority and -j4 to limit parallel jobs
-echo "Building with -j4 and OOM protections enabled..."
-nice -n 10 cmake --build build -j4 -- -l4 "$@"
+# Allow overriding the job count; default to all available cores
+JOBS="${BUILD_JOBS:-$(nproc)}"
+
+echo "Building with -j$JOBS and OOM protections enabled..."
+nice -n 10 cmake --build build -j"$JOBS" -- -l"$JOBS" "$@"
