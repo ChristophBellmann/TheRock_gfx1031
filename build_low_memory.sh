@@ -7,15 +7,6 @@ set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 cd "$SCRIPT_DIR"
 
-# Protect this shell from OOM killer (optional - requires sudo)
-# -1000 makes it very unlikely to be killed (range is -1000 to +1000)
-if [ -n "$SUDO_PASSWORD" ]; then
-    echo "$SUDO_PASSWORD" | sudo -S sh -c "echo -1000 > /proc/$$/oom_score_adj" 2>/dev/null && echo "✓ OOM protection enabled" || echo "⚠ Warning: Could not enable OOM protection (continuing anyway)"
-else
-    # Try without password (if user has NOPASSWD sudo or already authenticated)
-    sudo sh -c "echo -1000 > /proc/$$/oom_score_adj" 2>/dev/null && echo "✓ OOM protection enabled" || echo "⚠ Warning: Could not enable OOM protection (continuing anyway)"
-fi
-
 # Activate virtual environment
 VENV_ACTIVATE="${VENV_ACTIVATE:-$SCRIPT_DIR/.venv/bin/activate}"
 if [ ! -f "$VENV_ACTIVATE" ]; then
