@@ -4,7 +4,30 @@ set -e
 PREFIX="${1:?Expected install prefix argument}"
 PATCHELF="${PATCHELF:-patchelf}"
 THEROCK_SOURCE_DIR="${THEROCK_SOURCE_DIR:?THEROCK_SOURCE_DIR not defined}"
-Python3_EXECUTABLE="${Python3_EXECUTABLE:?Python3_EXECUTABLE not defined}"
+
+if [ -z "${Python3_EXECUTABLE:-}" ]; then
+  Python3_EXECUTABLE="$(command -v python3)"
+fi
+
+if [ -z "${Python3_EXECUTABLE}" ]; then
+  echo "Python3 executable not found (set Python3_EXECUTABLE)" >&2
+  exit 1
+fi
+
+
+if [ -z "${Python3_EXECUTABLE:-}" ]; then
+  Python3_EXECUTABLE="$(command -v python3)"
+fi
+
+if [ -z "${Python3_EXECUTABLE:-}" ]; then
+  Python3_EXECUTABLE="$(command -v python3)"
+fi
+
+if [ -z "${Python3_EXECUTABLE}" ]; then
+  echo "Python3 executable not found (set Python3_EXECUTABLE)" >&2
+  exit 1
+fi
+
 
 declare -A _unique_targets
 while IFS= read -r -d '' candidate; do
