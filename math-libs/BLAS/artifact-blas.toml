@@ -47,20 +47,25 @@ include = [
 
 # hipBLASLt
 [components.dbg."math-libs/BLAS/hipBLASLt/stage"]
+optional = true
 [components.dev."math-libs/BLAS/hipBLASLt/stage"]
+optional = true
 include = [
   "bin/sample_*",
 ]
 [components.doc."math-libs/BLAS/hipBLASLt/stage"]
+optional = true
 include = [
   "share/hipblaslt/samples/**",
 ]
 [components.lib."math-libs/BLAS/hipBLASLt/stage"]
+optional = true
 include = [
   "bin/hipblaslt/library/**",
   "lib/hipblaslt/library/**",
 ]
 [components.test."math-libs/BLAS/hipBLASLt/stage"]
+optional = true
 include = [
   # Clients benchmarks
   "bin/hipblaslt-bench*",
@@ -211,11 +216,13 @@ include = [
 [components.doc."math-libs/BLAS/hipSPARSELt/stage"]
 optional = true
 [components.lib."math-libs/BLAS/hipSPARSELt/stage"]
+optional = true
 include = [
   "bin/hipsparselt/library/**",
   "lib/hipsparselt/library/**",
 ]
 [components.test."math-libs/BLAS/hipSPARSELt/stage"]
+optional = true
 include = [
   # Clients benchmarks
   "bin/hipsparselt-bench*",

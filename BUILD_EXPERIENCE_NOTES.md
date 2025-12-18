@@ -110,7 +110,8 @@
 12. **Recommended build profile (LLM / Vision / Audio, gfx1031)**
    Intended for Ollama/Mistral/Qwen, PyTorch, Whisper, and similar workloads
    with best performance on RX 6700 XT. Keep HIP toolchain + core math/ML libs,
-   and keep composable kernel, profiler, and tests ON.
+   and keep composable kernel, profiler, and tests ON. Disable hipBLASLt and
+   hipSPARSELt (unsupported for gfx1031).
    ```
    systemd-run --user --scope -p MemoryHigh=28G -p MemoryMax=31G \
      cmake -B build -GNinja . \
@@ -126,6 +127,8 @@
      -DTHEROCK_ENABLE_FFT=ON \
      -DTHEROCK_ENABLE_SPARSE=ON \
      -DTHEROCK_ENABLE_SOLVER=ON \
+     -DTHEROCK_ENABLE_HIPBLASLT=OFF \
+     -DTHEROCK_ENABLE_HIPSPARSELT=OFF \
      -DTHEROCK_ENABLE_MIOPEN=ON \
      -DTHEROCK_ENABLE_HIPDNN=ON \
      -DTHEROCK_ENABLE_COMPOSABLE_KERNEL=ON \
@@ -136,8 +139,14 @@
      -DBUILD_TESTING=ON
    ```
 
+13. **2025-12-18: Make BLAS Lt components optional for gfx1031**
+   - Added `THEROCK_ENABLE_HIPBLASLT` and `THEROCK_ENABLE_HIPSPARSELT` gating in BLAS.
+   - rocBLAS now honors `THEROCK_ENABLE_HIPBLASLT` (sets `BUILD_WITH_HIPBLASLT=OFF` when disabled).
+   - hipBLASLt/hipSPARSELt artifacts marked optional so packaging won't expect them.
+   - README and recommended profile updated to disable unsupported Lt components for gfx1031.
+
 ## TODO / Watchouts
 
 - When new third-party packages are added, verify their `dist/` directories are populated before dependent projects configure.  
-- GPU-focused warnings (hipBLASLt, hipSPARSELt, rocWMMA, composable_kernel) are expected on gfx1031 in this branch; no action required yet.  
+- GPU-focused warnings (hipBLASLt/hipSPARSELt/rocWMMA/composable_kernel) are expected on gfx1031 in this branch if those components are enabled; no action required yet.  
 - Continue using serial builds unless we add explicit dependencies between stage/dist targets.

@@ -166,6 +166,19 @@ therock_add_feature(SPARSE
   REQUIRES BLAS PRIM
 )
 
+therock_add_feature(HIPBLASLT
+  GROUP MATH_LIBS
+  DESCRIPTION "Enables hipBLASLt within BLAS"
+  REQUIRES BLAS PRIM
+)
+
+therock_add_feature(HIPSPARSELT
+  GROUP MATH_LIBS
+  DESCRIPTION "Enables hipSPARSELt within BLAS"
+  REQUIRES BLAS SPARSE PRIM
+  DISABLE_PLATFORMS windows
+)
+
 if(NOT WIN32)
   set(_solver_platform_requirements "HOST_SUITE_SPARSE")
 else()

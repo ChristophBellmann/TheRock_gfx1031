@@ -290,6 +290,8 @@ minimal build):
 | `-DTHEROCK_ENABLE_RAND=ON`          | Enables the RAND libraries                    |
 | `-DTHEROCK_ENABLE_SOLVER=ON`        | Enables the SOLVER libraries                  |
 | `-DTHEROCK_ENABLE_SPARSE=ON`        | Enables the SPARSE libraries                  |
+| `-DTHEROCK_ENABLE_HIPBLASLT=ON`     | Enables hipBLASLt within BLAS                 |
+| `-DTHEROCK_ENABLE_HIPSPARSELT=ON`   | Enables hipSPARSELt within BLAS               |
 | `-DTHEROCK_ENABLE_MIOPEN=ON`        | Enables MIOpen                                |
 | `-DTHEROCK_ENABLE_MIOPEN_PLUGIN=ON` | Enables MIOpen_plugin                         |
 | `-DTHEROCK_ENABLE_HIPDNN=ON`        | Enables hipDNN                                |
@@ -320,6 +322,8 @@ features.
 - RCCL (only if you want multi‑GPU/distributed later)
 
 **Safe to disable for gfx1031 (saves time/space):**
+- `THEROCK_ENABLE_HIPBLASLT=OFF` (unsupported for gfx1031)
+- `THEROCK_ENABLE_HIPSPARSELT=OFF` (unsupported for gfx1031)
 - `THEROCK_ENABLE_ROCWMMA=OFF` (excluded for gfx1031 anyway)
 - `THEROCK_ENABLE_DC_TOOLS=OFF`
 
@@ -340,6 +344,8 @@ systemd-run --user --scope -p MemoryHigh=28G -p MemoryMax=31G \
   -DTHEROCK_ENABLE_FFT=ON \
   -DTHEROCK_ENABLE_SPARSE=ON \
   -DTHEROCK_ENABLE_SOLVER=ON \
+  -DTHEROCK_ENABLE_HIPBLASLT=OFF \
+  -DTHEROCK_ENABLE_HIPSPARSELT=OFF \
   -DTHEROCK_ENABLE_MIOPEN=ON \
   -DTHEROCK_ENABLE_HIPDNN=ON \
   -DTHEROCK_ENABLE_COMPOSABLE_KERNEL=ON \
@@ -350,10 +356,11 @@ systemd-run --user --scope -p MemoryHigh=28G -p MemoryMax=31G \
   -DBUILD_TESTING=ON
 ```
 
-> Note: `hipBLASLt`, `hipSPARSELt`, and `rocWMMA` are excluded for gfx1031 in this
-> branch. If built, they will fall back to default targets (e.g. gfx1100), which
-> does not benefit an RX 6700 XT. This is expected and does not impact rocBLAS
-> performance for gfx1031 (rocBLAS uses Tensile for this GPU).
+> Note: `hipBLASLt` and `hipSPARSELt` are unsupported for gfx1031 in this branch,
+> so keep `THEROCK_ENABLE_HIPBLASLT=OFF` and `THEROCK_ENABLE_HIPSPARSELT=OFF`
+> unless you explicitly need gfx1100-only artifacts. `rocWMMA` is also excluded
+> for gfx1031. This does not impact rocBLAS performance on gfx1031 (rocBLAS uses
+> Tensile for this GPU).
 
 By default, components are built from the sources fetched via the submodules.
 For some components, external sources can be used instead.
