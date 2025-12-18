@@ -72,6 +72,28 @@ run via `ninja` (no `cmake --build`). If
 `build/` already exists and is not empty, the script will stop unless you pass
 `--clean` (delete `build/`) or `--no-check-clean` (skip the clean check).
 
+### Typical workflows
+
+- Clean reconfigure + build (clang + ninja):
+  ```bash
+  ./configure_gfx1031.sh --clean
+  ./build_gfx1031.sh
+  ```
+- Clean build in einem Schritt (configure + build):
+  ```bash
+  ./build_gfx1031.sh --clean
+  ```
+- Teil-Rebuild einzelner Targets (expunge + Log-Rotation):
+  ```bash
+  ./rebuild_gfx1031_subprojects.sh hipBLAS rocBLAS
+  ./rebuild_gfx1031_subprojects.sh --no-expunge hipSPARSE
+  ```
+- Nach dem Build: Sanity + Benchmarks:
+  ```bash
+  ./test_gfx1031.sh        # quick
+  ./test_gfx1031.sh --full # längere Bench
+  ```
+
 ### Quick test helper (gfx1031)
 
 After a build, you can run basic sanity checks plus a lightweight GEMM
