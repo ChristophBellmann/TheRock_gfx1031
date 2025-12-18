@@ -70,6 +70,19 @@ applies the same RAM limits. If `build/` already exists and is not empty, the
 script will stop unless you pass `--clean` (delete `build/`) or
 `--no-check-clean` (skip the clean check).
 
+### Quick test helper (gfx1031)
+
+After a build, you can run basic sanity checks plus a lightweight GEMM
+benchmark (with approximate TFLOPS extraction) using:
+
+```bash
+./test_gfx1031.sh
+```
+
+Use `--full` for a longer benchmark run, `--no-bench` to skip performance
+tests, or `--bench-only` to run benchmarks only. Output is summarized on
+stdout and saved to `test_gfx1031.log`.
+
 ### Environment activation (in-tree ROCm)
 
 After a successful build, you can source the helper to run tools against the

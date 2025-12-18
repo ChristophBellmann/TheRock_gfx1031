@@ -155,6 +155,11 @@
    - Script refuses to run if `build/` is not clean (unless `--clean` or `--no-check-clean` is used).
    - Uses the recommended gfx1031 profile (LLM/Vision/Audio) and logs to `build.log`.
 
+16. **2025-12-18: gfx1031 test helper**
+   - Added `test_gfx1031.sh` for sanity checks and lightweight GEMM benchmarks.
+   - Summarizes durations and (when available) TFLOPS parsed from bench output.
+   - Logs output to `test_gfx1031.log` for quick inspection.
+
 ## TODO / Watchouts
 
 - When new third-party packages are added, verify their `dist/` directories are populated before dependent projects configure.  
