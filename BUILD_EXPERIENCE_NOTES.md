@@ -48,6 +48,25 @@
    If you only see `10-3-generic` (or another gfx target), force the arch with `--offload-arch=gfx1031` or set `HIPCC_COMPILE_FLAGS_APPEND="--offload-arch=gfx1031"` and rebuild.
    Verified on 2025-12-18: `hipcc -v` shows `-target-cpu gfx1031` and links `oclc_isa_version_1031.bc`.
 
+8. **Quick Bench Suite (gfx1031, RX 6700 XT)**  
+   Run after `source ./rocm-env-therock.sh`. Results captured on 2025-12-18:
+   ```
+   rocfft-bench --length 1024 --precision single -t 0 -N 5
+   # ~0.0122 ms, ~4.16 GFLOPS
+
+   rocblas-bench -f axpy -r f32_r -n 1048576
+   # 77.68 GFLOPS, 466.10 GB/s, 26.99 us
+
+   hipblas-bench -f gemm -r f32_r -m 256 -n 256 -k 256
+   # 1161.05 GFLOPS, 27.21 GB/s, 28.9 us
+
+   benchmark_rocrand_generate --size 1048576 --trials 3 --dis uniform-float --engine philox
+   # 187.8 GB/s, 46.95 GSample/s, 0.021 ms
+
+   hipsparse-bench -f axpyi -n 1024 -z 256 -i 1
+   # 0.03 GFLOPS, 0.22 GB/s, 0.02 ms
+   ```
+
 ## TODO / Watchouts
 
 - When new third-party packages are added, verify their `dist/` directories are populated before dependent projects configure.  
