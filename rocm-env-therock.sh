@@ -22,7 +22,13 @@ fi
 export ROCM_PATH
 export HIP_PATH="${HIP_PATH:-$ROCM_PATH}"
 export HSA_PATH="${HSA_PATH:-$ROCM_PATH}"
-export HIP_DEVICE_LIB_PATH="${HIP_DEVICE_LIB_PATH:-$ROCM_PATH/amdgcn/bitcode}"
+if [ -z "${HIP_DEVICE_LIB_PATH:-}" ]; then
+  if [ -d "$ROCM_PATH/lib/llvm/amdgcn/bitcode" ]; then
+    export HIP_DEVICE_LIB_PATH="$ROCM_PATH/lib/llvm/amdgcn/bitcode"
+  else
+    export HIP_DEVICE_LIB_PATH="$ROCM_PATH/amdgcn/bitcode"
+  fi
+fi
 
 export PATH="$ROCM_PATH/bin:$ROCM_PATH/llvm/bin:${PATH:-}"
 export LD_LIBRARY_PATH="$ROCM_PATH/lib:$ROCM_PATH/lib64:$ROCM_PATH/lib/rocm_sysdeps/lib:$ROCM_PATH/llvm/lib:${LD_LIBRARY_PATH:-}"
