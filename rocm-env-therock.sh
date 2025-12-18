@@ -22,6 +22,7 @@ fi
 export ROCM_PATH
 export HIP_PATH="${HIP_PATH:-$ROCM_PATH}"
 export HSA_PATH="${HSA_PATH:-$ROCM_PATH}"
+export THEROCK_BIN_DIR="${THEROCK_BIN_DIR:-$ROCM_PATH/bin}"
 if [ -z "${HIP_DEVICE_LIB_PATH:-}" ]; then
   if [ -d "$ROCM_PATH/lib/llvm/amdgcn/bitcode" ]; then
     export HIP_DEVICE_LIB_PATH="$ROCM_PATH/lib/llvm/amdgcn/bitcode"
