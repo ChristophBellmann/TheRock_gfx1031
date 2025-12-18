@@ -89,6 +89,24 @@
    # CMake Error: Unsupported GPU target: gfx1031
    ```
 
+11. **2025-12-18: Partial rebuild (gfx1031) + docs update**
+   - Updated `README.md` to mention `rocm-env-therock.sh` for in-tree runtime use; build still uses only `.venv`.
+   - Added `rebuild_gfx1031_subprojects.sh` to make the expunge+rebuild loop repeatable
+     (now requires explicit targets; `--include-unsupported` opts into hipBLASLt/hipSPARSELt/rocWMMA).
+   - Rotated `build.log` to `build.log.bak-20251218-171506` and continued logging to fresh `build.log`.
+   - Cleaned + rebuilt subprojects with memory limits and venv:
+     ```
+     systemd-run --user --scope -p MemoryHigh=28G -p MemoryMax=31G bash -lc 'source .venv/bin/activate && cmake --build build --target hipBLASLt+expunge'
+     systemd-run --user --scope -p MemoryHigh=28G -p MemoryMax=31G bash -lc 'source .venv/bin/activate && cmake --build build --target hipSPARSELt+expunge'
+     systemd-run --user --scope -p MemoryHigh=28G -p MemoryMax=31G bash -lc 'source .venv/bin/activate && cmake --build build --target rocWMMA+expunge'
+     systemd-run --user --scope -p MemoryHigh=28G -p MemoryMax=31G bash -lc 'source .venv/bin/activate && cmake --build build --target hipBLASLt'
+     systemd-run --user --scope -p MemoryHigh=28G -p MemoryMax=31G bash -lc 'source .venv/bin/activate && cmake --build build --target hipSPARSELt'
+     systemd-run --user --scope -p MemoryHigh=28G -p MemoryMax=31G bash -lc 'source .venv/bin/activate && cmake --build build --target rocWMMA'
+     ```
+   - Build logs live in `build/logs/{hipBLASLt,hipSPARSELt,rocWMMA}_build.log` (all end with rc=0).
+   - Expected warnings: gfx1031 excluded for hipBLASLt/hipSPARSELt/rocWMMA (fallback to defaults),
+     plus `rocm_smi_lib` git describe warnings (harmless).
+
 ## TODO / Watchouts
 
 - When new third-party packages are added, verify their `dist/` directories are populated before dependent projects configure.  

@@ -37,13 +37,40 @@ pip install -r requirements.txt
 # Fetch sources
 python3 ./build_tools/fetch_sources.py
 
-# Build for gfx103X family (includes all RDNA2 consumer GPUs)
-cmake -B build -GNinja . -DTHEROCK_AMDGPU_FAMILIES=gfx103X-all
-cmake --build build
+# build for specific target (e.g., RX 6700 XT)
+systemd-run --user --scope -p MemoryHigh=28G -p MemoryMax=31G   cmake -B build -GNinja . -DTHEROCK_AMDGPU_TARGETS=gfx1031
+systemd-run --user --scope -p MemoryHigh=28G -p MemoryMax=31G   cmake --build build
+```
 
-# Or build for specific target (e.g., RX 6700 XT)
-cmake -B build -GNinja . -DTHEROCK_AMDGPU_TARGETS=gfx1031
-cmake --build build
+### Environment activation (in-tree ROCm)
+
+After a successful build, you can source the helper to run tools against the
+in-tree ROCm install at `build/dist/rocm`:
+
+```bash
+source ./rocm-env-therock.sh
+```
+
+Notes:
+- This helper is intended for running tools/tests against the built tree.
+  It will fail if `build/dist/rocm` does not exist yet.
+- For building, just activate the virtualenv (`source .venv/bin/activate`);
+  `rocm-env-therock.sh` will do that automatically when present, but it is not
+  required for CMake itself.
+
+### Repeatable rebuild (with RAM limits)
+
+Use the helper script for consistent, logged rebuilds with the same memory
+limits used in this branch:
+
+```bash
+./rebuild_gfx1031_subprojects.sh <targets...>
+```
+
+Defaults use `MemoryHigh=28G` and `MemoryMax=31G`. Override if needed:
+
+```bash
+MEM_HIGH=28G MEM_MAX=31G ./rebuild_gfx1031_subprojects.sh <targets...>
 ```
 
 ### Supported gfx103X GPUs in This Build
@@ -309,8 +336,8 @@ See instructions in the next section for [Linux](#ccache-usage-on-linux) and [Wi
 Otherwise, ROCm/HIP can be configured and build with just the following commands:
 
 ```bash
-cmake -B build -GNinja . -DTHEROCK_AMDGPU_FAMILIES=gfx110X-all
-cmake --build build
+systemd-run --user --scope -p MemoryHigh=28G -p MemoryMax=31G   cmake -B build -GNinja . -DTHEROCK_AMDGPU_FAMILIES=gfx110X-all
+systemd-run --user --scope -p MemoryHigh=28G -p MemoryMax=31G   cmake --build build
 ```
 
 #### CCache usage on Linux
