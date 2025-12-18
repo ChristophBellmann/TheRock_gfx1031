@@ -67,6 +67,19 @@
    # 0.03 GFLOPS, 0.22 GB/s, 0.02 ms
    ```
 
+9. **Large GEMM (rocBLAS)**
+   ```
+   rocblas-bench -f gemm -r f32_r -m 4096 -n 4096 -k 4096
+   # 12193.4 GFLOPS, 11271.6 us
+   ```
+
+10. **hipBLASLt status**
+   `hipblaslt-bench` currently segfaults (Signal 11) even for small sizes on this setup:
+   ```
+   hipblaslt-bench -f matmul -m 1024 -n 1024 -k 1024
+   hipblaslt-bench -f matmul -r f32_r -m 1024 -n 1024 -k 1024 --compute_type f32_r
+   ```
+
 ## TODO / Watchouts
 
 - When new third-party packages are added, verify their `dist/` directories are populated before dependent projects configure.  
