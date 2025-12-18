@@ -52,7 +52,8 @@ use:
 ```
 
 It uses the recommended gfx1031 profile (LLM/Vision/Audio), enables ccache, and
-applies the same RAM limits. Host compiler is set to `clang/clang++`. If
+applies the same RAM limits. Host compiler is set to `clang/clang++` and builds
+run via `ninja` (no `cmake --build`). If
 `build/` already exists and is not empty, the script will stop unless you pass
 `--clean` (delete `build/`) or `--no-check-clean` (skip the clean check).
 
@@ -66,7 +67,8 @@ use the helper script:
 ```
 
 It uses the recommended gfx1031 profile (LLM/Vision/Audio), enables ccache, and
-applies the same RAM limits. Host compiler is set to `clang/clang++`. If
+applies the same RAM limits. Host compiler is set to `clang/clang++` and builds
+run via `ninja` (no `cmake --build`). If
 `build/` already exists and is not empty, the script will stop unless you pass
 `--clean` (delete `build/`) or `--no-check-clean` (skip the clean check).
 

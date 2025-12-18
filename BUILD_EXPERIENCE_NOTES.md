@@ -164,6 +164,10 @@
    - `configure_gfx1031.sh` and `build_gfx1031.sh` now set `CMAKE_C_COMPILER=clang` and `CMAKE_CXX_COMPILER=clang++`.
    - Scripts fail fast if clang/clang++ are missing; ccache launchers remain enabled.
 
+18. **2025-12-18: Switch helper builds to ninja**
+   - `build_gfx1031.sh` and `rebuild_gfx1031_subprojects.sh` now call `ninja -C build` directly instead of `cmake --build build`.
+   - Added a `ninja` availability check; keeps expunge + target sequencing explicit.
+
 ## TODO / Watchouts
 
 - When new third-party packages are added, verify their `dist/` directories are populated before dependent projects configure.  

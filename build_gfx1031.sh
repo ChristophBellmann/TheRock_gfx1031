@@ -60,6 +60,10 @@ if ! command -v ccache >/dev/null 2>&1; then
   echo "ccache not found; install it or run setup_ccache.py as in README." >&2
   exit 1
 fi
+if ! command -v ninja >/dev/null 2>&1; then
+  echo "ninja not found; install it before building." >&2
+  exit 1
+fi
 if ! command -v clang >/dev/null 2>&1 || ! command -v clang++ >/dev/null 2>&1; then
   echo "clang/clang++ not found; install clang (host compiler) before building." >&2
   exit 1
@@ -131,4 +135,4 @@ cmake_args=(
 )
 
 run_cmd_array cmake -B build -GNinja . "${cmake_args[@]}" "${EXTRA_CMAKE_ARGS[@]}"
-run_cmd_array cmake --build build
+run_cmd_array ninja -C build

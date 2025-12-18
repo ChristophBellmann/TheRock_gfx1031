@@ -73,6 +73,10 @@ if [[ ! -f "${ROOT}/.venv/bin/activate" ]]; then
   echo "Missing .venv; run the README venv setup first." >&2
   exit 1
 fi
+if ! command -v ninja >/dev/null 2>&1; then
+  echo "ninja not found; install it before building." >&2
+  exit 1
+fi
 
 if [[ -f "${LOG_FILE}" ]]; then
   ts="$(date +%Y%m%d-%H%M%S)"
@@ -91,10 +95,10 @@ fi
 
 if (( EXPUNGE )); then
   for t in "${TARGETS[@]}"; do
-    run_cmd "cmake --build build --target ${t}+expunge"
+    run_cmd "ninja -C build ${t}+expunge"
   done
 fi
 
 for t in "${TARGETS[@]}"; do
-  run_cmd "cmake --build build --target ${t}"
+  run_cmd "ninja -C build ${t}"
 done
