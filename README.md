@@ -52,8 +52,8 @@ use:
 ```
 
 It uses the recommended gfx1031 profile (LLM/Vision/Audio), enables ccache, and
-applies the same RAM limits. Host compiler is set to `clang/clang++` and builds
-run via `ninja` (no `cmake --build`). If
+applies the same RAM limits. Host compiler is set to `clang/clang++` (avoid
+GCC/clang mix) and builds run via `ninja` (no `cmake --build`). If
 `build/` already exists and is not empty, the script will stop unless you pass
 `--clean` (delete `build/`) or `--no-check-clean` (skip the clean check).
 
