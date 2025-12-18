@@ -42,6 +42,20 @@ systemd-run --user --scope -p MemoryHigh=28G -p MemoryMax=31G   cmake -B build -
 systemd-run --user --scope -p MemoryHigh=28G -p MemoryMax=31G   cmake --build build
 ```
 
+### Clean build helper (gfx1031)
+
+For a fresh, repeatable full build that checks the build directory is clean,
+use the helper script:
+
+```bash
+./build_gfx1031.sh
+```
+
+It uses the recommended gfx1031 profile (LLM/Vision/Audio), enables ccache, and
+applies the same RAM limits. If `build/` already exists and is not empty, the
+script will stop unless you pass `--clean` (delete `build/`) or
+`--no-check-clean` (skip the clean check).
+
 ### Environment activation (in-tree ROCm)
 
 After a successful build, you can source the helper to run tools against the

@@ -145,6 +145,11 @@
    - hipBLASLt/hipSPARSELt artifacts marked optional so packaging won't expect them.
    - README and recommended profile updated to disable unsupported Lt components for gfx1031.
 
+14. **2025-12-18: Clean gfx1031 build helper**
+   - Added `build_gfx1031.sh` for a clean full build with memory limits and ccache.
+   - Script refuses to run if `build/` is not clean (unless `--clean` or `--no-check-clean` is used).
+   - Uses the recommended gfx1031 profile (LLM/Vision/Audio) and logs to `build.log`.
+
 ## TODO / Watchouts
 
 - When new third-party packages are added, verify their `dist/` directories are populated before dependent projects configure.  
