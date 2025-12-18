@@ -79,6 +79,15 @@
    hipblaslt-bench -f matmul -m 1024 -n 1024 -k 1024
    hipblaslt-bench -f matmul -r f32_r -m 1024 -n 1024 -k 1024 --compute_type f32_r
    ```
+   Standalone build from `rocm-libraries/projects/hipblaslt` fails at configure time because gfx1031 is not in the supported GPU list:
+   ```
+   cmake -S rocm-libraries/projects/hipblaslt -B rocm-libraries/projects/hipblaslt/build-standalone \
+     -D CMAKE_C_COMPILER=$ROCM_PATH/lib/llvm/bin/clang \
+     -D CMAKE_CXX_COMPILER=$ROCM_PATH/lib/llvm/bin/clang++ \
+     -D CMAKE_PREFIX_PATH=$ROCM_PATH \
+     -D GPU_TARGETS=gfx1031
+   # CMake Error: Unsupported GPU target: gfx1031
+   ```
 
 ## TODO / Watchouts
 
