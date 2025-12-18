@@ -107,6 +107,35 @@
    - Expected warnings: gfx1031 excluded for hipBLASLt/hipSPARSELt/rocWMMA (fallback to defaults),
      plus `rocm_smi_lib` git describe warnings (harmless).
 
+12. **Recommended build profile (LLM / Vision / Audio, gfx1031)**
+   Intended for Ollama/Mistral/Qwen, PyTorch, Whisper, and similar workloads
+   with best performance on RX 6700 XT. Keep HIP toolchain + core math/ML libs,
+   and keep composable kernel, profiler, and tests ON.
+   ```
+   systemd-run --user --scope -p MemoryHigh=28G -p MemoryMax=31G \
+     cmake -B build -GNinja . \
+     -DTHEROCK_AMDGPU_TARGETS=gfx1031 \
+     -DTHEROCK_ENABLE_ALL=OFF \
+     -DTHEROCK_ENABLE_COMPILER=ON \
+     -DTHEROCK_ENABLE_CORE_RUNTIME=ON \
+     -DTHEROCK_ENABLE_HIP_RUNTIME=ON \
+     -DTHEROCK_ENABLE_HIPIFY=ON \
+     -DTHEROCK_ENABLE_BLAS=ON \
+     -DTHEROCK_ENABLE_PRIM=ON \
+     -DTHEROCK_ENABLE_RAND=ON \
+     -DTHEROCK_ENABLE_FFT=ON \
+     -DTHEROCK_ENABLE_SPARSE=ON \
+     -DTHEROCK_ENABLE_SOLVER=ON \
+     -DTHEROCK_ENABLE_MIOPEN=ON \
+     -DTHEROCK_ENABLE_HIPDNN=ON \
+     -DTHEROCK_ENABLE_COMPOSABLE_KERNEL=ON \
+     -DTHEROCK_ENABLE_RCCL=ON \
+     -DTHEROCK_ENABLE_ROCWMMA=OFF \
+     -DTHEROCK_ENABLE_PROFILER=ON \
+     -DTHEROCK_ENABLE_DC_TOOLS=OFF \
+     -DBUILD_TESTING=ON
+   ```
+
 ## TODO / Watchouts
 
 - When new third-party packages are added, verify their `dist/` directories are populated before dependent projects configure.  

@@ -305,6 +305,56 @@ minimal build):
 > A report of enabled/disabled features and flags will be printed on every
 > CMake configure.
 
+#### Recommended profile: LLM + Vision + Audio (Ollama / Mistral / Qwen / PyTorch / Whisper)
+
+Target workloads: general language models, vision/video LLMs, and audio models
+with best performance on gfx1031. This profile keeps the HIP toolchain and the
+core math/ML stack needed by PyTorch and LLM runtimes, while dropping unrelated
+features.
+
+**Keep enabled:**
+- HIP toolchain/runtime (`COMPILER`, `CORE_RUNTIME`, `HIP_RUNTIME`, `HIPIFY`)
+- Math libs used by LLMs and PyTorch (`BLAS`, `PRIM`, `RAND`, `FFT`, `SPARSE`, `SOLVER`)
+- ML libs (`MIOPEN`, `HIPDNN`, `COMPOSABLE_KERNEL`)
+- Profiler (`ROCPROFV3`/`ROCPROFSYS`) and tests (`BUILD_TESTING`)
+- RCCL (only if you want multi‑GPU/distributed later)
+
+**Safe to disable for gfx1031 (saves time/space):**
+- `THEROCK_ENABLE_ROCWMMA=OFF` (excluded for gfx1031 anyway)
+- `THEROCK_ENABLE_DC_TOOLS=OFF`
+
+Example configure command:
+
+```bash
+systemd-run --user --scope -p MemoryHigh=28G -p MemoryMax=31G \
+  cmake -B build -GNinja . \
+  -DTHEROCK_AMDGPU_TARGETS=gfx1031 \
+  -DTHEROCK_ENABLE_ALL=OFF \
+  -DTHEROCK_ENABLE_COMPILER=ON \
+  -DTHEROCK_ENABLE_CORE_RUNTIME=ON \
+  -DTHEROCK_ENABLE_HIP_RUNTIME=ON \
+  -DTHEROCK_ENABLE_HIPIFY=ON \
+  -DTHEROCK_ENABLE_BLAS=ON \
+  -DTHEROCK_ENABLE_PRIM=ON \
+  -DTHEROCK_ENABLE_RAND=ON \
+  -DTHEROCK_ENABLE_FFT=ON \
+  -DTHEROCK_ENABLE_SPARSE=ON \
+  -DTHEROCK_ENABLE_SOLVER=ON \
+  -DTHEROCK_ENABLE_MIOPEN=ON \
+  -DTHEROCK_ENABLE_HIPDNN=ON \
+  -DTHEROCK_ENABLE_COMPOSABLE_KERNEL=ON \
+  -DTHEROCK_ENABLE_RCCL=ON \
+  -DTHEROCK_ENABLE_ROCWMMA=OFF \
+  -DTHEROCK_ENABLE_PROFILER=ON \
+  -DTHEROCK_ENABLE_DC_TOOLS=OFF \
+  -DBUILD_TESTING=ON
+```
+
+> Note: `hipBLASLt`, `hipSPARSELt`, and `rocWMMA` are excluded for gfx1031 in this
+> branch. If built, they will fall back to default targets (e.g. gfx1100), which
+> does not benefit an RX 6700 XT. This is expected and does not impact rocBLAS
+> performance for gfx1031 (rocBLAS uses Tensile for this GPU).
+
 By default, components are built from the sources fetched via the submodules.
 For some components, external sources can be used instead.
 
