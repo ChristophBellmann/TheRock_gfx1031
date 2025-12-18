@@ -160,6 +160,10 @@
    - Summarizes durations and (when available) TFLOPS parsed from bench output.
    - Logs output to `test_gfx1031.log` for quick inspection.
 
+17. **2025-12-18: Switch helpers to clang host compiler**
+   - `configure_gfx1031.sh` and `build_gfx1031.sh` now set `CMAKE_C_COMPILER=clang` and `CMAKE_CXX_COMPILER=clang++`.
+   - Scripts fail fast if clang/clang++ are missing; ccache launchers remain enabled.
+
 ## TODO / Watchouts
 
 - When new third-party packages are added, verify their `dist/` directories are populated before dependent projects configure.  

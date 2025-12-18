@@ -60,6 +60,10 @@ if ! command -v ccache >/dev/null 2>&1; then
   echo "ccache not found; install it or run setup_ccache.py as in README." >&2
   exit 1
 fi
+if ! command -v clang >/dev/null 2>&1 || ! command -v clang++ >/dev/null 2>&1; then
+  echo "clang/clang++ not found; install clang (host compiler) before configuring." >&2
+  exit 1
+fi
 
 if [[ ! -d "${ROOT}/rocm-libraries" || ! -d "${ROOT}/rocm-systems" ]]; then
   echo "Missing sources; run: python3 ./build_tools/fetch_sources.py" >&2
@@ -120,6 +124,8 @@ cmake_args=(
   -DTHEROCK_ENABLE_PROFILER=ON
   -DTHEROCK_ENABLE_DC_TOOLS=OFF
   -DBUILD_TESTING=ON
+  -DCMAKE_C_COMPILER=clang
+  -DCMAKE_CXX_COMPILER=clang++
   -DCMAKE_C_COMPILER_LAUNCHER=ccache
   -DCMAKE_CXX_COMPILER_LAUNCHER=ccache
 )

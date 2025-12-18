@@ -52,9 +52,9 @@ use:
 ```
 
 It uses the recommended gfx1031 profile (LLM/Vision/Audio), enables ccache, and
-applies the same RAM limits. If `build/` already exists and is not empty, the
-script will stop unless you pass `--clean` (delete `build/`) or
-`--no-check-clean` (skip the clean check).
+applies the same RAM limits. Host compiler is set to `clang/clang++`. If
+`build/` already exists and is not empty, the script will stop unless you pass
+`--clean` (delete `build/`) or `--no-check-clean` (skip the clean check).
 
 ### Clean build helper (gfx1031)
 
@@ -66,9 +66,9 @@ use the helper script:
 ```
 
 It uses the recommended gfx1031 profile (LLM/Vision/Audio), enables ccache, and
-applies the same RAM limits. If `build/` already exists and is not empty, the
-script will stop unless you pass `--clean` (delete `build/`) or
-`--no-check-clean` (skip the clean check).
+applies the same RAM limits. Host compiler is set to `clang/clang++`. If
+`build/` already exists and is not empty, the script will stop unless you pass
+`--clean` (delete `build/`) or `--no-check-clean` (skip the clean check).
 
 ### Quick test helper (gfx1031)
 
