@@ -27,6 +27,7 @@ __pycache__
 # Personal build logs and artifacts
 build*.log
 build.log.bak-*
+*.log
 install*.log
 *.pcap
 *.pp
