@@ -72,13 +72,14 @@ This build has been developed and tested on:
 - **GPU:** AMD Radeon RX 6700 XT (12GB VRAM, gfx1031/RDNA2)
 - **ROCm:** 7.11 (custom build from TheRock)
 
-**Build Tools:**
+**Build Tools (current env):**
 
-? - **Python:** 3.14.0 (in venv) ?ToDo?
-? - **CMake:** 3.31.6 ?ToDo?
-? - **Ninja:** 1.13.1 ?ToDo?
-? - **GCC:** 13 ?ToDo?
-? - **ccache usage** ?ToDo?
+- **Python:** 3.12.3 (venv)
+- **CMake:** 3.28.3
+- **Ninja:** 1.11.1.git.kitware.jobserver-1
+- **GCC:** 13.3.0
+- **Clang (host):** required (helper scripts enforce)
+- **ccache:** 4.9.1 (helpers require ccache; consider ≥4.11 for offload-compress)
 ______________________________________________________________________
 
 ## Features
@@ -277,12 +278,15 @@ ctest --test-dir build
 
 To build with the ccache compiler cache:
 
-* You must have a recent ccache (>= 4.11 at the time of writing) that supports proper caching with the --offload-compress option used for compressing AMDGPU device code.
+* You must have a recent ccache (>= 4.11 recommended; helpers currently work with 4.9.1 but upgrade for `--offload-compress`).
 * export CCACHE_SLOPPINESS=include_file_ctime to support hard-linking
 * Proper setup of the compiler_check directive to do safe caching in the presence of compiler bootstrapping
 * Set the C/CXX compiler launcher options to cmake appropriately.
 
-There is a ./build_tools/setup_ccache.py script to create a .ccache directory in the repository root with hard coded configuration suitable for the project.
+The helper scripts (`configure_gfx1031.sh`, `build_gfx1031.sh`, `rebuild_gfx1031_subprojects.sh`) already set
+`CMAKE_*_COMPILER_LAUNCHER=ccache` and check for `ccache`. Run
+`./build_tools/setup_ccache.py` once per shell/session to export the recommended
+env (or configure ccache manually).
 
 Example:
 
@@ -294,4 +298,3 @@ systemd-run --user --scope -p MemoryHigh=28G -p MemoryMax=31G   cmake -B build -
   .
 
 systemd-run --user --scope -p MemoryHigh=28G -p MemoryMax=31G   cmake --build build
-
