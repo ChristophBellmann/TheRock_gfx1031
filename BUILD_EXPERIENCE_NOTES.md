@@ -186,19 +186,18 @@
 22. **2025-12-19: Phase 1 clang build (ROCPROFSYS=OFF) stalled on sysdeps cmake configs**
    - Configure succeeds with clang18, BUILD_TESTING=OFF, ROCPROFSYS=OFF, hipBLASLt/hipSPARSELt/ROCWMMA=OFF.
    - `build_gfx1031.sh --skip-configure` fails during configure of `rocm-half` and `grpc`: missing `ROCmCMakeBuildTools` (from rocm-cmake) and `ZLIBConfig.cmake` (from sysdeps zlib) under `dist/share/...`.
-   - Stage artifacts exist (`build/base/rocm-cmake/stage/share/rocmcmakebuildtools/cmake`, sysdeps zlib stage), but cmake configs are not present in corresponding `dist/` paths.
-   - Workaround pending: copy cmake config dirs from stage→dist for rocm-cmake and sysdeps (zlib, possibly other pkgs), or set explicit `*_DIR`/`CMAKE_PREFIX_PATH` per subproject.
+   - Root cause: missing/empty `dist/` configs during early parallel configures (and earlier also a Python3 scoping issue that prevented the stage→dist population rules from running reliably).
+   - Fix (current state): add a dedicated bootstrap step (`./bootstrap_gfx1031.sh`) which builds the minimal `+dist` targets (rocm-cmake + sysdeps + host-blas + common CMake-config deps) before the full build runs.
 
 23. **2025-12-19: Helpers hardened (sysdeps stage→dist + LD_LIBRARY_PATH for host tools)**
-   - `configure_gfx1031.sh` now copies/symlinks stage→dist for fmt/spdlog/yaml-cpp/nlohmann-json/FunctionalPlus/Eigen and sysdeps zlib+zstd so dependent subprojects find configs early (and to avoid missing ZLIB/ROCmCMakeBuildTools).
+   - `bootstrap_gfx1031.sh` builds a minimal set of `+dist` targets so dependent `find_package(...)` calls can resolve reliably during later parallel configures.
    - `build_gfx1031.sh` injects `LD_LIBRARY_PATH` with sysdeps dist+stage `rocm_sysdeps/lib` (zstd/zlib/bzip2/liblzma/elfutils/libdrm/numactl) to let host tools like `llvm-min-tblgen` load `librocm_sysdeps_zstd.so.1` during amd-llvm build.
-   - Manual copies of sysdeps zlib/zstd stage→dist were needed once; now scripted in configure helper.
-   - Build still needs rerun after these fixes to confirm amd-llvm proceeds without `librocm_sysdeps_zstd.so.1` error; use `./configure_gfx1031.sh --no-check-clean` then `./build_gfx1031.sh`.
+   - Current state: helpers set `LD_LIBRARY_PATH` explicitly (no inheritance by default) to avoid mixing with `/opt/rocm-*`.
 
 24. **2025-12-19: OpenBLAS → SuiteSparse path fixed**
    - SuiteSparse configure failed: `OpenBLASConfig.cmake` not found under `host-blas/dist`.
-   - `configure_gfx1031.sh` now symlinks host-blas stage → dist for cmake/pkgconfig/include/lib (host-math). Expected to unblock SuiteSparse/host-suite-sparse.
-   - Clean reconfigure done; rerun `./build_gfx1031.sh --skip-configure` to validate.
+   - Fix (current state): `bootstrap_gfx1031.sh` includes `therock-host-blas+dist` so `host-blas/dist` is populated before SuiteSparse configures.
+   - Re-run `./bootstrap_gfx1031.sh` after configure to validate.
 
 25. **2025-12-19: Build helper hygiene (hipcc notice + clang 18 enum fix)**
    - `configure_gfx1031.sh` now warns loudly if hipcc/amdclang++ is missing (bootstrap still proceeds with host clang++) so we remember to switch to ROCm toolchain after Stage 1.
@@ -207,8 +206,8 @@
    - Next step: rerun `./configure_gfx1031.sh --clean` then `./build_gfx1031.sh --skip-configure` to verify amd-llvm now builds cleanly.
 
 26. **2025-12-19: Add explicit bootstrap step for third-party/sysdeps**
-   - Added `bootstrap_gfx1031.sh` to build the minimum `+stage` targets that tend to be needed early (rocm-cmake, sysdeps zlib/zstd, host-blas, and a few common cmake-config deps) before the full parallel superbuild runs.
-   - Goal: avoid intermittent configure failures during the full build due to missing `*Config.cmake` under `dist/` (which is stage-symlinked) and missing `librocm_sysdeps_*.so` for host tools.
+   - Added `bootstrap_gfx1031.sh` to build the minimum `+dist` targets that tend to be needed early (rocm-cmake, sysdeps zlib/zstd, host-blas, and a few common CMake-config deps) before the full parallel superbuild runs.
+   - Goal: avoid intermittent configure failures during the full build due to missing `*Config.cmake` under `dist/` and missing `librocm_sysdeps_*.so` for host tools.
    - Status: script is new; needs validation as part of a full clean run (configure → bootstrap → build).
 
 27. **2025-12-19: Ensure ccache bootstrapping config is active in build helper**
@@ -222,7 +221,8 @@
    - Added `--no-clean` for the rare case where an in-place reconfigure is desired.
 
 29. **2025-12-19: Move stage→dist sync into bootstrap + unify logging**
-   - Moved the stage→dist symlink setup (rocm-cmake, sysdeps zlib/zstd, host-blas, and common cmake-config deps) out of `configure_gfx1031.sh` into `bootstrap_gfx1031.sh` so configure stays “pure”.
+   - Centralized early dependency preparation into `bootstrap_gfx1031.sh` so `configure_gfx1031.sh` stays “pure”.
+   - Later refined bootstrap to build `+dist` targets directly (instead of stage→dist symlinks) to avoid symlink edge cases while still providing early `dist/` CMake configs.
    - `bootstrap_gfx1031.sh` now appends to `build.log` (same log as configure/build) instead of using a separate `bootstrap.log`.
    - Downgraded the hipcc “missing” message from WARNING to INFO and clarified that hipcc appears only after the compiler/toolchain is built+installed into `./install` (not after the third-party bootstrap step).
 
@@ -232,11 +232,11 @@
 
 31. **2025-12-19: amd-llvm failed in rocr-runtime configure (missing NUMAConfig)**
    - Failure: `rocr-runtime` (libhsakmt) `find_package(NUMA)` failed because `NUMAConfig.cmake` was expected under `build/third-party/sysdeps/linux/numactl/build/dist/lib/rocm_sysdeps/lib/cmake/NUMA` but sysdeps `therock-numactl` was never built in bootstrap.
-   - Fix: `bootstrap_gfx1031.sh` now includes `therock-numactl+stage`, creates the stage→dist symlink for numactl, and verifies `numa-config.cmake` exists.
+   - Fix (current state): `bootstrap_gfx1031.sh` includes `therock-numactl+dist` and verifies `numa-config.cmake` exists under `dist/`.
 
 32. **2025-12-19: amd-llvm rocr-runtime configure needed LibElfConfig (elfutils)**
    - Failure: `rocr-runtime` (hsa-runtime) `find_package(LibElf)` expected `build/third-party/sysdeps/linux/elfutils/build/dist/lib/rocm_sysdeps/lib/cmake/LibElf` but sysdeps `therock-elfutils` was not in bootstrap.
-   - Fix: `bootstrap_gfx1031.sh` now includes `therock-elfutils+stage`, adds stage→dist for elfutils, and verifies `libelf-config.cmake` exists.
+   - Fix (current state): `bootstrap_gfx1031.sh` includes `therock-elfutils+dist` and verifies `libelf-config.cmake` exists under `dist/`.
 
 33. **2025-12-19: Dist dirs stayed empty (Python3_EXECUTABLE not exported) → find_package failures**
    - Symptom: subproject configures (notably `amd-comgr-impl`) failed with messages like:
@@ -256,6 +256,10 @@
      - “install … requires changing an RPATH from the build tree … not supported with the Ninja generator … set CMAKE_BUILD_WITH_INSTALL_RPATH”.
    - Fix: added `-DCMAKE_BUILD_WITH_INSTALL_RPATH=ON` to the ROCR-Runtime subproject `CMAKE_ARGS` in `core/CMakeLists.txt`.
    - Recovery: reconfigure (`./configure_gfx1031.sh --no-clean --no-check-clean`), then `ninja -C build ROCR-Runtime+expunge`, then resume via `./build_gfx1031.sh --skip-configure --detach`.
+
+36. **2025-12-19: Bootstrap now builds +dist (no stage→dist symlinks)**
+   - `bootstrap_gfx1031.sh` now uses `+dist` targets instead of creating stage→dist symlinks. This avoids symlink-related edge cases and ensures `dist/` CMake configs are real directories.
+   - `bootstrap_gfx1031.sh` and `build_gfx1031.sh` now default to *not inheriting* `LD_LIBRARY_PATH` (to avoid accidentally pulling in `/opt/rocm-*`). Set `PRESERVE_LD_LIBRARY_PATH=1` if you explicitly want to append the inherited path.
 ## TODO / Watchouts
 
 - When new third-party packages are added, verify their `dist/` directories are populated before dependent projects configure.  

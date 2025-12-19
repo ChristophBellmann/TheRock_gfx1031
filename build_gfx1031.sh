@@ -5,6 +5,7 @@ ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 LOG_FILE="${ROOT}/build.log"
 MEM_HIGH="${MEM_HIGH:-28G}"
 MEM_MAX="${MEM_MAX:-31G}"
+PRESERVE_LD_LIBRARY_PATH="${PRESERVE_LD_LIBRARY_PATH:-0}"
 CHECK_CLEAN=1
 DO_CLEAN=0
 SKIP_CONFIGURE=1
@@ -26,6 +27,7 @@ Options:
 Environment overrides:
   MEM_HIGH / MEM_MAX      systemd-run memory limits (default 28G/31G)
   THEROCK_AMDGPU_TARGETS  override GPU target (default gfx1031)
+  PRESERVE_LD_LIBRARY_PATH  append inherited LD_LIBRARY_PATH (default 0)
 EOF_USAGE
 }
 
@@ -150,6 +152,10 @@ run_cmd() {
   for p in "${sysdeps_libs[@]}"; do
     [[ -d "$p" ]] && ldpath="${ldpath:+$ldpath:}$p"
   done
+  local ld_export="export LD_LIBRARY_PATH=\"${ldpath}\""
+  if [[ "${PRESERVE_LD_LIBRARY_PATH}" == "1" ]]; then
+    ld_export="export LD_LIBRARY_PATH=\"${ldpath:+$ldpath:}\${LD_LIBRARY_PATH}\""
+  fi
   if (( DETACH )); then
     # Fully detached build: run as a transient user service so the build is not
     # tied to the parent shell/PTY (tool timeouts won't kill it).
@@ -158,11 +164,11 @@ run_cmd() {
       --property="MemoryHigh=${MEM_HIGH}" --property="MemoryMax=${MEM_MAX}" \
       --property=MemoryAccounting=yes --property=CPUAccounting=yes \
       --property="ExecStopPost=/usr/bin/bash -lc 'cd \"${ROOT}\" && ./collect_build_result_gfx1031.sh --unit ${unit}.service --log \"${LOG_FILE}\" --out \"${ROOT}/build_result.txt\" >/dev/null 2>&1 || true'" \
-      bash -lc "cd \"${ROOT}\" && source \"${ROOT}/.venv/bin/activate\" && export LD_LIBRARY_PATH=\"${ldpath:+$ldpath:}\${LD_LIBRARY_PATH}\" && ${cmd} >> \"${LOG_FILE}\" 2>&1"
+      bash -lc "cd \"${ROOT}\" && source \"${ROOT}/.venv/bin/activate\" && ${ld_export} && ${cmd} >> \"${LOG_FILE}\" 2>&1"
     echo "Build started as user unit: ${unit}.service (logs: ${LOG_FILE})"
   else
     systemd-run --user --scope -p "MemoryHigh=${MEM_HIGH}" -p "MemoryMax=${MEM_MAX}" \
-      bash -lc "cd \"${ROOT}\" && source \"${ROOT}/.venv/bin/activate\" && export LD_LIBRARY_PATH=\"${ldpath:+$ldpath:}\${LD_LIBRARY_PATH}\" && ${cmd}" 2>&1 | tee -a "${LOG_FILE}"
+      bash -lc "cd \"${ROOT}\" && source \"${ROOT}/.venv/bin/activate\" && ${ld_export} && ${cmd}" 2>&1 | tee -a "${LOG_FILE}"
   fi
 }
 

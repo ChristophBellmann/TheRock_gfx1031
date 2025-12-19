@@ -7,6 +7,7 @@ LOG_FILE="${LOG_FILE:-$LOG_FILE_DEFAULT}"
 MEM_HIGH="${MEM_HIGH:-28G}"
 MEM_MAX="${MEM_MAX:-31G}"
 JOBS="${BOOTSTRAP_JOBS:-1}"
+PRESERVE_LD_LIBRARY_PATH="${PRESERVE_LD_LIBRARY_PATH:-0}"
 
 usage() {
   cat <<'EOF_USAGE'
@@ -25,6 +26,7 @@ Environment overrides:
   MEM_HIGH / MEM_MAX     systemd-run memory limits (default 28G/31G)
   BOOTSTRAP_JOBS         ninja -j value (default 1)
   LOG_FILE               log path (default ./build.log)
+  PRESERVE_LD_LIBRARY_PATH  append inherited LD_LIBRARY_PATH (default 0)
 EOF_USAGE
 }
 
@@ -81,23 +83,16 @@ compute_sysdeps_ld_library_path() {
   echo "${ldpath}"
 }
 
-post_stage_to_dist() {
-  local src="$1"
-  local dest="$2"
-  # Keep dist in sync with stage via symlink.
-  mkdir -p "$(dirname "${dest}")"
-  if [[ -e "${dest}" || -L "${dest}" ]]; then
-    rm -rf "${dest}"
-  fi
-  ln -s "${src}" "${dest}"
-}
-
 run_cmd() {
   local cmd="$1"
   local ldpath
   ldpath="$(compute_sysdeps_ld_library_path)"
+  local ld_export="export LD_LIBRARY_PATH=\"${ldpath}\""
+  if [[ "${PRESERVE_LD_LIBRARY_PATH}" == "1" ]]; then
+    ld_export="export LD_LIBRARY_PATH=\"${ldpath:+$ldpath:}\${LD_LIBRARY_PATH}\""
+  fi
   systemd-run --user --scope -p "MemoryHigh=${MEM_HIGH}" -p "MemoryMax=${MEM_MAX}" \
-    bash -lc "source \"${ROOT}/.venv/bin/activate\" && export LD_LIBRARY_PATH=\"${ldpath:+$ldpath:}\${LD_LIBRARY_PATH}\" && ${cmd}" 2>&1 | tee -a "${LOG_FILE}"
+    bash -lc "source \"${ROOT}/.venv/bin/activate\" && ${ld_export} && ${cmd}" 2>&1 | tee -a "${LOG_FILE}"
 }
 
 run_cmd_array() {
@@ -109,73 +104,25 @@ run_cmd_array() {
 
 bootstrap_targets=(
   # Base CMake tooling used by many subprojects via find_package(ROCmCMakeBuildTools).
-  "rocm-cmake+stage"
+  "rocm-cmake+dist"
 
   # Sysdeps used by host tools and grpc; provides ZLIBConfig.cmake and librocm_sysdeps_z*.so.
-  "therock-zlib+stage"
-  "therock-zstd+stage"
-  "therock-numactl+stage"
-  "therock-elfutils+stage"
+  "therock-zlib+dist"
+  "therock-zstd+dist"
+  "therock-numactl+dist"
+  "therock-elfutils+dist"
 
   # Host BLAS is needed early by SuiteSparse.
-  "therock-host-blas+stage"
+  "therock-host-blas+dist"
 
   # Common CMake config deps frequently used by downstream projects.
-  "therock-fmt+stage"
-  "therock-spdlog+stage"
-  "therock-yaml-cpp+stage"
-  "therock-nlohmann-json+stage"
-  "therock-eigen+stage"
-  "therock-FunctionalPlus+stage"
+  "therock-fmt+dist"
+  "therock-spdlog+dist"
+  "therock-yaml-cpp+dist"
+  "therock-nlohmann-json+dist"
+  "therock-eigen+dist"
+  "therock-FunctionalPlus+dist"
 )
-
-echo "Pre-creating stage -> dist symlinks for early find_package deps..." | tee -a "${LOG_FILE}"
-
-# These symlinks may point to not-yet-existing stage paths; that's OK.
-# They ensure downstream subproject configures can find configs under dist
-# as soon as the corresponding stage install completes.
-
-# rocm-cmake provides ROCmCMakeBuildTools/ROCM configs
-post_stage_to_dist "${ROOT}/build/base/rocm-cmake/stage/share/rocmcmakebuildtools/cmake" \
-                   "${ROOT}/build/base/rocm-cmake/dist/share/rocmcmakebuildtools/cmake"
-post_stage_to_dist "${ROOT}/build/base/rocm-cmake/stage/share/rocm/cmake" \
-                   "${ROOT}/build/base/rocm-cmake/dist/share/rocm/cmake"
-
-# sysdeps configs/libs for grpc + host tools
-post_stage_to_dist "${ROOT}/build/third-party/sysdeps/linux/zlib/build/stage" \
-                   "${ROOT}/build/third-party/sysdeps/linux/zlib/build/dist"
-post_stage_to_dist "${ROOT}/build/third-party/sysdeps/linux/zstd/build/stage" \
-                   "${ROOT}/build/third-party/sysdeps/linux/zstd/build/dist"
-post_stage_to_dist "${ROOT}/build/third-party/sysdeps/linux/numactl/build/stage" \
-                   "${ROOT}/build/third-party/sysdeps/linux/numactl/build/dist"
-post_stage_to_dist "${ROOT}/build/third-party/sysdeps/linux/elfutils/build/stage" \
-                   "${ROOT}/build/third-party/sysdeps/linux/elfutils/build/dist"
-post_stage_to_dist "${ROOT}/build/third-party/sysdeps/linux/zlib/build/stage/lib/rocm_sysdeps/lib/cmake/ZLIB" \
-                   "${ROOT}/build/third-party/sysdeps/linux/zlib/build/dist/lib/rocm_sysdeps/lib/cmake/ZLIB"
-
-# Common third-party deps (CMake configs) that can be needed early
-post_stage_to_dist "${ROOT}/build/third-party/fmt/stage" \
-                   "${ROOT}/build/third-party/fmt/dist"
-post_stage_to_dist "${ROOT}/build/third-party/spdlog/stage" \
-                   "${ROOT}/build/third-party/spdlog/dist"
-post_stage_to_dist "${ROOT}/build/third-party/yaml-cpp/stage/lib/cmake/yaml-cpp" \
-                   "${ROOT}/build/third-party/yaml-cpp/dist/lib/cmake/yaml-cpp"
-post_stage_to_dist "${ROOT}/build/third-party/nlohmann-json/stage" \
-                   "${ROOT}/build/third-party/nlohmann-json/dist"
-post_stage_to_dist "${ROOT}/build/third-party/FunctionalPlus/stage" \
-                   "${ROOT}/build/third-party/FunctionalPlus/dist"
-post_stage_to_dist "${ROOT}/build/third-party/eigen/stage" \
-                   "${ROOT}/build/third-party/eigen/dist"
-
-# host-blas (OpenBLAS) -> provide CMake config for SuiteSparse
-post_stage_to_dist "${ROOT}/build/third-party/host-blas/stage/lib/host-math/lib/cmake" \
-                   "${ROOT}/build/third-party/host-blas/dist/lib/host-math/lib/cmake"
-post_stage_to_dist "${ROOT}/build/third-party/host-blas/stage/lib/host-math/lib/pkgconfig" \
-                   "${ROOT}/build/third-party/host-blas/dist/lib/host-math/lib/pkgconfig"
-post_stage_to_dist "${ROOT}/build/third-party/host-blas/stage/lib/host-math/include" \
-                   "${ROOT}/build/third-party/host-blas/dist/lib/host-math/include"
-post_stage_to_dist "${ROOT}/build/third-party/host-blas/stage/lib/host-math/lib" \
-                   "${ROOT}/build/third-party/host-blas/dist/lib/host-math/lib"
 
 echo "Bootstrapping ${#bootstrap_targets[@]} targets (ninja -j${JOBS})..." | tee -a "${LOG_FILE}"
 for t in "${bootstrap_targets[@]}"; do
@@ -186,13 +133,15 @@ done
 echo "Verifying expected stage/dist artifacts..." | tee -a "${LOG_FILE}"
 
 expect_paths=(
-  "${ROOT}/build/base/rocm-cmake/stage/share/rocmcmakebuildtools/cmake"
-  "${ROOT}/build/third-party/sysdeps/linux/zlib/build/stage/lib/rocm_sysdeps/lib/cmake/ZLIB"
-  "${ROOT}/build/third-party/sysdeps/linux/zlib/build/stage/lib/rocm_sysdeps/lib/librocm_sysdeps_z.so.1"
-  "${ROOT}/build/third-party/sysdeps/linux/zstd/build/stage/lib/rocm_sysdeps/lib/librocm_sysdeps_zstd.so.1"
-  "${ROOT}/build/third-party/sysdeps/linux/numactl/build/stage/lib/rocm_sysdeps/lib/cmake/NUMA/numa-config.cmake"
-  "${ROOT}/build/third-party/sysdeps/linux/elfutils/build/stage/lib/rocm_sysdeps/lib/cmake/LibElf/libelf-config.cmake"
-  "${ROOT}/build/third-party/host-blas/stage/lib/host-math/lib/cmake/OpenBLAS"
+  "${ROOT}/build/base/rocm-cmake/dist/share/rocmcmakebuildtools/cmake"
+  "${ROOT}/build/base/rocm-cmake/dist/share/rocm/cmake"
+  "${ROOT}/build/third-party/sysdeps/linux/zlib/build/dist/lib/rocm_sysdeps/lib/cmake/ZLIB/zlib-config.cmake"
+  "${ROOT}/build/third-party/sysdeps/linux/zlib/build/dist/lib/rocm_sysdeps/lib/librocm_sysdeps_z.so.1"
+  "${ROOT}/build/third-party/sysdeps/linux/zstd/build/dist/lib/rocm_sysdeps/lib/cmake/zstd/zstdConfig.cmake"
+  "${ROOT}/build/third-party/sysdeps/linux/zstd/build/dist/lib/rocm_sysdeps/lib/librocm_sysdeps_zstd.so.1"
+  "${ROOT}/build/third-party/sysdeps/linux/numactl/build/dist/lib/rocm_sysdeps/lib/cmake/NUMA/numa-config.cmake"
+  "${ROOT}/build/third-party/sysdeps/linux/elfutils/build/dist/lib/rocm_sysdeps/lib/cmake/LibElf/libelf-config.cmake"
+  "${ROOT}/build/third-party/host-blas/dist/lib/host-math/lib/cmake/OpenBLAS/OpenBLASConfig.cmake"
 )
 
 missing=0

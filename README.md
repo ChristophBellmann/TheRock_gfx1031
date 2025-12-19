@@ -146,7 +146,7 @@ Result of the *cmake configure step alone*
 
 ### Clean bootstrap helper (gfx1031)
 
-After configuring, run a one-time bootstrap step to build and stage the
+After configuring, run a one-time bootstrap step to build and populate `dist/`
 third‑party/sysdeps bits that tend to be needed early (so later parallel
 subproject configures don’t fail on missing `*Config.cmake` or sysdeps libs):
 
@@ -155,8 +155,8 @@ subproject configures don’t fail on missing `*Config.cmake` or sysdeps libs):
 ```
 
 It uses `ninja` under the same systemd RAM limits, appends to `build.log`, and
-prepares a minimal set of `+stage` targets (sysdeps + host tools + host-blas)
-so `find_package(...)` resolution in subsequent projects can succeed reliably.
+builds a minimal set of `+dist` targets (sysdeps + host tools + host-blas) so
+`find_package(...)` resolution in subsequent projects can succeed reliably.
 
 ### HIP compiler (hipcc/amdclang++)
 
@@ -364,6 +364,11 @@ Auflösungen während des eigentlichen Builds nicht an fehlenden `*Config.cmake`
 ```
 
 `bootstrap_gfx1031.sh` schreibt wie Configure/Build nach `build.log` (append).
+
+### LD_LIBRARY_PATH hygiene (avoid /opt/rocm mixing)
+
+- `build_gfx1031.sh` und `bootstrap_gfx1031.sh` setzen `LD_LIBRARY_PATH` **explizit** nur auf die in-tree sysdeps Pfade (und erben standardmäßig nichts), um versehentliche ABI/Version-Mixes mit z. B. `/opt/rocm-*` zu vermeiden.
+- Falls du bewusst etwas erben willst: `PRESERVE_LD_LIBRARY_PATH=1 ./build_gfx1031.sh ...` (gleiches gilt für `bootstrap_gfx1031.sh`).
 
 ### Build monitoring (detached)
 
