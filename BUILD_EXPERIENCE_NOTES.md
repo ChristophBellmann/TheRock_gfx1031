@@ -168,8 +168,16 @@
    - `build_gfx1031.sh` and `rebuild_gfx1031_subprojects.sh` now call `ninja -C build` directly instead of `cmake --build build`.
    - Added a `ninja` availability check; keeps expunge + target sequencing explicit.
 
+19. **2025-12-18: Helper QoL (ccache & venv automation)**
+   - Bundled ccache 4.11.1 to `.local/bin/ccache`; helpers prepend `.local/bin` if present.
+   - `configure_gfx1031.sh` now auto-evals `build_tools/setup_ccache.py`.
+   - `configure_gfx1031.sh` auto-creates `.venv` (python3 -m venv + requirements.txt) if missing.
+   - README updated with ccache defaults and typical workflows.
+   - Note: the new auto-venv/ccache flow has not yet been run end-to-end; run `./configure_gfx1031.sh --clean && ./build_gfx1031.sh` to validate.
+
 ## TODO / Watchouts
 
 - When new third-party packages are added, verify their `dist/` directories are populated before dependent projects configure.  
 - GPU-focused warnings (hipBLASLt/hipSPARSELt/rocWMMA/composable_kernel) are expected on gfx1031 in this branch if those components are enabled; no action required yet.  
 - Continue using serial builds unless we add explicit dependencies between stage/dist targets.
+- Pending validation: helper automation (auto-venv + ccache 4.11.1 + clang/ninja) has not been executed in a fresh build yet.
