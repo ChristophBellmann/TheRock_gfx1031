@@ -267,6 +267,13 @@
    - Root cause: `math-libs/BLAS/pre_hook_rocSPARSE.cmake` unconditionally installed `${CMAKE_CURRENT_BINARY_DIR}/clients/matrices`, but that directory is only created when rocSPARSE client tests generate/copy matrices.
    - Fix: mark the install rule as `OPTIONAL` so `cmake --install` doesn’t hard-fail when client tests (and matrices) are disabled.
    - Recovery: `ninja -C build rocSPARSE+expunge rocSPARSE+stage` and then resume the full build.
+
+38. **2025-12-19: hipSPARSE stage install failed for the same reason**
+   - Failure: `hipSPARSE+stage` ran `cmake --install` and failed with:
+     - `file INSTALL cannot find ".../hipSPARSE/build/clients/matrices": No such file or directory.`
+   - Root cause: `math-libs/BLAS/pre_hook_hipSPARSE.cmake` installed `${CMAKE_CURRENT_BINARY_DIR}/clients/matrices` unconditionally, but with `BUILD_CLIENTS_TESTS=OFF` no matrices directory is generated.
+   - Fix: mark the install rule as `OPTIONAL`.
+   - Recovery: `ninja -C build hipSPARSE+expunge hipSPARSE+stage` and then resume the full build.
 ## TODO / Watchouts
 
 - When new third-party packages are added, verify their `dist/` directories are populated before dependent projects configure.  

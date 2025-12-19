@@ -3,4 +3,5 @@
 install(
   DIRECTORY "${CMAKE_CURRENT_BINARY_DIR}/clients/matrices"
   DESTINATION "clients"
+  OPTIONAL
 )
