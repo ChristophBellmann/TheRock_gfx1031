@@ -245,6 +245,11 @@
    - Root cause: `Python3_EXECUTABLE` was not exported from `therock_setup_python_and_topology()` (function scope), so generated Ninja rules invoked `build_tools/teatime.py` and `build_tools/fileset_tool.py` without an explicit interpreter. This also prevented the stage→dist population step from running reliably, leaving many `dist/` dirs empty.
    - Fix: `cmake/therock_python_setup.cmake` now forces `Python3_EXECUTABLE` into the cache so generated rules consistently use the venv interpreter (`.venv/bin/python3`) for `teatime.py` and `fileset_tool.py`.
    - Recovery: re-run `./configure_gfx1031.sh --no-clean` to regenerate `build/build.ninja`, then `./build_gfx1031.sh --skip-configure --detach` to continue.
+
+34. **2025-12-19: fileset_tool copy failed when `dist/` is a symlink**
+   - Symptom: stage installs failed with `OSError: Cannot call rmtree on a symbolic link` while running `fileset_tool.py copy .../dist .../stage`.
+   - Cause: earlier helper workflows sometimes created `dist/` as a stage→dist symlink for quick bootstrapping. `PatternMatcher.copy_to()` used `shutil.rmtree()` unconditionally when `--remove-dest` is enabled, which raises on symlinks.
+   - Fix: `build_tools/_therock_utils/pattern_match.py` now unlinks `destdir` when it is a symlink (instead of calling `rmtree`) and then proceeds with the normal directory copy.
 ## TODO / Watchouts
 
 - When new third-party packages are added, verify their `dist/` directories are populated before dependent projects configure.  

@@ -117,27 +117,36 @@ class PatternMatcher:
         remove_dest: bool = True,
     ):
         if remove_dest and destdir.exists():
-            for attempt in range(self.max_attempts):
-                try:
-                    shutil.rmtree(destdir)
-                    if verbose:
-                        print(f"rmtree {destdir}", file=sys.stderr)
-                    break
-                except PermissionError:
-                    wait_time = self.retry_delay_seconds * (attempt + 2)
-                    if verbose:
-                        print(
-                            f"PermissionError calling shutil.rmtree('{destdir}') retrying after {wait_time}s",
-                            file=sys.stderr,
-                        )
-                    time.sleep(wait_time)
-                    if attempt == self.max_attempts - 1:
+            # `shutil.rmtree()` refuses to operate on symbolic links. Some
+            # developer workflows may temporarily make `dist/` a symlink (e.g.
+            # stage->dist shortcuts during bootstrapping). In that case, remove
+            # the link and proceed with a normal directory copy.
+            if destdir.is_symlink():
+                if verbose:
+                    print(f"unlink symlink {destdir}", file=sys.stderr)
+                destdir.unlink()
+            else:
+                for attempt in range(self.max_attempts):
+                    try:
+                        shutil.rmtree(destdir)
+                        if verbose:
+                            print(f"rmtree {destdir}", file=sys.stderr)
+                        break
+                    except PermissionError:
+                        wait_time = self.retry_delay_seconds * (attempt + 2)
                         if verbose:
                             print(
-                                f"rmtree failed after {self.max_attempts} attempts, failing",
+                                f"PermissionError calling shutil.rmtree('{destdir}') retrying after {wait_time}s",
                                 file=sys.stderr,
                             )
-                        raise
+                        time.sleep(wait_time)
+                        if attempt == self.max_attempts - 1:
+                            if verbose:
+                                print(
+                                    f"rmtree failed after {self.max_attempts} attempts, failing",
+                                    file=sys.stderr,
+                                )
+                            raise
         destdir.mkdir(parents=True, exist_ok=True)
 
         for relpath, direntry in self.matches():
