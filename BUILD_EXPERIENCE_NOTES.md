@@ -274,6 +274,15 @@
    - Root cause: `math-libs/BLAS/pre_hook_hipSPARSE.cmake` installed `${CMAKE_CURRENT_BINARY_DIR}/clients/matrices` unconditionally, but with `BUILD_CLIENTS_TESTS=OFF` no matrices directory is generated.
    - Fix: mark the install rule as `OPTIONAL`.
    - Recovery: `ninja -C build hipSPARSE+expunge hipSPARSE+stage` and then resume the full build.
+
+39. **2025-12-19: Fix “/opt/rocm contamination” in subproject CMakeCache**
+   - Symptom: many subprojects wrote `/opt/rocm` into their `build/**/CMakeCache.txt` (e.g. `ROCM_DIR=/opt/rocm`, `ROCM_ROOT=/opt/rocm`, or `DEFAULT_ROCM_PATH=/opt/rocm`), and some had `ROCM_PATH` unset/empty.
+   - Impact: mixed/incorrect search paths (“Looking in /opt/rocm…”, HIP root empty), risking ABI/version mismatches.
+   - Fix:
+     - `configure_gfx1031.sh` now forces `ROCM_PATH/ROCM_DIR/ROCM_ROOT` and `HIP_PATH/HIP_DIR/HIP_ROOT_DIR` to the in-tree toolchain root at `build/core/clr/dist`.
+     - `base/CMakeLists.txt` passes these ROCm root variables explicitly to `amdsmi` to prevent it defaulting to `/opt/rocm`.
+     - `base/CMakeLists.txt` also overrides `CPACK_PACKAGING_INSTALL_PREFIX` for `rocm-core` and `rocm_smi_lib` to avoid `/opt/rocm` leaking into caches via packaging defaults.
+   - Recovery: requires a clean rebuild (`rm -rf build && ./configure_gfx1031.sh && ./bootstrap_gfx1031.sh && ./build_gfx1031.sh ...`).
 ## TODO / Watchouts
 
 - When new third-party packages are added, verify their `dist/` directories are populated before dependent projects configure.  

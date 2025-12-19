@@ -45,6 +45,7 @@ therock_cmake_subproject_declare(rocm-core
   CMAKE_ARGS
     "-DBUILD_SHARED_LIBS=${_shared_libs_arg}"
     "-DROCM_VERSION=${ROCM_MAJOR_VERSION}.${ROCM_MINOR_VERSION}.${ROCM_PATCH_VERSION}"
+    "-DCPACK_PACKAGING_INSTALL_PREFIX=${CMAKE_INSTALL_PREFIX}"
 )
 therock_cmake_subproject_glob_c_sources(rocm-core
   SUBDIRS .
@@ -67,6 +68,9 @@ therock_cmake_subproject_declare(amdsmi
     # TODO: Enable tests
     # -DBUILD_TESTS=${THEROCK_BUILD_TESTING}
     "-DCMAKE_VERBOSE_MAKEFILE=OFF"
+    "-DROCM_PATH=${THEROCK_BINARY_DIR}/core/clr/dist"
+    "-DROCM_DIR=${THEROCK_BINARY_DIR}/core/clr/dist"
+    "-DROCM_ROOT=${THEROCK_BINARY_DIR}/core/clr/dist"
   BUILD_DEPS
     therock-googletest
   RUNTIME_DEPS
@@ -92,6 +96,7 @@ therock_cmake_subproject_declare(rocm_smi_lib
   USE_DIST_AMDGPU_TARGETS
   BACKGROUND_BUILD
   CMAKE_ARGS
+    "-DCPACK_PACKAGING_INSTALL_PREFIX=${CMAKE_INSTALL_PREFIX}"
     # See the post_hook, which needs to advertise install interface directories
     # in this case.
     "-DTHEROCK_HAS_BUNDLED_LIBDRM=${THEROCK_BUNDLED_LIBDRM}"
