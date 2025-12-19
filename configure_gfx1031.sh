@@ -83,8 +83,15 @@ bool_on_off() {
 }
 
 if [[ ! -f "${ROOT}/.venv/bin/activate" ]]; then
-  echo "Missing .venv; run the README venv setup first." >&2
-  exit 1
+  echo "Creating .venv (python3 -m venv .venv && pip install -r requirements.txt)..."
+  python3 -m venv "${ROOT}/.venv"
+  # shellcheck disable=SC1091
+  source "${ROOT}/.venv/bin/activate"
+  pip install --upgrade pip
+  pip install -r "${ROOT}/requirements.txt"
+else
+  # shellcheck disable=SC1091
+  source "${ROOT}/.venv/bin/activate"
 fi
 
 if [[ -x "${ROOT}/.local/bin/ccache" ]]; then
