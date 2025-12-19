@@ -210,11 +210,11 @@ run via `ninja` (no `cmake --build`). If
 - reconfigure + build (clang + ninja):
   - edit configure_gfx1031.sh, choose which component to set/unset.
   - then run:
-  ```bash
-  ./configure_gfx1031.sh 
-  ./bootstrap_gfx1031.sh
-  ./build_gfx1031.sh
-  ```
+```bash
+./configure_gfx1031.sh 
+./bootstrap_gfx1031.sh
+./build_gfx1031.sh
+```
 - Clean reconfigure + build (clang + ninja):
   ```bash
   ./configure_gfx1031.sh
@@ -246,6 +246,17 @@ run via `ninja` (no `cmake --build`). If
   - ein sicheres `compiler_check` (wichtig bei Compiler-Bootstrapping, damit Cache-Einträge nicht “falsch” wiederverwendet werden)
 - In CMake wird ccache als Launcher gesetzt: `-DCMAKE_C_COMPILER_LAUNCHER=ccache` und `-DCMAKE_CXX_COMPILER_LAUNCHER=ccache`.
 - Für manuelle Nutzung in neuen Shells: `eval "$(./build_tools/setup_ccache.py)"`.
+
+### Bootstrap (Third-party/sysdeps)
+
+Nach dem Configure sollte einmal gebootstrapped werden, damit frühe `find_package(...)`
+Auflösungen während des eigentlichen Builds nicht an fehlenden `*Config.cmake`/sysdeps scheitern:
+
+```bash
+./bootstrap_gfx1031.sh
+```
+
+`bootstrap_gfx1031.sh` schreibt wie Configure/Build nach `build.log` (append).
 
 ### composable_kernel & MIOpen
 

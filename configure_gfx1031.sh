@@ -104,7 +104,7 @@ if [[ -x "${ROOT}/.local/bin/ccache" ]]; then
   PATH="${ROOT}/.local/bin:${PATH}"
 fi
 if [[ -x "${ROOT}/build_tools/setup_ccache.py" ]]; then
-  eval "$("${ROOT}/build_tools/setup_ccache.py")"
+  eval "$(python3 "${ROOT}/build_tools/setup_ccache.py" --init)"
 fi
 if ! command -v ccache >/dev/null 2>&1; then
   echo "ccache not found; install it or run setup_ccache.py as in README." >&2
@@ -134,7 +134,7 @@ elif command -v amdclang++ >/dev/null 2>&1; then
   HIP_COMPILER="$(command -v amdclang++)"
 fi
 if [[ -z "${HIP_COMPILER}" ]]; then
-  echo "WARNING: hipcc/amdclang++ not found; HIP projects will use host clang++ (bootstrap stage). Install ROCm toolchain or set CMAKE_HIP_COMPILER." | tee -a "${LOG_FILE}"
+  echo "INFO: hipcc/amdclang++ not found yet (expected before the ROCm toolchain is built/installed into ./install). Continuing with host clang++." | tee -a "${LOG_FILE}"
 fi
 if [[ ! -d "${ROOT}/rocm-libraries" || ! -d "${ROOT}/rocm-systems" ]]; then
   echo "Missing sources; run: python3 ./build_tools/fetch_sources.py" >&2
@@ -211,54 +211,5 @@ if [[ -n "${HIP_COMPILER}" ]]; then
 fi
 
 run_cmd_array cmake -B build -GNinja . "${cmake_args[@]}" "${EXTRA_CMAKE_ARGS[@]}"
-
-# Copy stage cmake configs for deps that are needed early by other subprojects
-post_stage_to_dist() {
-  local src="$1"
-  local dest="$2"
-  # Keep dist in sync with stage via symlink; works even before stage exists.
-  mkdir -p "$(dirname "${dest}")"
-  if [[ -e "${dest}" || -L "${dest}" ]]; then
-    rm -rf "${dest}"
-  fi
-  ln -s "${src}" "${dest}"
-}
-
-# rocm-cmake provides ROCmCMakeBuildTools/ROCM configs
-post_stage_to_dist "${ROOT}/build/base/rocm-cmake/stage/share/rocmcmakebuildtools/cmake" \
-                   "${ROOT}/build/base/rocm-cmake/dist/share/rocmcmakebuildtools/cmake"
-post_stage_to_dist "${ROOT}/build/base/rocm-cmake/stage/share/rocm/cmake" \
-                   "${ROOT}/build/base/rocm-cmake/dist/share/rocm/cmake"
-
-# zlib config for grpc
-post_stage_to_dist "${ROOT}/build/third-party/sysdeps/linux/zlib/build/stage/lib/rocm_sysdeps/lib/cmake/ZLIB" \
-                   "${ROOT}/build/third-party/sysdeps/linux/zlib/build/dist/lib/rocm_sysdeps/lib/cmake/ZLIB"
-
-# Common third-party deps (copy full stage -> dist so imported targets find libs/headers)
-post_stage_to_dist "${ROOT}/build/third-party/fmt/stage" \
-                   "${ROOT}/build/third-party/fmt/dist"
-post_stage_to_dist "${ROOT}/build/third-party/spdlog/stage" \
-                   "${ROOT}/build/third-party/spdlog/dist"
-post_stage_to_dist "${ROOT}/build/third-party/yaml-cpp/stage/lib/cmake/yaml-cpp" \
-                   "${ROOT}/build/third-party/yaml-cpp/dist/lib/cmake/yaml-cpp"
-post_stage_to_dist "${ROOT}/build/third-party/nlohmann-json/stage" \
-                   "${ROOT}/build/third-party/nlohmann-json/dist"
-post_stage_to_dist "${ROOT}/build/third-party/FunctionalPlus/stage" \
-                   "${ROOT}/build/third-party/FunctionalPlus/dist"
-post_stage_to_dist "${ROOT}/build/third-party/eigen/stage" \
-                   "${ROOT}/build/third-party/eigen/dist"
-# host-blas (OpenBLAS) -> provide CMake config for SuiteSparse
-post_stage_to_dist "${ROOT}/build/third-party/host-blas/stage/lib/host-math/lib/cmake" \
-                   "${ROOT}/build/third-party/host-blas/dist/lib/host-math/lib/cmake"
-post_stage_to_dist "${ROOT}/build/third-party/host-blas/stage/lib/host-math/lib/pkgconfig" \
-                   "${ROOT}/build/third-party/host-blas/dist/lib/host-math/lib/pkgconfig"
-post_stage_to_dist "${ROOT}/build/third-party/host-blas/stage/lib/host-math/include" \
-                   "${ROOT}/build/third-party/host-blas/dist/lib/host-math/include"
-post_stage_to_dist "${ROOT}/build/third-party/host-blas/stage/lib/host-math/lib" \
-                   "${ROOT}/build/third-party/host-blas/dist/lib/host-math/lib"
-post_stage_to_dist "${ROOT}/build/third-party/sysdeps/linux/zlib/build/stage" \
-                   "${ROOT}/build/third-party/sysdeps/linux/zlib/build/dist"
-post_stage_to_dist "${ROOT}/build/third-party/sysdeps/linux/zstd/build/stage" \
-                   "${ROOT}/build/third-party/sysdeps/linux/zstd/build/dist"
 
 echo "Configure complete. Next: ./build_gfx1031.sh (use --skip-configure to reuse) " | tee -a "${LOG_FILE}"

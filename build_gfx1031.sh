@@ -75,7 +75,7 @@ if ! command -v ccache >/dev/null 2>&1; then
   exit 1
 fi
 if [[ -x "${ROOT}/build_tools/setup_ccache.py" ]]; then
-  eval "$("${ROOT}/build_tools/setup_ccache.py")"
+  eval "$(python3 "${ROOT}/build_tools/setup_ccache.py" --init)"
 fi
 export CCACHE_SLOPPINESS="${CCACHE_SLOPPINESS:-include_file_ctime}"
 if ! command -v ninja >/dev/null 2>&1; then
@@ -109,9 +109,13 @@ if (( CHECK_CLEAN )) && (( SKIP_CONFIGURE == 0 )); then
   fi
 fi
 
-if [[ -f "${LOG_FILE}" ]]; then
-  ts="$(date +%Y%m%d-%H%M%S)"
-  mv "${LOG_FILE}" "${LOG_FILE}.bak-${ts}"
+# Only rotate when we are (re)configuring here; typical workflow is:
+# configure -> bootstrap -> build, all appended to build.log.
+if (( SKIP_CONFIGURE == 0 )); then
+  if [[ -f "${LOG_FILE}" ]]; then
+    ts="$(date +%Y%m%d-%H%M%S)"
+    mv "${LOG_FILE}" "${LOG_FILE}.bak-${ts}"
+  fi
 fi
 
 run_cmd() {

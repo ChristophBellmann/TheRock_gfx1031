@@ -2,7 +2,7 @@
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-LOG_FILE_DEFAULT="${ROOT}/bootstrap.log"
+LOG_FILE_DEFAULT="${ROOT}/build.log"
 LOG_FILE="${LOG_FILE:-$LOG_FILE_DEFAULT}"
 MEM_HIGH="${MEM_HIGH:-28G}"
 MEM_MAX="${MEM_MAX:-31G}"
@@ -24,7 +24,7 @@ Options:
 Environment overrides:
   MEM_HIGH / MEM_MAX     systemd-run memory limits (default 28G/31G)
   BOOTSTRAP_JOBS         ninja -j value (default 1)
-  LOG_FILE               log path (default ./bootstrap.log)
+  LOG_FILE               log path (default ./build.log)
 EOF_USAGE
 }
 
@@ -54,14 +54,13 @@ fi
 if [[ -x "${ROOT}/.local/bin/ccache" ]]; then
   PATH="${ROOT}/.local/bin:${PATH}"
 fi
+if [[ -x "${ROOT}/build_tools/setup_ccache.py" ]]; then
+  eval "$(python3 "${ROOT}/build_tools/setup_ccache.py" --init)"
+fi
+export CCACHE_SLOPPINESS="${CCACHE_SLOPPINESS:-include_file_ctime}"
 if ! command -v ninja >/dev/null 2>&1; then
   echo "ninja not found; install it before bootstrapping." >&2
   exit 1
-fi
-
-if [[ -f "${LOG_FILE}" ]]; then
-  ts="$(date +%Y%m%d-%H%M%S)"
-  mv "${LOG_FILE}" "${LOG_FILE}.bak-${ts}"
 fi
 
 compute_sysdeps_ld_library_path() {
@@ -80,6 +79,17 @@ compute_sysdeps_ld_library_path() {
     [[ -d "$p" ]] && ldpath="${ldpath:+$ldpath:}$p"
   done
   echo "${ldpath}"
+}
+
+post_stage_to_dist() {
+  local src="$1"
+  local dest="$2"
+  # Keep dist in sync with stage via symlink.
+  mkdir -p "$(dirname "${dest}")"
+  if [[ -e "${dest}" || -L "${dest}" ]]; then
+    rm -rf "${dest}"
+  fi
+  ln -s "${src}" "${dest}"
 }
 
 run_cmd() {
@@ -117,6 +127,50 @@ bootstrap_targets=(
   "therock-FunctionalPlus+stage"
 )
 
+echo "Pre-creating stage -> dist symlinks for early find_package deps..." | tee -a "${LOG_FILE}"
+
+# These symlinks may point to not-yet-existing stage paths; that's OK.
+# They ensure downstream subproject configures can find configs under dist
+# as soon as the corresponding stage install completes.
+
+# rocm-cmake provides ROCmCMakeBuildTools/ROCM configs
+post_stage_to_dist "${ROOT}/build/base/rocm-cmake/stage/share/rocmcmakebuildtools/cmake" \
+                   "${ROOT}/build/base/rocm-cmake/dist/share/rocmcmakebuildtools/cmake"
+post_stage_to_dist "${ROOT}/build/base/rocm-cmake/stage/share/rocm/cmake" \
+                   "${ROOT}/build/base/rocm-cmake/dist/share/rocm/cmake"
+
+# sysdeps configs/libs for grpc + host tools
+post_stage_to_dist "${ROOT}/build/third-party/sysdeps/linux/zlib/build/stage" \
+                   "${ROOT}/build/third-party/sysdeps/linux/zlib/build/dist"
+post_stage_to_dist "${ROOT}/build/third-party/sysdeps/linux/zstd/build/stage" \
+                   "${ROOT}/build/third-party/sysdeps/linux/zstd/build/dist"
+post_stage_to_dist "${ROOT}/build/third-party/sysdeps/linux/zlib/build/stage/lib/rocm_sysdeps/lib/cmake/ZLIB" \
+                   "${ROOT}/build/third-party/sysdeps/linux/zlib/build/dist/lib/rocm_sysdeps/lib/cmake/ZLIB"
+
+# Common third-party deps (CMake configs) that can be needed early
+post_stage_to_dist "${ROOT}/build/third-party/fmt/stage" \
+                   "${ROOT}/build/third-party/fmt/dist"
+post_stage_to_dist "${ROOT}/build/third-party/spdlog/stage" \
+                   "${ROOT}/build/third-party/spdlog/dist"
+post_stage_to_dist "${ROOT}/build/third-party/yaml-cpp/stage/lib/cmake/yaml-cpp" \
+                   "${ROOT}/build/third-party/yaml-cpp/dist/lib/cmake/yaml-cpp"
+post_stage_to_dist "${ROOT}/build/third-party/nlohmann-json/stage" \
+                   "${ROOT}/build/third-party/nlohmann-json/dist"
+post_stage_to_dist "${ROOT}/build/third-party/FunctionalPlus/stage" \
+                   "${ROOT}/build/third-party/FunctionalPlus/dist"
+post_stage_to_dist "${ROOT}/build/third-party/eigen/stage" \
+                   "${ROOT}/build/third-party/eigen/dist"
+
+# host-blas (OpenBLAS) -> provide CMake config for SuiteSparse
+post_stage_to_dist "${ROOT}/build/third-party/host-blas/stage/lib/host-math/lib/cmake" \
+                   "${ROOT}/build/third-party/host-blas/dist/lib/host-math/lib/cmake"
+post_stage_to_dist "${ROOT}/build/third-party/host-blas/stage/lib/host-math/lib/pkgconfig" \
+                   "${ROOT}/build/third-party/host-blas/dist/lib/host-math/lib/pkgconfig"
+post_stage_to_dist "${ROOT}/build/third-party/host-blas/stage/lib/host-math/include" \
+                   "${ROOT}/build/third-party/host-blas/dist/lib/host-math/include"
+post_stage_to_dist "${ROOT}/build/third-party/host-blas/stage/lib/host-math/lib" \
+                   "${ROOT}/build/third-party/host-blas/dist/lib/host-math/lib"
+
 echo "Bootstrapping ${#bootstrap_targets[@]} targets (ninja -j${JOBS})..." | tee -a "${LOG_FILE}"
 for t in "${bootstrap_targets[@]}"; do
   echo "==> ${t}" | tee -a "${LOG_FILE}"
@@ -149,4 +203,3 @@ if (( missing )); then
 fi
 
 echo "Bootstrap complete. Next: ./build_gfx1031.sh --skip-configure" | tee -a "${LOG_FILE}"
-

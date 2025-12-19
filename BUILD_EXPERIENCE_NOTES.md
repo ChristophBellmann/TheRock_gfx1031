@@ -220,6 +220,11 @@
 28. **2025-12-19: Default to clean configure in helper**
    - `configure_gfx1031.sh` now removes `build/` by default to ensure the toolchain/config stays coherent (especially when switching compilers or feature flags).
    - Added `--no-clean` for the rare case where an in-place reconfigure is desired.
+
+29. **2025-12-19: Move stage→dist sync into bootstrap + unify logging**
+   - Moved the stage→dist symlink setup (rocm-cmake, sysdeps zlib/zstd, host-blas, and common cmake-config deps) out of `configure_gfx1031.sh` into `bootstrap_gfx1031.sh` so configure stays “pure”.
+   - `bootstrap_gfx1031.sh` now appends to `build.log` (same log as configure/build) instead of using a separate `bootstrap.log`.
+   - Downgraded the hipcc “missing” message from WARNING to INFO and clarified that hipcc appears only after the compiler/toolchain is built+installed into `./install` (not after the third-party bootstrap step).
 ## TODO / Watchouts
 
 - When new third-party packages are added, verify their `dist/` directories are populated before dependent projects configure.  
