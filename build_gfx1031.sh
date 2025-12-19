@@ -151,11 +151,14 @@ run_cmd() {
     [[ -d "$p" ]] && ldpath="${ldpath:+$ldpath:}$p"
   done
   if (( DETACH )); then
-    # Important: log piping must happen inside the transient unit, otherwise
-    # killing the parent shell can terminate the pipeline and stop the build.
-    systemd-run --user --scope --no-block \
-      -p "MemoryHigh=${MEM_HIGH}" -p "MemoryMax=${MEM_MAX}" -p MemoryAccounting=yes -p CPUAccounting=yes \
-      bash -lc "cd \"${ROOT}\" && source \"${ROOT}/.venv/bin/activate\" && export LD_LIBRARY_PATH=\"${ldpath:+$ldpath:}\${LD_LIBRARY_PATH}\" && ${cmd} 2>&1 | tee -a \"${LOG_FILE}\""
+    # Fully detached build: run as a transient user service so the build is not
+    # tied to the parent shell/PTY (tool timeouts won't kill it).
+    local unit="therock-gfx1031-build"
+    systemd-run --user --no-block --quiet --collect --unit "${unit}" --property=Restart=no \
+      --property="MemoryHigh=${MEM_HIGH}" --property="MemoryMax=${MEM_MAX}" \
+      --property=MemoryAccounting=yes --property=CPUAccounting=yes \
+      bash -lc "cd \"${ROOT}\" && source \"${ROOT}/.venv/bin/activate\" && export LD_LIBRARY_PATH=\"${ldpath:+$ldpath:}\${LD_LIBRARY_PATH}\" && ${cmd} >> \"${LOG_FILE}\" 2>&1"
+    echo "Build started as user unit: ${unit}.service (logs: ${LOG_FILE})"
   else
     systemd-run --user --scope -p "MemoryHigh=${MEM_HIGH}" -p "MemoryMax=${MEM_MAX}" \
       bash -lc "cd \"${ROOT}\" && source \"${ROOT}/.venv/bin/activate\" && export LD_LIBRARY_PATH=\"${ldpath:+$ldpath:}\${LD_LIBRARY_PATH}\" && ${cmd}" 2>&1 | tee -a "${LOG_FILE}"
