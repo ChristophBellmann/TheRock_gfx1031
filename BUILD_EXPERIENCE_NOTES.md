@@ -287,7 +287,10 @@
 40. **2025-12-19: amd-llvm build failed due to -Werror (enum-constexpr-conversion)**
    - Failure: `amd-llvm` (spirv-llvm-translator) compiled with `-Werror` and failed on clang diagnostics:
      - `[-Wenum-constexpr-conversion]` in `llvm/ADT/DenseMapInfo.h`.
-   - Fix: force `-DLLVM_ENABLE_WERROR=OFF` in `compiler/CMakeLists.txt` for the `amd-llvm` subproject.
+   - Fix:
+     - Force `-DLLVM_ENABLE_WERROR=OFF` in `compiler/CMakeLists.txt` for the `amd-llvm` subproject.
+     - Additionally, avoid editing the `compiler/spirv-llvm-translator` submodule by adding a narrow amd-llvm-only workaround in `compiler/pre_hook_amd-llvm.cmake`:
+       - `add_compile_options($<$<CXX_COMPILER_ID:Clang>:-Wno-enum-constexpr-conversion>)`
    - Recovery: `ninja -C build amd-llvm+expunge` and resume the build.
 ## TODO / Watchouts
 

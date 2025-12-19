@@ -58,6 +58,21 @@ endif()
 set(BUILD_TESTING OFF CACHE BOOL "DISABLE BUILDING TESTS IN SUBPROJECTS" FORCE)
 set(LLVM_TARGETS_TO_BUILD "AMDGPU;X86" CACHE STRING "Enable LLVM Targets" FORCE)
 
+# Force ROCm/HIP roots to the in-tree toolchain so subprojects don't fall back
+# to /opt/rocm defaults.
+set(_therock_rocm_root "${THEROCK_BINARY_DIR}/core/clr/dist")
+set(DEFAULT_ROCM_PATH "${_therock_rocm_root}" CACHE PATH "" FORCE)
+set(ROCM_PATH "${_therock_rocm_root}" CACHE PATH "" FORCE)
+set(ROCM_DIR "${_therock_rocm_root}" CACHE PATH "" FORCE)
+set(ROCM_ROOT "${_therock_rocm_root}" CACHE PATH "" FORCE)
+set(HIP_ROOT_DIR "${_therock_rocm_root}" CACHE PATH "" FORCE)
+set(HIP_DIR "${_therock_rocm_root}" CACHE PATH "" FORCE)
+set(HIP_PATH "${_therock_rocm_root}" CACHE PATH "" FORCE)
+unset(_therock_rocm_root)
+
+# Work around clang diagnostic in spirv-llvm-translator (seen with clang-18).
+add_compile_options($<$<CXX_COMPILER_ID:Clang>:-Wno-enum-constexpr-conversion>)
+
 # Packaging.
 set(PACKAGE_VENDOR "AMD" CACHE STRING "Vendor" FORCE)
 
