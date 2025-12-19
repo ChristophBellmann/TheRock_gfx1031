@@ -233,6 +233,10 @@
 31. **2025-12-19: amd-llvm failed in rocr-runtime configure (missing NUMAConfig)**
    - Failure: `rocr-runtime` (libhsakmt) `find_package(NUMA)` failed because `NUMAConfig.cmake` was expected under `build/third-party/sysdeps/linux/numactl/build/dist/lib/rocm_sysdeps/lib/cmake/NUMA` but sysdeps `therock-numactl` was never built in bootstrap.
    - Fix: `bootstrap_gfx1031.sh` now includes `therock-numactl+stage`, creates the stage→dist symlink for numactl, and verifies `numa-config.cmake` exists.
+
+32. **2025-12-19: amd-llvm rocr-runtime configure needed LibElfConfig (elfutils)**
+   - Failure: `rocr-runtime` (hsa-runtime) `find_package(LibElf)` expected `build/third-party/sysdeps/linux/elfutils/build/dist/lib/rocm_sysdeps/lib/cmake/LibElf` but sysdeps `therock-elfutils` was not in bootstrap.
+   - Fix: `bootstrap_gfx1031.sh` now includes `therock-elfutils+stage`, adds stage→dist for elfutils, and verifies `libelf-config.cmake` exists.
 ## TODO / Watchouts
 
 - When new third-party packages are added, verify their `dist/` directories are populated before dependent projects configure.  

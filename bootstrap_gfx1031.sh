@@ -115,6 +115,7 @@ bootstrap_targets=(
   "therock-zlib+stage"
   "therock-zstd+stage"
   "therock-numactl+stage"
+  "therock-elfutils+stage"
 
   # Host BLAS is needed early by SuiteSparse.
   "therock-host-blas+stage"
@@ -147,6 +148,8 @@ post_stage_to_dist "${ROOT}/build/third-party/sysdeps/linux/zstd/build/stage" \
                    "${ROOT}/build/third-party/sysdeps/linux/zstd/build/dist"
 post_stage_to_dist "${ROOT}/build/third-party/sysdeps/linux/numactl/build/stage" \
                    "${ROOT}/build/third-party/sysdeps/linux/numactl/build/dist"
+post_stage_to_dist "${ROOT}/build/third-party/sysdeps/linux/elfutils/build/stage" \
+                   "${ROOT}/build/third-party/sysdeps/linux/elfutils/build/dist"
 post_stage_to_dist "${ROOT}/build/third-party/sysdeps/linux/zlib/build/stage/lib/rocm_sysdeps/lib/cmake/ZLIB" \
                    "${ROOT}/build/third-party/sysdeps/linux/zlib/build/dist/lib/rocm_sysdeps/lib/cmake/ZLIB"
 
@@ -188,6 +191,7 @@ expect_paths=(
   "${ROOT}/build/third-party/sysdeps/linux/zlib/build/stage/lib/rocm_sysdeps/lib/librocm_sysdeps_z.so.1"
   "${ROOT}/build/third-party/sysdeps/linux/zstd/build/stage/lib/rocm_sysdeps/lib/librocm_sysdeps_zstd.so.1"
   "${ROOT}/build/third-party/sysdeps/linux/numactl/build/stage/lib/rocm_sysdeps/lib/cmake/NUMA/numa-config.cmake"
+  "${ROOT}/build/third-party/sysdeps/linux/elfutils/build/stage/lib/rocm_sysdeps/lib/cmake/LibElf/libelf-config.cmake"
   "${ROOT}/build/third-party/host-blas/stage/lib/host-math/lib/cmake/OpenBLAS"
 )
 

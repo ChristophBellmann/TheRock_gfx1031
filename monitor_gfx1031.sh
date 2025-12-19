@@ -50,7 +50,13 @@ snapshot() {
   fi
   if [[ "${state}" != "active" ]]; then
     echo "--- last errors in log ---"
-    [[ -f "${LOG_FILE}" ]] && rg -n "^FAILED:|\\bFAILED\\b|error:|CMake Error" "${LOG_FILE}" | tail -n 120 || true
+    if [[ -f "${LOG_FILE}" ]]; then
+      if command -v rg >/dev/null 2>&1; then
+        rg -n "^FAILED:|\\bFAILED\\b|error:|CMake Error" "${LOG_FILE}" | tail -n 120 || true
+      else
+        grep -nE "^FAILED:|\\bFAILED\\b|error:|CMake Error" "${LOG_FILE}" | tail -n 120 || true
+      fi
+    fi
     echo "--- unit status ---"
     systemctl --user status "${UNIT}" --no-pager -n 20 || true
   fi
@@ -74,4 +80,3 @@ while true; do
   fi
   sleep "${INTERVAL_SEC}"
 done
-

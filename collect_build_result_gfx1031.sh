@@ -62,11 +62,14 @@ mkdir -p "$(dirname "${OUT_FILE}")"
     tail -n 60 "${LOG_FILE}" || true
     echo
     echo "--- errors in build.log ---"
-    rg -n "^FAILED:|\\bFAILED\\b|error:|CMake Error" "${LOG_FILE}" | tail -n 200 || true
+    if command -v rg >/dev/null 2>&1; then
+      rg -n "^FAILED:|\\bFAILED\\b|error:|CMake Error" "${LOG_FILE}" | tail -n 200 || true
+    else
+      grep -nE "^FAILED:|\\bFAILED\\b|error:|CMake Error" "${LOG_FILE}" | tail -n 200 || true
+    fi
   else
     echo "build.log missing"
   fi
 } > "${OUT_FILE}"
 
 echo "Wrote ${OUT_FILE}"
-
