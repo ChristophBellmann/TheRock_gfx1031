@@ -157,6 +157,7 @@ run_cmd() {
     systemd-run --user --no-block --quiet --collect --unit "${unit}" --property=Restart=no \
       --property="MemoryHigh=${MEM_HIGH}" --property="MemoryMax=${MEM_MAX}" \
       --property=MemoryAccounting=yes --property=CPUAccounting=yes \
+      --property="ExecStopPost=/usr/bin/bash -lc 'cd \"${ROOT}\" && ./collect_build_result_gfx1031.sh --unit ${unit}.service --log \"${LOG_FILE}\" --out \"${ROOT}/build_result.txt\" >/dev/null 2>&1 || true'" \
       bash -lc "cd \"${ROOT}\" && source \"${ROOT}/.venv/bin/activate\" && export LD_LIBRARY_PATH=\"${ldpath:+$ldpath:}\${LD_LIBRARY_PATH}\" && ${cmd} >> \"${LOG_FILE}\" 2>&1"
     echo "Build started as user unit: ${unit}.service (logs: ${LOG_FILE})"
   else

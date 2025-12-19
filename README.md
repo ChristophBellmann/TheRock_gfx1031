@@ -279,6 +279,8 @@ Stoppen:
 systemctl --user stop therock-gfx1031-build.service
 ```
 
+Wenn der Build endet (success/fail), schreibt `build_gfx1031.sh --detach` automatisch eine Zusammenfassung nach `build_result.txt`.
+
 ### composable_kernel & MIOpen
 
 - `THEROCK_MIOPEN_USE_COMPOSABLE_KERNEL` wird im Helper an `THEROCK_ENABLE_COMPOSABLE_KERNEL` gespiegelt.
