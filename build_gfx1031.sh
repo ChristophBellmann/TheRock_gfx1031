@@ -154,22 +154,9 @@ run_cmd() {
     # Fully detached build: run as a transient user service so the build is not
     # tied to the parent shell/PTY (tool timeouts won't kill it).
     local unit="therock-gfx1031-build"
-    # Install OnFailure handler (auto-debug) for future detached runs.
-    local user_unit_dir="${HOME}/.config/systemd/user"
-    local autodebug_src="${ROOT}/systemd/user/therock-gfx1031-autodebug@.service"
-    local autodebug_dst="${user_unit_dir}/therock-gfx1031-autodebug@.service"
-    if [[ -f "${autodebug_src}" ]]; then
-      mkdir -p "${user_unit_dir}"
-      if [[ ! -f "${autodebug_dst}" ]] || ! cmp -s "${autodebug_src}" "${autodebug_dst}"; then
-        install -m 0644 "${autodebug_src}" "${autodebug_dst}"
-        systemctl --user daemon-reload >/dev/null 2>&1 || true
-      fi
-    fi
     systemd-run --user --no-block --quiet --collect --unit "${unit}" --property=Restart=no \
       --property="MemoryHigh=${MEM_HIGH}" --property="MemoryMax=${MEM_MAX}" \
       --property=MemoryAccounting=yes --property=CPUAccounting=yes \
-      --property="OnFailure=therock-gfx1031-autodebug@%n.service" \
-      --property="OnFailureJobMode=replace" \
       --property="ExecStopPost=/usr/bin/bash -lc 'cd \"${ROOT}\" && ./collect_build_result_gfx1031.sh --unit ${unit}.service --log \"${LOG_FILE}\" --out \"${ROOT}/build_result.txt\" >/dev/null 2>&1 || true'" \
       bash -lc "cd \"${ROOT}\" && source \"${ROOT}/.venv/bin/activate\" && export LD_LIBRARY_PATH=\"${ldpath:+$ldpath:}\${LD_LIBRARY_PATH}\" && ${cmd} >> \"${LOG_FILE}\" 2>&1"
     echo "Build started as user unit: ${unit}.service (logs: ${LOG_FILE})"

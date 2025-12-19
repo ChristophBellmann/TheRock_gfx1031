@@ -271,7 +271,8 @@ Auflösungen während des eigentlichen Builds nicht an fehlenden `*Config.cmake`
 Wenn der Build detached als `therock-gfx1031-build.service` läuft:
 
 ```bash
-./watch_build_gfx1031.sh
+./monitor_gfx1031.sh --once
+./monitor_gfx1031.sh --interval 30
 ```
 
 Stoppen:
@@ -280,21 +281,6 @@ systemctl --user stop therock-gfx1031-build.service
 ```
 
 Wenn der Build endet (success/fail), schreibt `build_gfx1031.sh --detach` automatisch eine Zusammenfassung nach `build_result.txt`.
-
-Zusätzlich: Bei einem Fail wird automatisch ein OnFailure-Handler gestartet, der:
-- `build_result.txt` aktualisiert,
-- (falls passend) `./bootstrap_gfx1031.sh` erneut ausführt,
-- und den Build bis zu `MAX_RETRIES` mal neu startet.
-
-Der Handler loggt nach `autodebug.log` und nutzt `auto_debug_on_fail_gfx1031.sh`.
-
-Für laufende Builds (auch wenn sie vor der OnFailure-Integration gestartet wurden) kann optional ein Timer genutzt werden:
-```bash
-install -m 0644 systemd/user/therock-gfx1031-watch.service ~/.config/systemd/user/
-install -m 0644 systemd/user/therock-gfx1031-watch.timer ~/.config/systemd/user/
-systemctl --user daemon-reload
-systemctl --user enable --now therock-gfx1031-watch.timer
-```
 
 ### composable_kernel & MIOpen
 
