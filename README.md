@@ -48,7 +48,14 @@ use:
 
 It uses the recommended gfx1031 profile (LLM/Vision/Audio), enables ccache, and
 applies the same RAM limits. Host compiler is set to `clang/clang++` (avoid
-GCC/clang mix) and builds run via `ninja` (no `cmake --build`). If
+GCC/clang mix) and builds run via `ninja` (no `cmake --build`). The helper also
+applies a Clang 18 compatibility flag (`-Wno-enum-constexpr-conversion`) to
+avoid a SPIR-V headers build failure.
+
+If `hipcc/amdclang++` is not found yet, the script prints a **WARNING** (this is
+expected in a clean bootstrap: hipcc only exists after the toolchain build
+installs into `./install`).
+If
 `build/` already exists and is not empty, the script will stop unless you pass
 `--clean` (delete `build/`) or `--no-check-clean` (skip the clean check).
 
@@ -109,7 +116,8 @@ features.
 - HIP toolchain/runtime (`COMPILER`, `CORE_RUNTIME`, `HIP_RUNTIME`, `HIPIFY`)
 - Math libs used by LLMs and PyTorch (`BLAS`, `PRIM`, `RAND`, `FFT`, `SPARSE`, `SOLVER`)
 - ML libs (`MIOPEN`, `HIPDNN`, `COMPOSABLE_KERNEL`)
-- Profiler (`ROCPROFV3`/`ROCPROFSYS`) and tests (`BUILD_TESTING`)
+- Profiler (Phase 1: `THEROCK_ENABLE_PROFILER=ON`, `THEROCK_ENABLE_ROCPROFSYS=OFF`)
+- Tests optional (`BUILD_TESTING`), default OFF in the helper scripts
 - RCCL (only if you want multi‑GPU/distributed later)
 
 **Safe to disable for gfx1031 (saves time/space):**
@@ -146,7 +154,8 @@ systemd-run --user --scope -p MemoryHigh=28G -p MemoryMax=31G \
   -DTHEROCK_ENABLE_RDC=OFF \
   -DTHEROCK_ENABLE_PROFILER=ON \
   -DTHEROCK_ENABLE_DC_TOOLS=OFF \
-  -DBUILD_TESTING=ON
+  -DTHEROCK_ENABLE_ROCPROFSYS=OFF \
+  -DBUILD_TESTING=OFF
 ```
 
 > Note: `hipBLASLt` and `hipSPARSELt` are unsupported for gfx1031 in this branch,
@@ -240,11 +249,13 @@ run via `ninja` (no `cmake --build`). If
 
 - `configure_gfx1031.sh` default: `BUILD_TESTING=OFF` (kann per `ENABLE_BUILD_TESTING=true` im Script oder `-- -DBUILD_TESTING=ON` überschrieben werden). Hintergrund: gcc‑ICEs vermeiden; clang wird als Host-Compiler erzwungen.
 
-### CCache defaults
+### Phase 1 vs Phase 2 (rocprofiler-systems)
 
-- `.local/bin/ccache` (4.11.1) wird automatisch vorangestellt, wenn vorhanden.
-- `configure_gfx1031.sh` evaluiert `build_tools/setup_ccache.py` automatisch und setzt die Launcher (`CMAKE_*_COMPILER_LAUNCHER=ccache`).
-- Für manuelle Nutzung in neuen Shells: `eval "$(./build_tools/setup_ccache.py)"`.
+- **Phase 1 (default in helpers):** ROCm stack stabil bauen, `THEROCK_ENABLE_ROCPROFSYS=OFF`.
+- **Phase 2 (optional):** `rocprofiler-systems` separat mit GCC bauen/installen via:
+  ```bash
+  ./configure_build_rocprofiler.sh
+  ```
 
 ### Quick test helper (gfx1031)
 
@@ -298,6 +309,6 @@ This gates both setup of build tests and compilation of installed testing artifa
 Tests of the integrity of the build are enabled by default and can be run
 with ctest:
 
-```
+```bash
 ctest --test-dir build
 ```

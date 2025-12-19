@@ -194,6 +194,17 @@
    - `build_gfx1031.sh` injects `LD_LIBRARY_PATH` with sysdeps dist+stage `rocm_sysdeps/lib` (zstd/zlib/bzip2/liblzma/elfutils/libdrm/numactl) to let host tools like `llvm-min-tblgen` load `librocm_sysdeps_zstd.so.1` during amd-llvm build.
    - Manual copies of sysdeps zlib/zstd stage→dist were needed once; now scripted in configure helper.
    - Build still needs rerun after these fixes to confirm amd-llvm proceeds without `librocm_sysdeps_zstd.so.1` error; use `./configure_gfx1031.sh --no-check-clean` then `./build_gfx1031.sh`.
+
+24. **2025-12-19: OpenBLAS → SuiteSparse path fixed**
+   - SuiteSparse configure failed: `OpenBLASConfig.cmake` not found under `host-blas/dist`.
+   - `configure_gfx1031.sh` now symlinks host-blas stage → dist for cmake/pkgconfig/include/lib (host-math). Expected to unblock SuiteSparse/host-suite-sparse.
+   - Clean reconfigure done; rerun `./build_gfx1031.sh --skip-configure` to validate.
+
+25. **2025-12-19: Build helper hygiene (hipcc notice + clang 18 enum fix)**
+   - `configure_gfx1031.sh` now warns loudly if hipcc/amdclang++ is missing (bootstrap still proceeds with host clang++) so we remember to switch to ROCm toolchain after Stage 1.
+   - Added `-Wno-enum-constexpr-conversion` via `CMAKE_CXX_FLAGS` to tolerate SPIR-V headers with large enum sentinels when compiling with clang 18 (fixes clang error in spirv-llvm-translator).
+   - `build_gfx1031.sh` extends `LD_LIBRARY_PATH` to include the raw `build/.../zlib|zstd/build/b` directories in addition to stage/dist `rocm_sysdeps` to keep host tools (llvm-min-tblgen, etc.) finding `librocm_sysdeps_z*.so` during early compiler build.
+   - Next step: rerun `./configure_gfx1031.sh --clean` then `./build_gfx1031.sh --skip-configure` to verify amd-llvm now builds cleanly.
 ## TODO / Watchouts
 
 - When new third-party packages are added, verify their `dist/` directories are populated before dependent projects configure.  

@@ -127,6 +127,9 @@ elif command -v hipcc >/dev/null 2>&1; then
 elif command -v amdclang++ >/dev/null 2>&1; then
   HIP_COMPILER="$(command -v amdclang++)"
 fi
+if [[ -z "${HIP_COMPILER}" ]]; then
+  echo "WARNING: hipcc/amdclang++ not found; HIP projects will use host clang++ (bootstrap stage). Install ROCm toolchain or set CMAKE_HIP_COMPILER." | tee -a "${LOG_FILE}"
+fi
 if [[ ! -d "${ROOT}/rocm-libraries" || ! -d "${ROOT}/rocm-systems" ]]; then
   echo "Missing sources; run: python3 ./build_tools/fetch_sources.py" >&2
   exit 1
@@ -168,6 +171,7 @@ cmake_args=(
   -DTHEROCK_DIST_AMDGPU_TARGETS="${TARGETS}"
   -DTHEROCK_DIST_AMDGPU_FAMILIES="${TARGETS}"
   -DTHEROCK_ENABLE_ALL=OFF
+  -DSPDLOG_FMT_EXTERNAL=OFF
   -DTHEROCK_ENABLE_COMPILER=$(bool_on_off "${ENABLE_COMPILER}")
   -DTHEROCK_ENABLE_CORE_RUNTIME=$(bool_on_off "${ENABLE_CORE_RUNTIME}")
   -DTHEROCK_ENABLE_HIP_RUNTIME=$(bool_on_off "${ENABLE_HIP_RUNTIME}")
@@ -190,6 +194,7 @@ cmake_args=(
   -DTHEROCK_ENABLE_DC_TOOLS=$(bool_on_off "${ENABLE_DC_TOOLS}")
   -DBUILD_TESTING=$(bool_on_off "${ENABLE_BUILD_TESTING}")
   -DTHEROCK_MIOPEN_USE_COMPOSABLE_KERNEL=$(bool_on_off "${ENABLE_COMPOSABLE_KERNEL}")
+  -DCMAKE_CXX_FLAGS="-Wno-enum-constexpr-conversion"
   -DCMAKE_C_COMPILER=clang
   -DCMAKE_CXX_COMPILER=clang++
   -DCMAKE_C_COMPILER_LAUNCHER=ccache
@@ -205,24 +210,12 @@ run_cmd_array cmake -B build -GNinja . "${cmake_args[@]}" "${EXTRA_CMAKE_ARGS[@]
 post_stage_to_dist() {
   local src="$1"
   local dest="$2"
-  # If stage already exists, copy configs right away.
-  # On a fresh clean build, drop a symlink so the dist path is populated as soon as stage appears.
-  if [[ -d "${src}" ]]; then
-    # If dest already exists, refresh it to avoid copying over self-referential symlinks.
-    if [[ -e "${dest}" ]]; then
-      if [[ -L "${dest}" ]] && [[ "$(readlink -f "${dest}")" == "$(readlink -f "${src}")" ]]; then
-        return
-      fi
-      rm -rf "${dest}"
-    fi
-    mkdir -p "${dest}"
-    cp -a "${src}"/. "${dest}"/
-  else
-    mkdir -p "$(dirname "${dest}")"
-    if [[ ! -e "${dest}" && ! -L "${dest}" ]]; then
-      ln -s "${src}" "${dest}"
-    fi
+  # Keep dist in sync with stage via symlink; works even before stage exists.
+  mkdir -p "$(dirname "${dest}")"
+  if [[ -e "${dest}" || -L "${dest}" ]]; then
+    rm -rf "${dest}"
   fi
+  ln -s "${src}" "${dest}"
 }
 
 # rocm-cmake provides ROCmCMakeBuildTools/ROCM configs
@@ -248,7 +241,18 @@ post_stage_to_dist "${ROOT}/build/third-party/FunctionalPlus/stage" \
                    "${ROOT}/build/third-party/FunctionalPlus/dist"
 post_stage_to_dist "${ROOT}/build/third-party/eigen/stage" \
                    "${ROOT}/build/third-party/eigen/dist"
+# host-blas (OpenBLAS) -> provide CMake config for SuiteSparse
+post_stage_to_dist "${ROOT}/build/third-party/host-blas/stage/lib/host-math/lib/cmake" \
+                   "${ROOT}/build/third-party/host-blas/dist/lib/host-math/lib/cmake"
+post_stage_to_dist "${ROOT}/build/third-party/host-blas/stage/lib/host-math/lib/pkgconfig" \
+                   "${ROOT}/build/third-party/host-blas/dist/lib/host-math/lib/pkgconfig"
+post_stage_to_dist "${ROOT}/build/third-party/host-blas/stage/lib/host-math/include" \
+                   "${ROOT}/build/third-party/host-blas/dist/lib/host-math/include"
+post_stage_to_dist "${ROOT}/build/third-party/host-blas/stage/lib/host-math/lib" \
+                   "${ROOT}/build/third-party/host-blas/dist/lib/host-math/lib"
 post_stage_to_dist "${ROOT}/build/third-party/sysdeps/linux/zlib/build/stage" \
                    "${ROOT}/build/third-party/sysdeps/linux/zlib/build/dist"
 post_stage_to_dist "${ROOT}/build/third-party/sysdeps/linux/zstd/build/stage" \
                    "${ROOT}/build/third-party/sysdeps/linux/zstd/build/dist"
+
+echo "Configure complete. Next: ./build_gfx1031.sh (use --skip-configure to reuse) " | tee -a "${LOG_FILE}"

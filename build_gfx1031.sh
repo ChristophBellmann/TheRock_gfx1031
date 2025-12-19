@@ -114,10 +114,13 @@ run_cmd() {
   local cmd="$1"
   # Ensure sysdeps shared libs are found by host tools during the build (llvm-min-tblgen, etc.)
   local sysdeps_libs=(
+    "${ROOT}/build/dist/rocm/lib/rocm_sysdeps/lib"
     "${ROOT}/build/third-party/sysdeps/linux/zstd/build/dist/lib/rocm_sysdeps/lib"
     "${ROOT}/build/third-party/sysdeps/linux/zstd/build/stage/lib/rocm_sysdeps/lib"
+    "${ROOT}/build/third-party/sysdeps/linux/zstd/build/build/b"
     "${ROOT}/build/third-party/sysdeps/linux/zlib/build/dist/lib/rocm_sysdeps/lib"
     "${ROOT}/build/third-party/sysdeps/linux/zlib/build/stage/lib/rocm_sysdeps/lib"
+    "${ROOT}/build/third-party/sysdeps/linux/zlib/build/build/b"
     "${ROOT}/build/third-party/sysdeps/linux/bzip2/build/dist/lib/rocm_sysdeps/lib"
     "${ROOT}/build/third-party/sysdeps/linux/bzip2/build/stage/lib/rocm_sysdeps/lib"
     "${ROOT}/build/third-party/sysdeps/linux/liblzma/build/dist/lib/rocm_sysdeps/lib"
