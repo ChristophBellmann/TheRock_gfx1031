@@ -34,13 +34,13 @@
 5. **CMake version compatibility (fftw3 / c-ares)**  
    The venv `pip install cmake` (4.x) breaks third-party builds that still use `cmake_minimum_required(<3.5)` (fftw3, grpc/cares). Use system CMake 3.28 (`/usr/bin/cmake`) and remove the venv wrappers (`rm ~/.local/bin/cmake ~/.local/bin/cpack ~/.local/bin/ctest`) to avoid patching external sources.
 
-6. **In-tree ROCm env helper**  
-   Use `source ./rocm-env-therock.sh` to set `ROCM_PATH`/`HIP_PATH`/`LD_LIBRARY_PATH` and auto-activate `.venv` when present. This is the fastest way to run `rocminfo`, `rocm-smi`, `hipcc`, or tests against `build/dist/rocm` before system install.
+6. **In-tree ROCm env activation (tests)**  
+   Use `./test_gfx1031.sh` to run sanity/benchmarks; it auto-activates `.venv` (if present) and sets `ROCM_PATH`/`HIP_PATH`/`LD_LIBRARY_PATH` to `<builddir>/dist/rocm` (via `BUILD_DIR` / `--stage2`).
 
 7. **Verify gfx1031 HIP kernel/device-lib path (avoid generic fallback)**  
    The critical check is that HIP compiles and links against gfx1031-specific device libs, not generic compatibility bitcode.  
    ```
-   source ./rocm-env-therock.sh
+   ./test_gfx1031.sh --no-bench
    ls $HIP_DEVICE_LIB_PATH/oclc_isa_version_1031.bc
    hipcc -v tests/hipcc_check.cpp -o /tmp/hipcc_check 2>&1 | rg -n "gfx1031|oclc_isa_version_1031|amdgcn/bitcode"
    ```
@@ -49,7 +49,7 @@
    Verified on 2025-12-18: `hipcc -v` shows `-target-cpu gfx1031` and links `oclc_isa_version_1031.bc`.
 
 8. **Quick Bench Suite (gfx1031, RX 6700 XT)**  
-   Run after `source ./rocm-env-therock.sh`. Results captured on 2025-12-18:
+   Run after `./test_gfx1031.sh --no-bench` (or after exporting `ROCM_PATH`/`PATH`/`LD_LIBRARY_PATH` yourself). Results captured on 2025-12-18:
    ```
    rocfft-bench --length 1024 --precision single -t 0 -N 5
    # ~0.0122 ms, ~4.16 GFLOPS
@@ -90,11 +90,10 @@
    ```
 
 11. **2025-12-18: Partial rebuild (gfx1031) + docs update**
-   - Updated `README.md` to mention `rocm-env-therock.sh` for in-tree runtime use; build still uses only `.venv`.
-   - Added `rebuild_gfx1031_subprojects.sh` to make the expunge+rebuild loop repeatable
+   - Added a repeatable expunge+rebuild workflow (now lives in `./build_gfx1031.sh rebuild ...`).
      (now requires explicit targets; `--include-unsupported` opts into hipBLASLt/hipSPARSELt/rocWMMA).
    - Rotated `build.log` to `build.log.bak-20251218-171506` and continued logging to fresh `build.log`.
-   - Cleaned + rebuilt subprojects with memory limits and venv:
+   - Cleaned + rebuilt subprojects with memory limits and venv (historical commands):
      ```
      systemd-run --user --scope -p MemoryHigh=28G -p MemoryMax=31G bash -lc 'source .venv/bin/activate && cmake --build build --target hipBLASLt+expunge'
      systemd-run --user --scope -p MemoryHigh=28G -p MemoryMax=31G bash -lc 'source .venv/bin/activate && cmake --build build --target hipSPARSELt+expunge'
@@ -165,7 +164,7 @@
    - Scripts fail fast if clang/clang++ are missing; ccache launchers remain enabled.
 
 18. **2025-12-18: Switch helper builds to ninja**
-   - `build_gfx1031.sh` and `rebuild_gfx1031_subprojects.sh` now call `ninja -C build` directly instead of `cmake --build build`.
+   - The helper scripts call `ninja -C <builddir>` directly instead of `cmake --build` to avoid extra process spawning and ordering surprises.
    - Added a `ninja` availability check; keeps expunge + target sequencing explicit.
 
 19. **2025-12-18: Helper QoL (ccache & venv automation)**
@@ -187,17 +186,17 @@
    - Configure succeeds with clang18, BUILD_TESTING=OFF, ROCPROFSYS=OFF, hipBLASLt/hipSPARSELt/ROCWMMA=OFF.
    - `build_gfx1031.sh --skip-configure` fails during configure of `rocm-half` and `grpc`: missing `ROCmCMakeBuildTools` (from rocm-cmake) and `ZLIBConfig.cmake` (from sysdeps zlib) under `dist/share/...`.
    - Root cause: missing/empty `dist/` configs during early parallel configures (and earlier also a Python3 scoping issue that prevented the stage→dist population rules from running reliably).
-   - Fix (current state): add a dedicated bootstrap step (`./bootstrap_gfx1031.sh`) which builds the minimal `+dist` targets (rocm-cmake + sysdeps + host-blas + common CMake-config deps) before the full build runs.
+   - Fix (current state): add a dedicated bootstrap step (`./build_gfx1031.sh bootstrap`) which builds the minimal `+dist` targets (rocm-cmake + sysdeps + host-blas + common CMake-config deps) before the full build runs.
 
 23. **2025-12-19: Helpers hardened (sysdeps stage→dist + LD_LIBRARY_PATH for host tools)**
-   - `bootstrap_gfx1031.sh` builds a minimal set of `+dist` targets so dependent `find_package(...)` calls can resolve reliably during later parallel configures.
+   - `./build_gfx1031.sh bootstrap` builds a minimal set of `+dist` targets so dependent `find_package(...)` calls can resolve reliably during later parallel configures.
    - `build_gfx1031.sh` injects `LD_LIBRARY_PATH` with sysdeps dist+stage `rocm_sysdeps/lib` (zstd/zlib/bzip2/liblzma/elfutils/libdrm/numactl) to let host tools like `llvm-min-tblgen` load `librocm_sysdeps_zstd.so.1` during amd-llvm build.
    - Current state: helpers set `LD_LIBRARY_PATH` explicitly (no inheritance by default) to avoid mixing with `/opt/rocm-*`.
 
 24. **2025-12-19: OpenBLAS → SuiteSparse path fixed**
    - SuiteSparse configure failed: `OpenBLASConfig.cmake` not found under `host-blas/dist`.
-   - Fix (current state): `bootstrap_gfx1031.sh` includes `therock-host-blas+dist` so `host-blas/dist` is populated before SuiteSparse configures.
-   - Re-run `./bootstrap_gfx1031.sh` after configure to validate.
+   - Fix (current state): bootstrap includes `therock-host-blas+dist` so `host-blas/dist` is populated before SuiteSparse configures.
+   - Re-run `./build_gfx1031.sh bootstrap` after configure to validate.
 
 25. **2025-12-19: Build helper hygiene (hipcc notice + clang 18 enum fix)**
    - `configure_gfx1031.sh` now warns loudly if hipcc/amdclang++ is missing (bootstrap still proceeds with host clang++) so we remember to switch to ROCm toolchain after Stage 1.
@@ -206,7 +205,7 @@
    - Next step: rerun `./configure_gfx1031.sh --clean` then `./build_gfx1031.sh --skip-configure` to verify amd-llvm now builds cleanly.
 
 26. **2025-12-19: Add explicit bootstrap step for third-party/sysdeps**
-   - Added `bootstrap_gfx1031.sh` to build the minimum `+dist` targets that tend to be needed early (rocm-cmake, sysdeps zlib/zstd, host-blas, and a few common CMake-config deps) before the full parallel superbuild runs.
+   - Added a bootstrap step (`./build_gfx1031.sh bootstrap`) to build the minimum `+dist` targets that tend to be needed early (rocm-cmake, sysdeps zlib/zstd, host-blas, and a few common CMake-config deps) before the full parallel superbuild runs.
    - Goal: avoid intermittent configure failures during the full build due to missing `*Config.cmake` under `dist/` and missing `librocm_sysdeps_*.so` for host tools.
    - Status: script is new; needs validation as part of a full clean run (configure → bootstrap → build).
 
@@ -221,9 +220,9 @@
    - Added `--no-clean` for the rare case where an in-place reconfigure is desired.
 
 29. **2025-12-19: Move stage→dist sync into bootstrap + unify logging**
-   - Centralized early dependency preparation into `bootstrap_gfx1031.sh` so `configure_gfx1031.sh` stays “pure”.
+   - Centralized early dependency preparation into `./build_gfx1031.sh bootstrap` so `configure_gfx1031.sh` stays “pure”.
    - Later refined bootstrap to build `+dist` targets directly (instead of stage→dist symlinks) to avoid symlink edge cases while still providing early `dist/` CMake configs.
-   - `bootstrap_gfx1031.sh` now appends to `build.log` (same log as configure/build) instead of using a separate `bootstrap.log`.
+   - Bootstrap appends to `build.log` (same log as configure/build).
    - Downgraded the hipcc “missing” message from WARNING to INFO and clarified that hipcc appears only after the compiler/toolchain is built+installed into `./install` (not after the third-party bootstrap step).
 
 30. **2025-12-19: Avoid system hipcc fallback (ensure in-tree HIP toolchain)**
@@ -232,11 +231,11 @@
 
 31. **2025-12-19: amd-llvm failed in rocr-runtime configure (missing NUMAConfig)**
    - Failure: `rocr-runtime` (libhsakmt) `find_package(NUMA)` failed because `NUMAConfig.cmake` was expected under `build/third-party/sysdeps/linux/numactl/build/dist/lib/rocm_sysdeps/lib/cmake/NUMA` but sysdeps `therock-numactl` was never built in bootstrap.
-   - Fix (current state): `bootstrap_gfx1031.sh` includes `therock-numactl+dist` and verifies `numa-config.cmake` exists under `dist/`.
+   - Fix (current state): bootstrap includes `therock-numactl+dist` and verifies `numa-config.cmake` exists under `dist/`.
 
 32. **2025-12-19: amd-llvm rocr-runtime configure needed LibElfConfig (elfutils)**
    - Failure: `rocr-runtime` (hsa-runtime) `find_package(LibElf)` expected `build/third-party/sysdeps/linux/elfutils/build/dist/lib/rocm_sysdeps/lib/cmake/LibElf` but sysdeps `therock-elfutils` was not in bootstrap.
-   - Fix (current state): `bootstrap_gfx1031.sh` includes `therock-elfutils+dist` and verifies `libelf-config.cmake` exists under `dist/`.
+   - Fix (current state): bootstrap includes `therock-elfutils+dist` and verifies `libelf-config.cmake` exists under `dist/`.
 
 33. **2025-12-19: Dist dirs stayed empty (Python3_EXECUTABLE not exported) → find_package failures**
    - Symptom: subproject configures (notably `amd-comgr-impl`) failed with messages like:
@@ -258,8 +257,8 @@
    - Recovery: reconfigure (`./configure_gfx1031.sh --no-clean --no-check-clean`), then `ninja -C build ROCR-Runtime+expunge`, then resume via `./build_gfx1031.sh --skip-configure --detach`.
 
 36. **2025-12-19: Bootstrap now builds +dist (no stage→dist symlinks)**
-   - `bootstrap_gfx1031.sh` now uses `+dist` targets instead of creating stage→dist symlinks. This avoids symlink-related edge cases and ensures `dist/` CMake configs are real directories.
-   - `bootstrap_gfx1031.sh` and `build_gfx1031.sh` now default to *not inheriting* `LD_LIBRARY_PATH` (to avoid accidentally pulling in `/opt/rocm-*`). Set `PRESERVE_LD_LIBRARY_PATH=1` if you explicitly want to append the inherited path.
+   - The bootstrap step uses `+dist` targets instead of creating stage→dist symlinks. This avoids symlink-related edge cases and ensures `dist/` CMake configs are real directories.
+   - `build_gfx1031.sh` defaults to *not inheriting* `LD_LIBRARY_PATH` (to avoid accidentally pulling in `/opt/rocm-*`). Set `PRESERVE_LD_LIBRARY_PATH=1` if you explicitly want to append the inherited path.
 
 37. **2025-12-19: rocSPARSE stage install failed when BUILD_CLIENTS_TESTS=OFF**
    - Failure: `rocSPARSE+stage` ran `cmake --install` and failed with:
@@ -282,7 +281,7 @@
      - `configure_gfx1031.sh` now forces `ROCM_PATH/ROCM_DIR/ROCM_ROOT` and `HIP_PATH/HIP_DIR/HIP_ROOT_DIR` to the in-tree toolchain root at `build/core/clr/dist`.
      - `base/CMakeLists.txt` passes these ROCm root variables explicitly to `amdsmi` to prevent it defaulting to `/opt/rocm`.
      - `base/CMakeLists.txt` also overrides `CPACK_PACKAGING_INSTALL_PREFIX` for `rocm-core` and `rocm_smi_lib` to avoid `/opt/rocm` leaking into caches via packaging defaults.
-   - Recovery: requires a clean rebuild (`rm -rf build && ./configure_gfx1031.sh && ./bootstrap_gfx1031.sh && ./build_gfx1031.sh ...`).
+   - Recovery: requires a clean rebuild (`rm -rf build && ./configure_gfx1031.sh && ./build_gfx1031.sh bootstrap && ./build_gfx1031.sh build ...`).
 
 40. **2025-12-19: amd-llvm build failed due to -Werror (enum-constexpr-conversion)**
    - Failure: `amd-llvm` (spirv-llvm-translator) compiled with `-Werror` and failed on clang diagnostics:
@@ -303,8 +302,8 @@
        compilers/linker are set to the Stage-1 in-tree `clang/clang++/lld`, so even
        subprojects that forget `COMPILER_TOOLCHAIN` don't fall back to system clang.
    - Helpers:
-     - `./configure_stage1_gfx1031.sh`, `./bootstrap_stage1_gfx1031.sh`, `./build_stage1_gfx1031.sh`
-     - `./configure_stage2_gfx1031.sh`, `./bootstrap_stage2_gfx1031.sh`, `./build_stage2_gfx1031.sh`
+     - `./configure_gfx1031.sh --stage1` / `./build_gfx1031.sh bootstrap --stage1` / `./build_gfx1031.sh build --stage1`
+     - `./configure_gfx1031.sh --stage2` / `./build_gfx1031.sh bootstrap --stage2` / `./build_gfx1031.sh build --stage2`
    - Notes:
      - Do not switch compilers in-place inside a build directory; always use a new build dir.
      - `configure_gfx1031.sh` supports `BUILD_DIR`, `STAGE`, and `STAGE1_BUILD_DIR` env vars.

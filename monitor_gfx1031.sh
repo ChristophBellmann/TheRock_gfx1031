@@ -2,7 +2,8 @@
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-UNIT="${UNIT:-therock-gfx1031-build.service}"
+BUILD_DIR="${BUILD_DIR:-build}"
+UNIT="${UNIT:-therock-gfx1031-${BUILD_DIR}-build.service}"
 LOG_FILE="${LOG_FILE:-${ROOT}/build.log}"
 INTERVAL_SEC="${INTERVAL_SEC:-30}"
 DURATION_SEC="${DURATION_SEC:-0}" # 0 = infinite
@@ -24,6 +25,7 @@ Options:
 Environment:
   UNIT           systemd user unit (default: therock-gfx1031-build.service)
   LOG_FILE       build log file (default: ./build.log)
+  BUILD_DIR      build directory name (default: build; used to derive UNIT default)
 EOF
 }
 

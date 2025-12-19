@@ -82,15 +82,15 @@ the in-tree ROCm toolchain, use two build directories:
 Workflow:
 
 ```bash
-# Stage-1: toolchain only (system clang)
-./configure_stage1_gfx1031.sh
-./bootstrap_stage1_gfx1031.sh
-./build_stage1_gfx1031.sh --detach
+# Stage-1: toolchain only (system clang, build-stage1)
+./configure_gfx1031.sh --stage1
+./build_gfx1031.sh bootstrap --stage1
+./build_gfx1031.sh build --stage1 --detach
 
 # Stage-2: full build (TheRock toolchain, fresh build dir)
-./configure_stage2_gfx1031.sh
-./bootstrap_stage2_gfx1031.sh
-./build_stage2_gfx1031.sh --detach
+./configure_gfx1031.sh --stage2
+./build_gfx1031.sh bootstrap --stage2
+./build_gfx1031.sh build --stage2 --detach
 ```
 
 Important: **Never** switch compilers inside the same build directory. Always
@@ -179,7 +179,7 @@ third‑party/sysdeps bits that tend to be needed early (so later parallel
 subproject configures don’t fail on missing `*Config.cmake` or sysdeps libs):
 
 ```bash
-./bootstrap_gfx1031.sh
+./build_gfx1031.sh bootstrap
 ```
 
 It uses `ninja` under the same systemd RAM limits, appends to `build.log`, and
@@ -192,7 +192,7 @@ Ja: für HIP-Projekte wird sichergestellt, dass **nicht GCC** und **nicht ein be
 
 - **Innerhalb des TheRock-Superbuilds:** HIP-lastige Subprojekte deklarieren explizit `COMPILER_TOOLCHAIN amd-hip` (siehe z. B. `math-libs/BLAS/CMakeLists.txt`). Dadurch wird die in-tree Toolchain aus `amd-llvm`/`hip-clr` verwendet (inkl. `--hip-path`/Device Libs) – unabhängig davon, ob ein system-weites `hipcc` existiert.
 - **Für CMake-HIP-Language Projekte (falls verwendet):** `configure_gfx1031.sh` setzt `CMAKE_HIP_COMPILER` **nur**, wenn `./install/bin/hipcc` existiert. Es wird **nicht** automatisch auf `/opt/rocm/bin/hipcc` zurückgefallen (vermeidet ABI/Version-Mix).
-- **Für externe Builds (PyTorch/Whisper/etc):** nach dem Build `source ./rocm-env-therock.sh` ausführen; das setzt `PATH` so, dass das in-tree `hipcc`/`amdclang++` bevorzugt wird.
+- **Für externe Builds (PyTorch/Whisper/etc):** setze `ROCM_PATH` auf den in-tree dist Prefix (z. B. `build-stage2/dist/rocm`) und prepend `PATH/LD_LIBRARY_PATH` entsprechend (siehe Abschnitt “Environment activation” weiter unten).
 
 ### Supported gfx103X GPUs in This Build
 
@@ -327,18 +327,15 @@ The following component flags for selected subsets are not used:
 
 ### Clean build helper (gfx1031)
 
-For a fresh, repeatable full build that checks the build directory is clean,
-use the helper script:
+For a fresh, repeatable build, use:
 
 ```bash
-./build_gfx1031.sh
+./build_gfx1031.sh build
 ```
 
-It uses the recommended gfx1031 profile (LLM/Vision/Audio), enables ccache, and
-applies the same RAM limits. Host compiler is set to `clang/clang++` and builds
-run via `ninja` (no `cmake --build`). If
-`build/` already exists and is not empty, the script will stop unless you pass
-`--clean` (delete `build/`) or `--no-check-clean` (skip the clean check).
+This runs `ninja -C <builddir>` under systemd memory limits and appends to `build.log`.
+Configure is handled separately by `./configure_gfx1031.sh` to avoid accidentally
+switching compilers/flags inside an existing build directory.
 
 ### Typical workflows
 
@@ -347,23 +344,19 @@ run via `ninja` (no `cmake --build`). If
   - then run:
 ```bash
 ./configure_gfx1031.sh 
-./bootstrap_gfx1031.sh
-./build_gfx1031.sh
+./build_gfx1031.sh bootstrap
+./build_gfx1031.sh build
 ```
 - Clean reconfigure + build (clang + ninja):
   ```bash
   ./configure_gfx1031.sh
-  ./bootstrap_gfx1031.sh
-  ./build_gfx1031.sh
-  ```
-- Clean build in einem Schritt (configure + build):
-  ```bash
-  ./build_gfx1031.sh --clean
+  ./build_gfx1031.sh bootstrap
+  ./build_gfx1031.sh build
   ```
 - Teil-Rebuild einzelner Targets (expunge + Log-Rotation):
   ```bash
-  ./rebuild_gfx1031_subprojects.sh hipBLAS rocBLAS
-  ./rebuild_gfx1031_subprojects.sh --no-expunge hipSPARSE
+  ./build_gfx1031.sh rebuild hipBLAS rocBLAS
+  ./build_gfx1031.sh rebuild hipSPARSE
   ```
 - Nach dem Build: Sanity + Benchmarks:
   ```bash
@@ -388,15 +381,15 @@ Nach dem Configure sollte einmal gebootstrapped werden, damit frühe `find_packa
 Auflösungen während des eigentlichen Builds nicht an fehlenden `*Config.cmake`/sysdeps scheitern:
 
 ```bash
-./bootstrap_gfx1031.sh
+./build_gfx1031.sh bootstrap
 ```
 
-`bootstrap_gfx1031.sh` schreibt wie Configure/Build nach `build.log` (append).
+Der Bootstrap schreibt wie Configure/Build nach `build.log` (append).
 
 ### LD_LIBRARY_PATH hygiene (avoid /opt/rocm mixing)
 
-- `build_gfx1031.sh` und `bootstrap_gfx1031.sh` setzen `LD_LIBRARY_PATH` **explizit** nur auf die in-tree sysdeps Pfade (und erben standardmäßig nichts), um versehentliche ABI/Version-Mixes mit z. B. `/opt/rocm-*` zu vermeiden.
-- Falls du bewusst etwas erben willst: `PRESERVE_LD_LIBRARY_PATH=1 ./build_gfx1031.sh ...` (gleiches gilt für `bootstrap_gfx1031.sh`).
+- `build_gfx1031.sh` setzt `LD_LIBRARY_PATH` **explizit** nur auf die in-tree sysdeps Pfade (und erbt standardmäßig nichts), um versehentliche ABI/Version-Mixes mit z. B. `/opt/rocm-*` zu vermeiden.
+- Falls du bewusst etwas erben willst: `PRESERVE_LD_LIBRARY_PATH=1 ./build_gfx1031.sh ...`.
 
 ### Build monitoring (detached)
 
@@ -445,7 +438,7 @@ pro Subprojekt in `build/logs/*_build.log`.
 - **Phase 1 (default in helpers):** ROCm stack stabil bauen, `THEROCK_ENABLE_ROCPROFSYS=OFF`.
 - **Phase 2 (optional):** `rocprofiler-systems` separat mit GCC bauen/installen via:
   ```bash
-  ./configure_build_rocprofiler.sh
+  ./build_gfx1031.sh rocprofiler-gcc
   ```
 
 ### Quick test helper (gfx1031)
@@ -463,19 +456,17 @@ stdout and saved to `test_gfx1031.log`.
 
 ### Environment activation (in-tree ROCm)
 
-After a successful build, you can source the helper to run tools against the
-in-tree ROCm install at `build/dist/rocm`:
+After a successful build, you can run tools against the in-tree ROCm install
+under `<builddir>/dist/rocm` by setting:
 
 ```bash
-source ./rocm-env-therock.sh
+export ROCM_PATH="$PWD/build/dist/rocm"
+export PATH="$ROCM_PATH/bin:$ROCM_PATH/llvm/bin:$PATH"
+export LD_LIBRARY_PATH="$ROCM_PATH/lib:$ROCM_PATH/lib64:$ROCM_PATH/lib/rocm_sysdeps/lib:$ROCM_PATH/llvm/lib:${LD_LIBRARY_PATH:-}"
 ```
 
 Notes:
-- This helper is intended for running tools/tests against the built tree.
-  It will fail if `build/dist/rocm` does not exist yet.
-- For building, just activate the virtualenv (`source .venv/bin/activate`);
-  `rocm-env-therock.sh` will do that automatically when present, but it is not
-  required for CMake itself.
+- `./test_gfx1031.sh` performs this activation automatically (based on `BUILD_DIR`), and is the simplest way to run sanity/benchmarks.
 
 ### Repeatable rebuild (with RAM limits)
 
@@ -483,13 +474,13 @@ Use the helper script for consistent, logged rebuilds with the same memory
 limits used in this branch:
 
 ```bash
-./rebuild_gfx1031_subprojects.sh <targets...>
+./build_gfx1031.sh rebuild <targets...>
 ```
 
 Defaults use `MemoryHigh=28G` and `MemoryMax=31G`. Override if needed:
 
 ```bash
-MEM_HIGH=28G MEM_MAX=31G ./rebuild_gfx1031_subprojects.sh <targets...>
+MEM_HIGH=28G MEM_MAX=31G ./build_gfx1031.sh rebuild <targets...>
 ```
 
 ### Running tests ?

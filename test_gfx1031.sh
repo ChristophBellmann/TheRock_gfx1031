@@ -6,6 +6,7 @@ LOG_FILE="${ROOT}/test_gfx1031.log"
 MODE="quick"
 RUN_SANITY=1
 RUN_BENCH=1
+BUILD_DIR="${BUILD_DIR:-build}"
 
 usage() {
   cat <<'EOF_USAGE'
@@ -16,12 +17,17 @@ Options:
   --full         Longer benchmarks (bigger sizes / more iters)
   --no-bench     Skip performance benchmarks
   --bench-only   Run benchmarks only
+  --stage1       Use BUILD_DIR=build-stage1
+  --stage2       Use BUILD_DIR=build-stage2
+  --build-dir <dir>
+                Override build directory (default: build)
   -h, --help     Show this help
 
 Environment overrides:
   BENCH_SIZE       override GEMM size (default 2048 quick, 4096 full)
   BENCH_ITERS      override iterations (default 10 quick, 20 full)
   TEST_LOG         override log file (default test_gfx1031.log)
+  BUILD_DIR        build directory name (default build)
 EOF_USAGE
 }
 
@@ -44,6 +50,18 @@ while [[ $# -gt 0 ]]; do
       RUN_BENCH=1
       shift
       ;;
+    --stage1)
+      BUILD_DIR="build-stage1"
+      shift
+      ;;
+    --stage2)
+      BUILD_DIR="build-stage2"
+      shift
+      ;;
+    --build-dir)
+      BUILD_DIR="${2:-}"
+      shift 2
+      ;;
     -h|--help)
       usage
       exit 0
@@ -60,20 +78,34 @@ if [[ -n "${TEST_LOG:-}" ]]; then
   LOG_FILE="${TEST_LOG}"
 fi
 
-if [[ -f "${ROOT}/rocm-env-therock.sh" ]]; then
-  # Intended for in-tree runtime tests; activates .venv if present.
+if [[ -f "${ROOT}/.venv/bin/activate" ]] && [[ -z "${VIRTUAL_ENV:-}" ]]; then
+  # Activate venv for helper tools if present.
   # shellcheck disable=SC1091
-  source "${ROOT}/rocm-env-therock.sh"
-else
-  if [[ -d "${ROOT}/build/dist/rocm" ]]; then
-    export ROCM_PATH="${ROOT}/build/dist/rocm"
-    export PATH="${ROCM_PATH}/bin:${PATH}"
-    export LD_LIBRARY_PATH="${ROCM_PATH}/lib:${ROCM_PATH}/lib64:${LD_LIBRARY_PATH:-}"
+  source "${ROOT}/.venv/bin/activate"
+fi
+
+ROCM_PATH_DEFAULT="${ROOT}/${BUILD_DIR}/dist/rocm"
+ROCM_PATH="${ROCM_PATH:-${ROCM_PATH_DEFAULT}}"
+if [[ ! -d "${ROCM_PATH}" ]]; then
+  echo "ROCM_PATH not found: ${ROCM_PATH}" >&2
+  echo "Build first (expected default: ${ROCM_PATH_DEFAULT})." >&2
+  exit 1
+fi
+
+export ROCM_PATH
+export HIP_PATH="${HIP_PATH:-$ROCM_PATH}"
+export HSA_PATH="${HSA_PATH:-$ROCM_PATH}"
+export PATH="$ROCM_PATH/bin:$ROCM_PATH/llvm/bin:${PATH:-}"
+export LD_LIBRARY_PATH="$ROCM_PATH/lib:$ROCM_PATH/lib64:$ROCM_PATH/lib/rocm_sysdeps/lib:$ROCM_PATH/llvm/lib:${LD_LIBRARY_PATH:-}"
+if [[ -z "${HIP_DEVICE_LIB_PATH:-}" ]]; then
+  if [[ -d "$ROCM_PATH/lib/llvm/amdgcn/bitcode" ]]; then
+    export HIP_DEVICE_LIB_PATH="$ROCM_PATH/lib/llvm/amdgcn/bitcode"
   else
-    echo "Missing build/dist/rocm; build first." >&2
-    exit 1
+    export HIP_DEVICE_LIB_PATH="$ROCM_PATH/amdgcn/bitcode"
   fi
 fi
+
+echo "Activated in-tree ROCm: ${ROCM_PATH}" | tee -a "${LOG_FILE}"
 
 if [[ -f "${LOG_FILE}" ]]; then
   ts="$(date +%Y%m%d-%H%M%S)"

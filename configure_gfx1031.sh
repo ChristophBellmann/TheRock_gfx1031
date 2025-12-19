@@ -43,6 +43,11 @@ Options:
   --clean           Remove build/ before configuring (default)
   --no-clean        Do not remove build/ before configuring
   --no-check-clean  Skip clean build directory check
+  --stage1          Configure Stage-1 toolchain build (BUILD_DIR=build-stage1, STAGE=1)
+  --stage2          Configure Stage-2 full build (BUILD_DIR=build-stage2, STAGE=2, STAGE1_BUILD_DIR=build-stage1)
+  --build-dir <dir> Override build directory (default: build)
+  --stage1-build-dir <dir>
+                   Stage-1 build directory used by --stage2 (default: build-stage1)
   -h, --help        Show this help
 
 Environment overrides:
@@ -67,6 +72,25 @@ while [[ $# -gt 0 ]]; do
     --no-check-clean)
       CHECK_CLEAN=0
       shift
+      ;;
+    --stage1)
+      STAGE=1
+      BUILD_DIR="build-stage1"
+      shift
+      ;;
+    --stage2)
+      STAGE=2
+      BUILD_DIR="build-stage2"
+      STAGE1_BUILD_DIR="${STAGE1_BUILD_DIR:-build-stage1}"
+      shift
+      ;;
+    --build-dir)
+      BUILD_DIR="${2:-}"
+      shift 2
+      ;;
+    --stage1-build-dir)
+      STAGE1_BUILD_DIR="${2:-}"
+      shift 2
       ;;
     -h|--help)
       usage
