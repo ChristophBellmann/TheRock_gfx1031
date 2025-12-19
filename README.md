@@ -275,6 +275,19 @@ Wenn der Build detached als `therock-gfx1031-build.service` läuft:
 ./monitor_gfx1031.sh --interval 30
 ```
 
+### 6h monitor (5min interval)
+
+Für lange Builds kann ein 6‑Stunden Monitor als eigener systemd‑User‑Service gestartet werden
+(pollt alle 5 Minuten und schreibt nach `monitor_6h.log`):
+
+```bash
+systemctl --user stop therock-gfx1031-monitor.service 2>/dev/null || true
+rm -f monitor_6h.log
+systemd-run --user --no-block --collect --unit therock-gfx1031-monitor \
+  bash -lc 'cd "/media/christoph/some_space/make_my_gpu_useful/TheRock_gfx1031" && ./monitor_gfx1031.sh --interval 300 --duration 21600 >> monitor_6h.log 2>&1'
+tail -f monitor_6h.log
+```
+
 Stoppen:
 ```bash
 systemctl --user stop therock-gfx1031-build.service
