@@ -56,6 +56,9 @@ if [[ ! -f "${ROOT}/.venv/bin/activate" ]]; then
   exit 1
 fi
 
+if [[ -x "${ROOT}/.local/bin/ccache" ]]; then
+  PATH="${ROOT}/.local/bin:${PATH}"
+fi
 if ! command -v ccache >/dev/null 2>&1; then
   echo "ccache not found; install it or run setup_ccache.py as in README." >&2
   exit 1

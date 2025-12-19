@@ -79,7 +79,7 @@ This build has been developed and tested on:
 - **Ninja:** 1.11.1.git.kitware.jobserver-1
 - **GCC:** 13.3.0
 - **Clang (host):** required (helper scripts enforce)
-- **ccache:** 4.9.1 (helpers require ccache; consider ≥4.11 for offload-compress)
+- **ccache:** 4.11.1 in-tree (`.local/bin/ccache`), helpers prepend it to PATH (≥4.11 recommended for offload-compress)
 ______________________________________________________________________
 
 ## Features
@@ -283,10 +283,10 @@ To build with the ccache compiler cache:
 * Proper setup of the compiler_check directive to do safe caching in the presence of compiler bootstrapping
 * Set the C/CXX compiler launcher options to cmake appropriately.
 
-The helper scripts (`configure_gfx1031.sh`, `build_gfx1031.sh`, `rebuild_gfx1031_subprojects.sh`) already set
-`CMAKE_*_COMPILER_LAUNCHER=ccache` and check for `ccache`. Run
-`./build_tools/setup_ccache.py` once per shell/session to export the recommended
-env (or configure ccache manually).
+The helper scripts (`configure_gfx1031.sh`, `build_gfx1031.sh`, `rebuild_gfx1031_subprojects.sh`) prepend the in-tree
+`.local/bin` (ccache 4.11.1) when present and set `CMAKE_*_COMPILER_LAUNCHER=ccache`.
+Run `./build_tools/setup_ccache.py` once per shell/session to export the recommended env
+(or configure ccache manually).
 
 Example:
 

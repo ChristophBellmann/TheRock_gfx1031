@@ -69,6 +69,9 @@ if [[ ${#TARGETS[@]} -eq 0 ]]; then
   fi
 fi
 
+if [[ -x "${ROOT}/.local/bin/ccache" ]]; then
+  PATH="${ROOT}/.local/bin:${PATH}"
+fi
 if [[ ! -f "${ROOT}/.venv/bin/activate" ]]; then
   echo "Missing .venv; run the README venv setup first." >&2
   exit 1
