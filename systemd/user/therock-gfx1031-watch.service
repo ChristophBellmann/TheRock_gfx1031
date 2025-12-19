@@ -1,0 +1,8 @@
+[Unit]
+Description=Watch TheRock gfx1031 build and auto-debug if it failed
+After=default.target
+
+[Service]
+Type=oneshot
+ExecStart=/usr/bin/bash -lc 'cd "/media/christoph/some_space/make_my_gpu_useful/TheRock_gfx1031" && ./auto_debug_on_fail_gfx1031.sh --unit "therock-gfx1031-build.service"'
+

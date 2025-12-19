@@ -288,6 +288,14 @@ Zusätzlich: Bei einem Fail wird automatisch ein OnFailure-Handler gestartet, de
 
 Der Handler loggt nach `autodebug.log` und nutzt `auto_debug_on_fail_gfx1031.sh`.
 
+Für laufende Builds (auch wenn sie vor der OnFailure-Integration gestartet wurden) kann optional ein Timer genutzt werden:
+```bash
+install -m 0644 systemd/user/therock-gfx1031-watch.service ~/.config/systemd/user/
+install -m 0644 systemd/user/therock-gfx1031-watch.timer ~/.config/systemd/user/
+systemctl --user daemon-reload
+systemctl --user enable --now therock-gfx1031-watch.timer
+```
+
 ### composable_kernel & MIOpen
 
 - `THEROCK_MIOPEN_USE_COMPOSABLE_KERNEL` wird im Helper an `THEROCK_ENABLE_COMPOSABLE_KERNEL` gespiegelt.
