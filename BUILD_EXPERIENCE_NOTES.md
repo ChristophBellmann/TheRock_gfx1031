@@ -260,6 +260,13 @@
 36. **2025-12-19: Bootstrap now builds +dist (no stage→dist symlinks)**
    - `bootstrap_gfx1031.sh` now uses `+dist` targets instead of creating stage→dist symlinks. This avoids symlink-related edge cases and ensures `dist/` CMake configs are real directories.
    - `bootstrap_gfx1031.sh` and `build_gfx1031.sh` now default to *not inheriting* `LD_LIBRARY_PATH` (to avoid accidentally pulling in `/opt/rocm-*`). Set `PRESERVE_LD_LIBRARY_PATH=1` if you explicitly want to append the inherited path.
+
+37. **2025-12-19: rocSPARSE stage install failed when BUILD_CLIENTS_TESTS=OFF**
+   - Failure: `rocSPARSE+stage` ran `cmake --install` and failed with:
+     - `file INSTALL cannot find ".../rocSPARSE/build/clients/matrices": No such file or directory.`
+   - Root cause: `math-libs/BLAS/pre_hook_rocSPARSE.cmake` unconditionally installed `${CMAKE_CURRENT_BINARY_DIR}/clients/matrices`, but that directory is only created when rocSPARSE client tests generate/copy matrices.
+   - Fix: mark the install rule as `OPTIONAL` so `cmake --install` doesn’t hard-fail when client tests (and matrices) are disabled.
+   - Recovery: `ninja -C build rocSPARSE+expunge rocSPARSE+stage` and then resume the full build.
 ## TODO / Watchouts
 
 - When new third-party packages are added, verify their `dist/` directories are populated before dependent projects configure.  
