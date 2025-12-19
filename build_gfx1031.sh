@@ -7,7 +7,7 @@ MEM_HIGH="${MEM_HIGH:-28G}"
 MEM_MAX="${MEM_MAX:-31G}"
 CHECK_CLEAN=1
 DO_CLEAN=0
-SKIP_CONFIGURE=0
+SKIP_CONFIGURE=1
 EXTRA_CMAKE_ARGS=()
 
 usage() {
@@ -17,7 +17,8 @@ Usage: build_gfx1031.sh [options] [-- <extra cmake args>]
 Options:
   --clean           Remove build/ before configuring
   --no-check-clean  Skip clean build directory check
-  --skip-configure  Do not re-run CMake configure (just build with ninja)
+  --configure       Re-run CMake configure before building (default: skip)
+  --skip-configure  Do not re-run CMake configure (default)
   -h, --help        Show this help
 
 Environment overrides:
@@ -38,6 +39,10 @@ while [[ $# -gt 0 ]]; do
       ;;
     --skip-configure)
       SKIP_CONFIGURE=1
+      shift
+      ;;
+    --configure)
+      SKIP_CONFIGURE=0
       shift
       ;;
     -h|--help)
@@ -62,9 +67,6 @@ if [[ ! -f "${ROOT}/.venv/bin/activate" ]]; then
   exit 1
 fi
 
-if [[ -x "${ROOT}/.local/bin/ccache" ]]; then
-  PATH="${ROOT}/.local/bin:${PATH}"
-fi
 if [[ -x "${ROOT}/.local/bin/ccache" ]]; then
   PATH="${ROOT}/.local/bin:${PATH}"
 fi
@@ -95,7 +97,8 @@ if (( DO_CLEAN )); then
   rm -rf "${ROOT}/build"
 fi
 
-if (( CHECK_CLEAN )); then
+# Only enforce a clean build dir when (re)configuring.
+if (( CHECK_CLEAN )) && (( SKIP_CONFIGURE == 0 )); then
   if [[ -d "${ROOT}/build" ]] && [[ -n "$(ls -A "${ROOT}/build" 2>/dev/null)" ]]; then
     echo "build/ is not clean. Use --clean or --no-check-clean." >&2
     exit 1
@@ -109,8 +112,29 @@ fi
 
 run_cmd() {
   local cmd="$1"
+  # Ensure sysdeps shared libs are found by host tools during the build (llvm-min-tblgen, etc.)
+  local sysdeps_libs=(
+    "${ROOT}/build/third-party/sysdeps/linux/zstd/build/dist/lib/rocm_sysdeps/lib"
+    "${ROOT}/build/third-party/sysdeps/linux/zstd/build/stage/lib/rocm_sysdeps/lib"
+    "${ROOT}/build/third-party/sysdeps/linux/zlib/build/dist/lib/rocm_sysdeps/lib"
+    "${ROOT}/build/third-party/sysdeps/linux/zlib/build/stage/lib/rocm_sysdeps/lib"
+    "${ROOT}/build/third-party/sysdeps/linux/bzip2/build/dist/lib/rocm_sysdeps/lib"
+    "${ROOT}/build/third-party/sysdeps/linux/bzip2/build/stage/lib/rocm_sysdeps/lib"
+    "${ROOT}/build/third-party/sysdeps/linux/liblzma/build/dist/lib/rocm_sysdeps/lib"
+    "${ROOT}/build/third-party/sysdeps/linux/liblzma/build/stage/lib/rocm_sysdeps/lib"
+    "${ROOT}/build/third-party/sysdeps/linux/elfutils/build/dist/lib/rocm_sysdeps/lib"
+    "${ROOT}/build/third-party/sysdeps/linux/elfutils/build/stage/lib/rocm_sysdeps/lib"
+    "${ROOT}/build/third-party/sysdeps/linux/libdrm/build/dist/lib/rocm_sysdeps/lib"
+    "${ROOT}/build/third-party/sysdeps/linux/libdrm/build/stage/lib/rocm_sysdeps/lib"
+    "${ROOT}/build/third-party/sysdeps/linux/numactl/build/dist/lib/rocm_sysdeps/lib"
+    "${ROOT}/build/third-party/sysdeps/linux/numactl/build/stage/lib/rocm_sysdeps/lib"
+  )
+  local ldpath=""
+  for p in "${sysdeps_libs[@]}"; do
+    [[ -d "$p" ]] && ldpath="${ldpath:+$ldpath:}$p"
+  done
   systemd-run --user --scope -p "MemoryHigh=${MEM_HIGH}" -p "MemoryMax=${MEM_MAX}" \
-    bash -lc "source \"${ROOT}/.venv/bin/activate\" && ${cmd}" 2>&1 | tee -a "${LOG_FILE}"
+    bash -lc "source \"${ROOT}/.venv/bin/activate\" && export LD_LIBRARY_PATH=\"${ldpath:+$ldpath:}\${LD_LIBRARY_PATH}\" && ${cmd}" 2>&1 | tee -a "${LOG_FILE}"
 }
 
 run_cmd_array() {
@@ -144,7 +168,8 @@ cmake_args=(
   -DTHEROCK_ENABLE_ROCWMMA=OFF
   -DTHEROCK_ENABLE_PROFILER=ON
   -DTHEROCK_ENABLE_DC_TOOLS=OFF
-  -DBUILD_TESTING=ON
+  -DTHEROCK_ENABLE_ROCPROFSYS=OFF
+  -DBUILD_TESTING=OFF
   -DCMAKE_C_COMPILER=clang
   -DCMAKE_CXX_COMPILER=clang++
   -DCMAKE_C_COMPILER_LAUNCHER=ccache

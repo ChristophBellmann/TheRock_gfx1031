@@ -189,6 +189,11 @@
    - Stage artifacts exist (`build/base/rocm-cmake/stage/share/rocmcmakebuildtools/cmake`, sysdeps zlib stage), but cmake configs are not present in corresponding `dist/` paths.
    - Workaround pending: copy cmake config dirs from stage→dist for rocm-cmake and sysdeps (zlib, possibly other pkgs), or set explicit `*_DIR`/`CMAKE_PREFIX_PATH` per subproject.
 
+23. **2025-12-19: Helpers hardened (sysdeps stage→dist + LD_LIBRARY_PATH for host tools)**
+   - `configure_gfx1031.sh` now copies/symlinks stage→dist for fmt/spdlog/yaml-cpp/nlohmann-json/FunctionalPlus/Eigen and sysdeps zlib+zstd so dependent subprojects find configs early (and to avoid missing ZLIB/ROCmCMakeBuildTools).
+   - `build_gfx1031.sh` injects `LD_LIBRARY_PATH` with sysdeps dist+stage `rocm_sysdeps/lib` (zstd/zlib/bzip2/liblzma/elfutils/libdrm/numactl) to let host tools like `llvm-min-tblgen` load `librocm_sysdeps_zstd.so.1` during amd-llvm build.
+   - Manual copies of sysdeps zlib/zstd stage→dist were needed once; now scripted in configure helper.
+   - Build still needs rerun after these fixes to confirm amd-llvm proceeds without `librocm_sysdeps_zstd.so.1` error; use `./configure_gfx1031.sh --no-check-clean` then `./build_gfx1031.sh`.
 ## TODO / Watchouts
 
 - When new third-party packages are added, verify their `dist/` directories are populated before dependent projects configure.  

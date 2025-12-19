@@ -30,6 +30,7 @@ ENABLE_ROCWMMA=false
 ENABLE_PROFILER=true
 ENABLE_DC_TOOLS=false
 ENABLE_BUILD_TESTING=false
+ENABLE_ROCPROFSYS=false  # Phase 1: build ROCm stack without rocprofiler-systems; separate GCC build later
 
 usage() {
   cat <<'EOF_USAGE'
@@ -185,6 +186,7 @@ cmake_args=(
   -DTHEROCK_ENABLE_RCCL=$(bool_on_off "${ENABLE_RCCL}")
   -DTHEROCK_ENABLE_ROCWMMA=$(bool_on_off "${ENABLE_ROCWMMA}")
   -DTHEROCK_ENABLE_PROFILER=$(bool_on_off "${ENABLE_PROFILER}")
+  -DTHEROCK_ENABLE_ROCPROFSYS=$(bool_on_off "${ENABLE_ROCPROFSYS}")
   -DTHEROCK_ENABLE_DC_TOOLS=$(bool_on_off "${ENABLE_DC_TOOLS}")
   -DBUILD_TESTING=$(bool_on_off "${ENABLE_BUILD_TESTING}")
   -DTHEROCK_MIOPEN_USE_COMPOSABLE_KERNEL=$(bool_on_off "${ENABLE_COMPOSABLE_KERNEL}")
@@ -198,3 +200,55 @@ if [[ -n "${HIP_COMPILER}" ]]; then
 fi
 
 run_cmd_array cmake -B build -GNinja . "${cmake_args[@]}" "${EXTRA_CMAKE_ARGS[@]}"
+
+# Copy stage cmake configs for deps that are needed early by other subprojects
+post_stage_to_dist() {
+  local src="$1"
+  local dest="$2"
+  # If stage already exists, copy configs right away.
+  # On a fresh clean build, drop a symlink so the dist path is populated as soon as stage appears.
+  if [[ -d "${src}" ]]; then
+    # If dest already exists, refresh it to avoid copying over self-referential symlinks.
+    if [[ -e "${dest}" ]]; then
+      if [[ -L "${dest}" ]] && [[ "$(readlink -f "${dest}")" == "$(readlink -f "${src}")" ]]; then
+        return
+      fi
+      rm -rf "${dest}"
+    fi
+    mkdir -p "${dest}"
+    cp -a "${src}"/. "${dest}"/
+  else
+    mkdir -p "$(dirname "${dest}")"
+    if [[ ! -e "${dest}" && ! -L "${dest}" ]]; then
+      ln -s "${src}" "${dest}"
+    fi
+  fi
+}
+
+# rocm-cmake provides ROCmCMakeBuildTools/ROCM configs
+post_stage_to_dist "${ROOT}/build/base/rocm-cmake/stage/share/rocmcmakebuildtools/cmake" \
+                   "${ROOT}/build/base/rocm-cmake/dist/share/rocmcmakebuildtools/cmake"
+post_stage_to_dist "${ROOT}/build/base/rocm-cmake/stage/share/rocm/cmake" \
+                   "${ROOT}/build/base/rocm-cmake/dist/share/rocm/cmake"
+
+# zlib config for grpc
+post_stage_to_dist "${ROOT}/build/third-party/sysdeps/linux/zlib/build/stage/lib/rocm_sysdeps/lib/cmake/ZLIB" \
+                   "${ROOT}/build/third-party/sysdeps/linux/zlib/build/dist/lib/rocm_sysdeps/lib/cmake/ZLIB"
+
+# Common third-party deps (copy full stage -> dist so imported targets find libs/headers)
+post_stage_to_dist "${ROOT}/build/third-party/fmt/stage" \
+                   "${ROOT}/build/third-party/fmt/dist"
+post_stage_to_dist "${ROOT}/build/third-party/spdlog/stage" \
+                   "${ROOT}/build/third-party/spdlog/dist"
+post_stage_to_dist "${ROOT}/build/third-party/yaml-cpp/stage/lib/cmake/yaml-cpp" \
+                   "${ROOT}/build/third-party/yaml-cpp/dist/lib/cmake/yaml-cpp"
+post_stage_to_dist "${ROOT}/build/third-party/nlohmann-json/stage" \
+                   "${ROOT}/build/third-party/nlohmann-json/dist"
+post_stage_to_dist "${ROOT}/build/third-party/FunctionalPlus/stage" \
+                   "${ROOT}/build/third-party/FunctionalPlus/dist"
+post_stage_to_dist "${ROOT}/build/third-party/eigen/stage" \
+                   "${ROOT}/build/third-party/eigen/dist"
+post_stage_to_dist "${ROOT}/build/third-party/sysdeps/linux/zlib/build/stage" \
+                   "${ROOT}/build/third-party/sysdeps/linux/zlib/build/dist"
+post_stage_to_dist "${ROOT}/build/third-party/sysdeps/linux/zstd/build/stage" \
+                   "${ROOT}/build/third-party/sysdeps/linux/zstd/build/dist"
