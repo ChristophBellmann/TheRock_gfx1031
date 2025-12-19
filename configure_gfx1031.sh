@@ -6,7 +6,7 @@ LOG_FILE="${ROOT}/build.log"
 MEM_HIGH="${MEM_HIGH:-28G}"
 MEM_MAX="${MEM_MAX:-31G}"
 CHECK_CLEAN=1
-DO_CLEAN=0
+DO_CLEAN=1
 EXTRA_CMAKE_ARGS=()
 
 # Feature switches (set true/false)
@@ -37,7 +37,8 @@ usage() {
 Usage: configure_gfx1031.sh [options] [-- <extra cmake args>]
 
 Options:
-  --clean           Remove build/ before configuring
+  --clean           Remove build/ before configuring (default)
+  --no-clean        Do not remove build/ before configuring
   --no-check-clean  Skip clean build directory check
   -h, --help        Show this help
 
@@ -51,6 +52,10 @@ while [[ $# -gt 0 ]]; do
   case "$1" in
     --clean)
       DO_CLEAN=1
+      shift
+      ;;
+    --no-clean)
+      DO_CLEAN=0
       shift
       ;;
     --no-check-clean)
@@ -105,6 +110,7 @@ if ! command -v ccache >/dev/null 2>&1; then
   echo "ccache not found; install it or run setup_ccache.py as in README." >&2
   exit 1
 fi
+export CCACHE_SLOPPINESS="${CCACHE_SLOPPINESS:-include_file_ctime}"
 if ! command -v clang >/dev/null 2>&1 || ! command -v clang++ >/dev/null 2>&1; then
   if [[ -x "/usr/lib/llvm-18/bin/clang" ]]; then
     PATH="/usr/lib/llvm-18/bin:${PATH}"

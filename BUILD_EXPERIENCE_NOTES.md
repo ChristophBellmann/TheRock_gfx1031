@@ -210,6 +210,16 @@
    - Added `bootstrap_gfx1031.sh` to build the minimum `+stage` targets that tend to be needed early (rocm-cmake, sysdeps zlib/zstd, host-blas, and a few common cmake-config deps) before the full parallel superbuild runs.
    - Goal: avoid intermittent configure failures during the full build due to missing `*Config.cmake` under `dist/` (which is stage-symlinked) and missing `librocm_sysdeps_*.so` for host tools.
    - Status: script is new; needs validation as part of a full clean run (configure → bootstrap → build).
+
+27. **2025-12-19: Ensure ccache bootstrapping config is active in build helper**
+   - TheRock includes `build_tools/setup_ccache.py` which writes a repo-local `./.ccache/ccache.conf` with:
+     - `sloppiness = include_file_ctime` (hardlink-friendly)
+     - a custom `compiler_check` suitable for compiler bootstrapping
+   - `build_gfx1031.sh` now also evals `setup_ccache.py` (not just configure) so the above settings are active during compilation, and exports `CCACHE_SLOPPINESS=include_file_ctime` as an explicit belt-and-suspenders.
+
+28. **2025-12-19: Default to clean configure in helper**
+   - `configure_gfx1031.sh` now removes `build/` by default to ensure the toolchain/config stays coherent (especially when switching compilers or feature flags).
+   - Added `--no-clean` for the rare case where an in-place reconfigure is desired.
 ## TODO / Watchouts
 
 - When new third-party packages are added, verify their `dist/` directories are populated before dependent projects configure.  

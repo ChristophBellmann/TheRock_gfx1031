@@ -55,9 +55,9 @@ avoid a SPIR-V headers build failure.
 If `hipcc/amdclang++` is not found yet, the script prints a **WARNING** (this is
 expected in a clean bootstrap: hipcc only exists after the toolchain build
 installs into `./install`).
-If
-`build/` already exists and is not empty, the script will stop unless you pass
-`--clean` (delete `build/`) or `--no-check-clean` (skip the clean check).
+
+Default behavior is a **clean configure**: it removes `build/` before running
+CMake. Use `--no-clean` if you explicitly want to reconfigure in-place.
 
 ### Supported gfx103X GPUs in This Build
 
@@ -217,7 +217,7 @@ run via `ninja` (no `cmake --build`). If
   ```
 - Clean reconfigure + build (clang + ninja):
   ```bash
-  ./configure_gfx1031.sh --clean
+  ./configure_gfx1031.sh
   ./bootstrap_gfx1031.sh
   ./build_gfx1031.sh
   ```
@@ -238,8 +238,13 @@ run via `ninja` (no `cmake --build`). If
 
 ### CCache defaults
 
+- Du brauchst ein aktuelles ccache (>= 4.11), damit Device-Code Caching mit `--offload-compress` zuverlässig funktioniert (große AMDGPU Artefakte).
 - `.local/bin/ccache` (4.11.1) wird automatisch vorangestellt, wenn vorhanden.
-- `configure_gfx1031.sh` evaluiert `build_tools/setup_ccache.py` automatisch und setzt die Launcher (`CMAKE_*_COMPILER_LAUNCHER=ccache`).
+- `configure_gfx1031.sh` **und** `build_gfx1031.sh` evaluiert `build_tools/setup_ccache.py` automatisch (setzt `CCACHE_CONFIGPATH` auf `./.ccache/ccache.conf`).
+- `setup_ccache.py` setzt dabei u. a.:
+  - `sloppiness = include_file_ctime` (entspricht dem empfohlenen `export CCACHE_SLOPPINESS=include_file_ctime` für Hardlink-Farms)
+  - ein sicheres `compiler_check` (wichtig bei Compiler-Bootstrapping, damit Cache-Einträge nicht “falsch” wiederverwendet werden)
+- In CMake wird ccache als Launcher gesetzt: `-DCMAKE_C_COMPILER_LAUNCHER=ccache` und `-DCMAKE_CXX_COMPILER_LAUNCHER=ccache`.
 - Für manuelle Nutzung in neuen Shells: `eval "$(./build_tools/setup_ccache.py)"`.
 
 ### composable_kernel & MIOpen
