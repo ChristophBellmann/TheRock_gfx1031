@@ -419,7 +419,7 @@ Stoppen:
 systemctl --user stop therock-gfx1031-build.service
 ```
 
-Wenn der Build endet (success/fail), schreibt `build_gfx1031.sh --detach` automatisch eine Zusammenfassung nach `build_result.txt`.
+Wenn der Build detached läuft, kannst du den Status über `monitor_gfx1031.sh` prüfen und bei Fehlern in `build.log` nach `FAILED:`/`CMake Error` suchen.
 
 Wenn der Build fehlschlägt, ist die “erste echte” Fehlermeldung meist in `build.log` und zusätzlich
 pro Subprojekt in `build/logs/*_build.log`.
