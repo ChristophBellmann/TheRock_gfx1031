@@ -7,6 +7,7 @@ MEM_HIGH="${MEM_HIGH:-28G}"
 MEM_MAX="${MEM_MAX:-31G}"
 CHECK_CLEAN=1
 DO_CLEAN=0
+SKIP_CONFIGURE=0
 EXTRA_CMAKE_ARGS=()
 
 usage() {
@@ -16,6 +17,7 @@ Usage: build_gfx1031.sh [options] [-- <extra cmake args>]
 Options:
   --clean           Remove build/ before configuring
   --no-check-clean  Skip clean build directory check
+  --skip-configure  Do not re-run CMake configure (just build with ninja)
   -h, --help        Show this help
 
 Environment overrides:
@@ -32,6 +34,10 @@ while [[ $# -gt 0 ]]; do
       ;;
     --no-check-clean)
       CHECK_CLEAN=0
+      shift
+      ;;
+    --skip-configure)
+      SKIP_CONFIGURE=1
       shift
       ;;
     -h|--help)
@@ -145,5 +151,7 @@ cmake_args=(
   -DCMAKE_CXX_COMPILER_LAUNCHER=ccache
 )
 
-run_cmd_array cmake -B build -GNinja . "${cmake_args[@]}" "${EXTRA_CMAKE_ARGS[@]}"
+if (( ! SKIP_CONFIGURE )); then
+  run_cmd_array cmake -B build -GNinja . "${cmake_args[@]}" "${EXTRA_CMAKE_ARGS[@]}"
+fi
 run_cmd_array ninja -C build
