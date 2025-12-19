@@ -175,6 +175,10 @@
    - README updated with ccache defaults and typical workflows.
    - Note: the new auto-venv/ccache flow has not yet been run end-to-end; run `./configure_gfx1031.sh --clean && ./build_gfx1031.sh` to validate.
 
+20. **2025-12-19: Default BUILD_TESTING=OFF in configure helper**
+   - `ENABLE_BUILD_TESTING=false` by default to avoid gcc-related ICEs; clang enforced as host compiler.
+   - README notes how to re-enable tests via script toggle or extra CMake arg.
+
 ## TODO / Watchouts
 
 - When new third-party packages are added, verify their `dist/` directories are populated before dependent projects configure.  

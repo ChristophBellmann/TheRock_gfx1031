@@ -198,6 +198,13 @@ run via `ninja` (no `cmake --build`). If
 
 ### Typical workflows
 
+- reconfigure + build (clang + ninja):
+  - edit configure_gfx1031.sh, choose which component to set/unset.
+  - then run:
+  ```bash
+  ./configure_gfx1031.sh 
+  ./build_gfx1031.sh
+  ```
 - Clean reconfigure + build (clang + ninja):
   ```bash
   ./configure_gfx1031.sh --clean
@@ -217,6 +224,16 @@ run via `ninja` (no `cmake --build`). If
   ./test_gfx1031.sh        # quick
   ./test_gfx1031.sh --full # längere Bench
   ```
+
+### CCache defaults
+
+- `.local/bin/ccache` (4.11.1) wird automatisch vorangestellt, wenn vorhanden.
+- `configure_gfx1031.sh` evaluiert `build_tools/setup_ccache.py` automatisch und setzt die Launcher (`CMAKE_*_COMPILER_LAUNCHER=ccache`).
+- Für manuelle Nutzung in neuen Shells: `eval "$(./build_tools/setup_ccache.py)"`.
+
+### Notes on testing
+
+- `configure_gfx1031.sh` default: `BUILD_TESTING=OFF` (kann per `ENABLE_BUILD_TESTING=true` im Script oder `-- -DBUILD_TESTING=ON` überschrieben werden). Hintergrund: gcc‑ICEs vermeiden; clang wird als Host-Compiler erzwungen.
 
 ### CCache defaults
 
