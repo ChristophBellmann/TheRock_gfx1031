@@ -212,11 +212,13 @@ run via `ninja` (no `cmake --build`). If
   - then run:
   ```bash
   ./configure_gfx1031.sh 
+  ./bootstrap_gfx1031.sh
   ./build_gfx1031.sh
   ```
 - Clean reconfigure + build (clang + ninja):
   ```bash
   ./configure_gfx1031.sh --clean
+  ./bootstrap_gfx1031.sh
   ./build_gfx1031.sh
   ```
 - Clean build in einem Schritt (configure + build):

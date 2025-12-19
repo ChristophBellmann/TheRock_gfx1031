@@ -205,6 +205,11 @@
    - Added `-Wno-enum-constexpr-conversion` via `CMAKE_CXX_FLAGS` to tolerate SPIR-V headers with large enum sentinels when compiling with clang 18 (fixes clang error in spirv-llvm-translator).
    - `build_gfx1031.sh` extends `LD_LIBRARY_PATH` to include the raw `build/.../zlib|zstd/build/b` directories in addition to stage/dist `rocm_sysdeps` to keep host tools (llvm-min-tblgen, etc.) finding `librocm_sysdeps_z*.so` during early compiler build.
    - Next step: rerun `./configure_gfx1031.sh --clean` then `./build_gfx1031.sh --skip-configure` to verify amd-llvm now builds cleanly.
+
+26. **2025-12-19: Add explicit bootstrap step for third-party/sysdeps**
+   - Added `bootstrap_gfx1031.sh` to build the minimum `+stage` targets that tend to be needed early (rocm-cmake, sysdeps zlib/zstd, host-blas, and a few common cmake-config deps) before the full parallel superbuild runs.
+   - Goal: avoid intermittent configure failures during the full build due to missing `*Config.cmake` under `dist/` (which is stage-symlinked) and missing `librocm_sysdeps_*.so` for host tools.
+   - Status: script is new; needs validation as part of a full clean run (configure → bootstrap → build).
 ## TODO / Watchouts
 
 - When new third-party packages are added, verify their `dist/` directories are populated before dependent projects configure.  
