@@ -7,6 +7,10 @@ MODE="quick"
 RUN_SANITY=1
 RUN_BENCH=1
 BUILD_DIR="${BUILD_DIR:-build}"
+RUN_CONSISTENCY=0
+CONSISTENCY_DEEP=0
+EXPECT_STAGE="" # "", "stage1", "stage2"
+STAGE1_BUILD_DIR="${STAGE1_BUILD_DIR:-build-stage1}"
 
 usage() {
   cat <<'EOF_USAGE'
@@ -17,6 +21,14 @@ Options:
   --full         Longer benchmarks (bigger sizes / more iters)
   --no-bench     Skip performance benchmarks
   --bench-only   Run benchmarks only
+  --consistency  Run build/toolchain consistency checks
+  --consistency-only
+                Run consistency checks only
+  --deep         Deep consistency checks (scan more files)
+  --expect-stage1
+                Expect Stage-1 (system clang allowed)
+  --expect-stage2
+                Expect Stage-2 (no system clang/llvm-18 fallback)
   --stage1       Use BUILD_DIR=build-stage1
   --stage2       Use BUILD_DIR=build-stage2
   --build-dir <dir>
@@ -28,6 +40,7 @@ Environment overrides:
   BENCH_ITERS      override iterations (default 10 quick, 20 full)
   TEST_LOG         override log file (default test_gfx1031.log)
   BUILD_DIR        build directory name (default build)
+  STAGE1_BUILD_DIR Stage-1 build dir for Stage-2 expectations (default: build-stage1)
 EOF_USAGE
 }
 
@@ -48,6 +61,28 @@ while [[ $# -gt 0 ]]; do
     --bench-only)
       RUN_SANITY=0
       RUN_BENCH=1
+      shift
+      ;;
+    --consistency)
+      RUN_CONSISTENCY=1
+      shift
+      ;;
+    --consistency-only)
+      RUN_SANITY=0
+      RUN_BENCH=0
+      RUN_CONSISTENCY=1
+      shift
+      ;;
+    --deep)
+      CONSISTENCY_DEEP=1
+      shift
+      ;;
+    --expect-stage1)
+      EXPECT_STAGE="stage1"
+      shift
+      ;;
+    --expect-stage2)
+      EXPECT_STAGE="stage2"
       shift
       ;;
     --stage1)
@@ -124,6 +159,223 @@ add_result() {
   RESULT_STATUS+=("$2")
   RESULT_TIME+=("$3")
   RESULT_METRIC+=("$4")
+}
+
+detect_expect_stage() {
+  if [[ -n "${EXPECT_STAGE}" ]]; then
+    return 0
+  fi
+  case "${BUILD_DIR}" in
+    *stage2*) EXPECT_STAGE="stage2" ;;
+    *stage1*) EXPECT_STAGE="stage1" ;;
+    *) EXPECT_STAGE="" ;;
+  esac
+}
+
+check_cmd_available() {
+  local label="$1"
+  local exe="$2"
+  if command -v "${exe}" >/dev/null 2>&1; then
+    add_result "${label}" "OK" "0s" "$(command -v "${exe}")"
+    return 0
+  fi
+  add_result "${label}" "FAIL" "0s" "missing: ${exe}"
+  return 1
+}
+
+check_no_matches_in_files() {
+  local label="$1"
+  local expected="$2"
+  local pattern="$3"
+  shift 3
+  local -a files=("$@")
+  local tmp
+  tmp="$(mktemp)"
+  local start=$SECONDS
+  set +e
+  if command -v rg >/dev/null 2>&1; then
+    rg -nH "${pattern}" "${files[@]}" >"${tmp}" 2>/dev/null
+  else
+    grep -nH -E "${pattern}" "${files[@]}" >"${tmp}" 2>/dev/null
+  fi
+  local rc=$?
+  set -e
+  local elapsed=$((SECONDS - start))
+  if [[ ${rc} -eq 0 ]]; then
+    local sample
+    sample="$(head -n 3 "${tmp}" | tr '\n' ' ' | sed 's/[[:space:]]\\+/ /g')"
+    add_result "${label}" "FAIL" "${elapsed}s" "matched (${expected}): ${sample}"
+    rm -f "${tmp}"
+    return 1
+  fi
+  add_result "${label}" "OK" "${elapsed}s" "${expected}"
+  rm -f "${tmp}"
+  return 0
+}
+
+check_no_opt_rocm_in_caches() {
+  local label="$1"
+  local expected="$2"
+  local filter="${3:-}"
+  local start=$SECONDS
+  local tmp
+  tmp="$(mktemp)"
+  set +e
+  find "${ROOT}/${BUILD_DIR}" -name CMakeCache.txt -print0 2>/dev/null | xargs -0 rg -nH "/opt/rocm" 2>/dev/null >"${tmp}"
+  local rc=$?
+  set -e
+  if [[ -n "${filter}" && -s "${tmp}" ]]; then
+    # Remove known-benign matches (e.g. internal externalproject caches) for the light check.
+    rg -v "${filter}" "${tmp}" > "${tmp}.filtered" 2>/dev/null || true
+    mv -f "${tmp}.filtered" "${tmp}"
+    if [[ ! -s "${tmp}" ]]; then
+      rc=1
+    else
+      rc=0
+    fi
+  fi
+  local elapsed=$((SECONDS - start))
+  if [[ ${rc} -eq 0 ]]; then
+    add_result "${label}" "FAIL" "${elapsed}s" "$(head -n 3 "${tmp}" | tr '\n' ' ' | sed 's/[[:space:]]\\+/ /g')"
+    rm -f "${tmp}"
+    return 1
+  fi
+  add_result "${label}" "OK" "${elapsed}s" "${expected}"
+  rm -f "${tmp}"
+  return 0
+}
+
+check_toolchain_paths() {
+  local stage_expect="$1"
+  local label_prefix="$2"
+
+  # Top-level cache compilers
+  local cache="${ROOT}/${BUILD_DIR}/CMakeCache.txt"
+  if [[ -f "${cache}" ]]; then
+    local cxx
+    cxx="$(rg -n "^CMAKE_CXX_COMPILER:FILEPATH=" "${cache}" | head -n 1 | cut -d= -f2- || true)"
+    if [[ -n "${cxx}" ]]; then
+      if [[ "${stage_expect}" == "stage2" ]]; then
+        case "${cxx}" in
+          *"${ROOT}/${STAGE1_BUILD_DIR}/"*)
+            add_result "${label_prefix} top-level compiler" "OK" "0s" "${cxx}"
+            ;;
+          *)
+            add_result "${label_prefix} top-level compiler" "FAIL" "0s" "expected Stage-1 toolchain clang++ from ${STAGE1_BUILD_DIR}, got: ${cxx}"
+            ;;
+        esac
+      else
+        add_result "${label_prefix} top-level compiler" "OK" "0s" "${cxx}"
+      fi
+    else
+      add_result "${label_prefix} top-level compiler" "SKIP" "0s" "no CMAKE_CXX_COMPILER in cache"
+    fi
+  else
+    add_result "${label_prefix} top-level compiler" "SKIP" "0s" "missing ${BUILD_DIR}/CMakeCache.txt"
+  fi
+
+  # Scan toolchain files for system clang fallbacks (Stage-2 should not contain these).
+  if [[ "${stage_expect}" == "stage2" ]]; then
+    local maxdepth_args=()
+    if (( CONSISTENCY_DEEP == 0 )); then
+      maxdepth_args=(-maxdepth 6)
+    fi
+    local tmp
+    tmp="$(mktemp)"
+    set +e
+    find "${ROOT}/${BUILD_DIR}" "${maxdepth_args[@]}" -name "*_toolchain.cmake" -print0 2>/dev/null | \
+      xargs -0 rg -nH "/usr/lib/llvm-18/|/usr/bin/clang\\+\\+|/usr/bin/clang(\\s|$)" 2>/dev/null >"${tmp}"
+    local rc=$?
+    set -e
+    if [[ ${rc} -eq 0 ]]; then
+      add_result "${label_prefix} toolchain scan" "FAIL" "0s" "$(head -n 3 "${tmp}" | tr '\n' ' ' | sed 's/[[:space:]]\\+/ /g')"
+      rm -f "${tmp}"
+      return 1
+    fi
+    add_result "${label_prefix} toolchain scan" "OK" "0s" "no system clang paths found"
+    rm -f "${tmp}"
+  else
+    add_result "${label_prefix} toolchain scan" "SKIP" "0s" "stage1/system clang allowed"
+  fi
+
+  # compile_commands.json scan (if present)
+  local cc_file=""
+  if [[ -f "${ROOT}/${BUILD_DIR}/compile_commands.json" ]]; then
+    cc_file="${ROOT}/${BUILD_DIR}/compile_commands.json"
+  elif [[ -f "${ROOT}/compile_commands.json" ]]; then
+    cc_file="${ROOT}/compile_commands.json"
+  fi
+  if [[ -n "${cc_file}" ]]; then
+    if [[ "${stage_expect}" == "stage2" ]]; then
+      check_no_matches_in_files "${label_prefix} compile_commands" "no system clang in ${cc_file}" "/usr/lib/llvm-18/|/usr/bin/clang\\+\\+" "${cc_file}" || true
+    else
+      add_result "${label_prefix} compile_commands" "SKIP" "0s" "stage1/system clang allowed (${cc_file})"
+    fi
+  else
+    add_result "${label_prefix} compile_commands" "SKIP" "0s" "no compile_commands.json found"
+  fi
+}
+
+check_hip_device_libs() {
+  local label_prefix="$1"
+  if [[ ! -d "${HIP_DEVICE_LIB_PATH}" ]]; then
+    add_result "${label_prefix} hip device libs" "FAIL" "0s" "HIP_DEVICE_LIB_PATH not found: ${HIP_DEVICE_LIB_PATH}"
+    return 1
+  fi
+  if [[ -f "${HIP_DEVICE_LIB_PATH}/oclc_isa_version_1031.bc" ]]; then
+    add_result "${label_prefix} hip device libs" "OK" "0s" "found oclc_isa_version_1031.bc"
+  else
+    add_result "${label_prefix} hip device libs" "FAIL" "0s" "missing oclc_isa_version_1031.bc under ${HIP_DEVICE_LIB_PATH}"
+  fi
+
+  if command -v hipcc >/dev/null 2>&1 && [[ -f "${ROOT}/test_hip.cpp" ]]; then
+    local tmp
+    tmp="$(mktemp)"
+    set +e
+    hipcc -v --offload-arch=gfx1031 "${ROOT}/test_hip.cpp" -o "${tmp}.out" 2>"${tmp}"
+    local rc=$?
+    set -e
+    if [[ ${rc} -ne 0 ]]; then
+      add_result "${label_prefix} hipcc -v" "FAIL" "0s" "hipcc failed (rc=${rc})"
+      rm -f "${tmp}" "${tmp}.out" 2>/dev/null || true
+      return 1
+    fi
+    if rg -q "gfx1031|oclc_isa_version_1031|amdgcn/bitcode" "${tmp}"; then
+      add_result "${label_prefix} hipcc -v" "OK" "0s" "saw gfx1031/device-lib path in hipcc -v"
+    else
+      add_result "${label_prefix} hipcc -v" "FAIL" "0s" "no gfx1031/device-lib hints in hipcc -v"
+    fi
+    rm -f "${tmp}" "${tmp}.out" 2>/dev/null || true
+  else
+    add_result "${label_prefix} hipcc -v" "SKIP" "0s" "hipcc or test_hip.cpp missing"
+  fi
+}
+
+check_runtime_linkage() {
+  local label_prefix="$1"
+  local -a bins=(rocminfo hipinfo rocblas-bench hipblas-bench)
+  local b
+  for b in "${bins[@]}"; do
+    if ! command -v "${b}" >/dev/null 2>&1; then
+      add_result "${label_prefix} ldd ${b}" "SKIP" "0s" "not in PATH"
+      continue
+    fi
+    local exe
+    exe="$(command -v "${b}")"
+    local tmp
+    tmp="$(mktemp)"
+    set +e
+    ldd "${exe}" 2>/dev/null | rg -n "/opt/rocm" >"${tmp}"
+    local rc=$?
+    set -e
+    if [[ ${rc} -eq 0 ]]; then
+      add_result "${label_prefix} ldd ${b}" "FAIL" "0s" "$(head -n 2 "${tmp}" | tr '\n' ' ' | sed 's/[[:space:]]\\+/ /g')"
+      rm -f "${tmp}"
+      continue
+    fi
+    add_result "${label_prefix} ldd ${b}" "OK" "0s" "no /opt/rocm deps"
+    rm -f "${tmp}"
+  done
 }
 
 extract_gflops() {
@@ -224,6 +476,33 @@ else
   BENCH_EXPECTED="10-45s"
 fi
 
+detect_expect_stage
+
+if (( RUN_CONSISTENCY )); then
+  echo "==== consistency checks (${BUILD_DIR}) ====" | tee -a "${LOG_FILE}"
+  add_result "expected stage" "OK" "0s" "${EXPECT_STAGE:-unspecified}"
+  check_cmd_available "tool present: ninja" ninja || true
+  check_cmd_available "tool present: cmake" cmake || true
+  check_cmd_available "tool present: ccache" ccache || true
+
+  # Basic cache/path hygiene checks
+  # Light scan excludes known-benign matches (packaging prefixes inside internal ExternalProject caches).
+  check_no_opt_rocm_in_caches \
+    "no /opt/rocm in caches" \
+    "scan CMakeCache.txt under ${BUILD_DIR}" \
+    "/compiler/amd-llvm/build/runtimes/|CPACK_PACKAGING_INSTALL_PREFIX:(STRING|PATH)=/opt/rocm|CMAKE_INSTALL_PREFIX:(STRING|PATH)=/opt/rocm|_GNUInstallDirs_LAST_CMAKE_INSTALL_PREFIX:INTERNAL=/opt/rocm|FIND_PACKAGE_MESSAGE_DETAILS_HIP:INTERNAL=\\[/opt/rocm/bin\\]" || true
+  check_toolchain_paths "${EXPECT_STAGE}" "toolchain" || true
+  check_hip_device_libs "hip" || true
+
+  if (( CONSISTENCY_DEEP )); then
+    # Deep scan: no exclusions.
+    check_no_opt_rocm_in_caches "no /opt/rocm in caches (deep)" "full scan under ${BUILD_DIR}" "" || true
+    check_runtime_linkage "runtime" || true
+  else
+    add_result "runtime linkage" "SKIP" "0s" "use --deep to run ldd checks"
+  fi
+fi
+
 if (( RUN_SANITY )); then
   if command -v rocminfo >/dev/null 2>&1; then
     run_timed "rocminfo (sanity)" "<10s" rocminfo
@@ -264,9 +543,9 @@ for i in "${!RESULT_LABELS[@]}"; do
   time="${RESULT_TIME[$i]}"
   metric="${RESULT_METRIC[$i]}"
   if [[ -n "${metric}" ]]; then
-    printf "- %-28s %s (%s) %s\n" "${label}" "${status}" "${time}" "${metric}" | tee -a "${LOG_FILE}"
+    printf -- "- %-28s %s (%s) %s\n" "${label}" "${status}" "${time}" "${metric}" | tee -a "${LOG_FILE}"
   else
-    printf "- %-28s %s (%s)\n" "${label}" "${status}" "${time}" | tee -a "${LOG_FILE}"
+    printf -- "- %-28s %s (%s)\n" "${label}" "${status}" "${time}" | tee -a "${LOG_FILE}"
   fi
 done
 

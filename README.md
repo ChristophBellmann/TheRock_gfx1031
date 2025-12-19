@@ -363,6 +363,11 @@ switching compilers/flags inside an existing build directory.
   ./test_gfx1031.sh        # quick
   ./test_gfx1031.sh --full # längere Bench
   ```
+- Konsistenz-Checks (Toolchain/ROCm-Pfade):
+  ```bash
+  ./test_gfx1031.sh --consistency --stage2
+  ./test_gfx1031.sh --consistency --deep --stage2
+  ```
 
 ### CCache defaults
 
