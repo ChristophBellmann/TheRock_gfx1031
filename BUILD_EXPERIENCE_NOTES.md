@@ -229,6 +229,10 @@
 30. **2025-12-19: Avoid system hipcc fallback (ensure in-tree HIP toolchain)**
    - `configure_gfx1031.sh` now only sets `CMAKE_HIP_COMPILER` when `./install/bin/hipcc` exists, and does not auto-fallback to `/opt/rocm/bin/hipcc`.
    - Rationale: prevent ABI/version mixing between in-tree ROCm and any system ROCm; TheRock’s HIP subprojects already pin their toolchain via `COMPILER_TOOLCHAIN amd-hip`.
+
+31. **2025-12-19: amd-llvm failed in rocr-runtime configure (missing NUMAConfig)**
+   - Failure: `rocr-runtime` (libhsakmt) `find_package(NUMA)` failed because `NUMAConfig.cmake` was expected under `build/third-party/sysdeps/linux/numactl/build/dist/lib/rocm_sysdeps/lib/cmake/NUMA` but sysdeps `therock-numactl` was never built in bootstrap.
+   - Fix: `bootstrap_gfx1031.sh` now includes `therock-numactl+stage`, creates the stage→dist symlink for numactl, and verifies `numa-config.cmake` exists.
 ## TODO / Watchouts
 
 - When new third-party packages are added, verify their `dist/` directories are populated before dependent projects configure.  
