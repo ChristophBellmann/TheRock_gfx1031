@@ -23,6 +23,11 @@ if(THEROCK_ENABLE_CORE_RUNTIME)
       "${_system_toolchain}"
     CMAKE_ARGS
       "-DBUILD_SHARED_LIBS=ON"
+      # rocr-runtime (hsa-runtime64) uses install-time RPATH adjustment. CMake
+      # will error with the Ninja generator if it thinks it needs to relink to
+      # change an RPATH from the build tree. Building with install RPATH avoids
+      # the relinking step.
+      "-DCMAKE_BUILD_WITH_INSTALL_RPATH=ON"
     BUILD_DEPS
       amd-llvm
       therock-simde

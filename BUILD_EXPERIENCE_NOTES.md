@@ -250,6 +250,12 @@
    - Symptom: stage installs failed with `OSError: Cannot call rmtree on a symbolic link` while running `fileset_tool.py copy .../dist .../stage`.
    - Cause: earlier helper workflows sometimes created `dist/` as a stage→dist symlink for quick bootstrapping. `PatternMatcher.copy_to()` used `shutil.rmtree()` unconditionally when `--remove-dest` is enabled, which raises on symlinks.
    - Fix: `build_tools/_therock_utils/pattern_match.py` now unlinks `destdir` when it is a symlink (instead of calling `rmtree`) and then proceeds with the normal directory copy.
+
+35. **2025-12-19: ROCR-Runtime configure failed (Ninja RPATH relink error)**
+   - Failure: `ROCR-Runtime` (hsa-runtime64) configure errored at `runtime/hsa-runtime/CMakeLists.txt:97 (add_library)`:
+     - “install … requires changing an RPATH from the build tree … not supported with the Ninja generator … set CMAKE_BUILD_WITH_INSTALL_RPATH”.
+   - Fix: added `-DCMAKE_BUILD_WITH_INSTALL_RPATH=ON` to the ROCR-Runtime subproject `CMAKE_ARGS` in `core/CMakeLists.txt`.
+   - Recovery: reconfigure (`./configure_gfx1031.sh --no-clean --no-check-clean`), then `ninja -C build ROCR-Runtime+expunge`, then resume via `./build_gfx1031.sh --skip-configure --detach`.
 ## TODO / Watchouts
 
 - When new third-party packages are added, verify their `dist/` directories are populated before dependent projects configure.  
