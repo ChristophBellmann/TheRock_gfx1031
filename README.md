@@ -231,6 +231,11 @@ run via `ninja` (no `cmake --build`). If
 - `configure_gfx1031.sh` evaluiert `build_tools/setup_ccache.py` automatisch und setzt die Launcher (`CMAKE_*_COMPILER_LAUNCHER=ccache`).
 - Für manuelle Nutzung in neuen Shells: `eval "$(./build_tools/setup_ccache.py)"`.
 
+### composable_kernel & MIOpen
+
+- `THEROCK_MIOPEN_USE_COMPOSABLE_KERNEL` wird im Helper an `THEROCK_ENABLE_COMPOSABLE_KERNEL` gespiegelt.
+- gfx1031 wird von composable_kernel nicht direkt unterstützt; MIOpen schaltet dann intern CK ab (nur Warnung im Configure, kein Fehler).
+
 ### Notes on testing
 
 - `configure_gfx1031.sh` default: `BUILD_TESTING=OFF` (kann per `ENABLE_BUILD_TESTING=true` im Script oder `-- -DBUILD_TESTING=ON` überschrieben werden). Hintergrund: gcc‑ICEs vermeiden; clang wird als Host-Compiler erzwungen.

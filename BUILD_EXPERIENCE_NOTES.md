@@ -179,6 +179,10 @@
    - `ENABLE_BUILD_TESTING=false` by default to avoid gcc-related ICEs; clang enforced as host compiler.
    - README notes how to re-enable tests via script toggle or extra CMake arg.
 
+21. **2025-12-19: Composable-kernel toggle propagated to MIOpen**
+   - `configure_gfx1031.sh` now sets `THEROCK_MIOPEN_USE_COMPOSABLE_KERNEL` to match the CK flag.
+   - README notes: CK unsupported on gfx1031; MIOpen disables CK internally with a warning only.
+
 ## TODO / Watchouts
 
 - When new third-party packages are added, verify their `dist/` directories are populated before dependent projects configure.  
