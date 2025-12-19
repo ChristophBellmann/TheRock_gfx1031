@@ -225,6 +225,10 @@
    - Moved the stage→dist symlink setup (rocm-cmake, sysdeps zlib/zstd, host-blas, and common cmake-config deps) out of `configure_gfx1031.sh` into `bootstrap_gfx1031.sh` so configure stays “pure”.
    - `bootstrap_gfx1031.sh` now appends to `build.log` (same log as configure/build) instead of using a separate `bootstrap.log`.
    - Downgraded the hipcc “missing” message from WARNING to INFO and clarified that hipcc appears only after the compiler/toolchain is built+installed into `./install` (not after the third-party bootstrap step).
+
+30. **2025-12-19: Avoid system hipcc fallback (ensure in-tree HIP toolchain)**
+   - `configure_gfx1031.sh` now only sets `CMAKE_HIP_COMPILER` when `./install/bin/hipcc` exists, and does not auto-fallback to `/opt/rocm/bin/hipcc`.
+   - Rationale: prevent ABI/version mixing between in-tree ROCm and any system ROCm; TheRock’s HIP subprojects already pin their toolchain via `COMPILER_TOOLCHAIN amd-hip`.
 ## TODO / Watchouts
 
 - When new third-party packages are added, verify their `dist/` directories are populated before dependent projects configure.  

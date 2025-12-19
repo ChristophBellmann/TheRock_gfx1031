@@ -121,20 +121,16 @@ if ! command -v clang >/dev/null 2>&1 || ! command -v clang++ >/dev/null 2>&1; t
   exit 1
 fi
 
-# Detect hipcc/amdclang++ for HIP builds
+# HIP compiler selection for CMake HIP-language projects:
+# Prefer the in-tree toolchain from ./install if available.
+# Do NOT auto-fall back to system hipcc, to avoid mixing with /opt/rocm.
 HIP_COMPILER=""
 ROCM_PREFIX="${ROOT}/install"
 if [[ -x "${ROCM_PREFIX}/bin/hipcc" ]]; then
   HIP_COMPILER="${ROCM_PREFIX}/bin/hipcc"
-elif [[ -x "/opt/rocm/bin/hipcc" ]]; then
-  HIP_COMPILER="/opt/rocm/bin/hipcc"
-elif command -v hipcc >/dev/null 2>&1; then
-  HIP_COMPILER="$(command -v hipcc)"
-elif command -v amdclang++ >/dev/null 2>&1; then
-  HIP_COMPILER="$(command -v amdclang++)"
-fi
-if [[ -z "${HIP_COMPILER}" ]]; then
-  echo "INFO: hipcc/amdclang++ not found yet (expected before the ROCm toolchain is built/installed into ./install). Continuing with host clang++." | tee -a "${LOG_FILE}"
+  echo "Using in-tree hipcc for CMake HIP projects: ${HIP_COMPILER}" | tee -a "${LOG_FILE}"
+else
+  echo "INFO: ${ROCM_PREFIX}/bin/hipcc not found yet (expected on first bootstrap). Leaving CMAKE_HIP_COMPILER unset; TheRock HIP subprojects use COMPILER_TOOLCHAIN=amd-hip internally." | tee -a "${LOG_FILE}"
 fi
 if [[ ! -d "${ROOT}/rocm-libraries" || ! -d "${ROOT}/rocm-systems" ]]; then
   echo "Missing sources; run: python3 ./build_tools/fetch_sources.py" >&2

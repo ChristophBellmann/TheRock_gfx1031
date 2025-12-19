@@ -59,6 +59,14 @@ installs into `./install`).
 Default behavior is a **clean configure**: it removes `build/` before running
 CMake. Use `--no-clean` if you explicitly want to reconfigure in-place.
 
+### HIP compiler (hipcc/amdclang++)
+
+Ja: für HIP-Projekte wird sichergestellt, dass **nicht GCC** und **nicht ein beliebiges system-weites ROCm** verwendet wird.
+
+- **Innerhalb des TheRock-Superbuilds:** HIP-lastige Subprojekte deklarieren explizit `COMPILER_TOOLCHAIN amd-hip` (siehe z. B. `math-libs/BLAS/CMakeLists.txt`). Dadurch wird die in-tree Toolchain aus `amd-llvm`/`hip-clr` verwendet (inkl. `--hip-path`/Device Libs) – unabhängig davon, ob ein system-weites `hipcc` existiert.
+- **Für CMake-HIP-Language Projekte (falls verwendet):** `configure_gfx1031.sh` setzt `CMAKE_HIP_COMPILER` **nur**, wenn `./install/bin/hipcc` existiert. Es wird **nicht** automatisch auf `/opt/rocm/bin/hipcc` zurückgefallen (vermeidet ABI/Version-Mix).
+- **Für externe Builds (PyTorch/Whisper/etc):** nach dem Build `source ./rocm-env-therock.sh` ausführen; das setzt `PATH` so, dass das in-tree `hipcc`/`amdclang++` bevorzugt wird.
+
 ### Supported gfx103X GPUs in This Build
 
 | Target  | GPU Model              | Type |
