@@ -283,6 +283,12 @@
      - `base/CMakeLists.txt` passes these ROCm root variables explicitly to `amdsmi` to prevent it defaulting to `/opt/rocm`.
      - `base/CMakeLists.txt` also overrides `CPACK_PACKAGING_INSTALL_PREFIX` for `rocm-core` and `rocm_smi_lib` to avoid `/opt/rocm` leaking into caches via packaging defaults.
    - Recovery: requires a clean rebuild (`rm -rf build && ./configure_gfx1031.sh && ./bootstrap_gfx1031.sh && ./build_gfx1031.sh ...`).
+
+40. **2025-12-19: amd-llvm build failed due to -Werror (enum-constexpr-conversion)**
+   - Failure: `amd-llvm` (spirv-llvm-translator) compiled with `-Werror` and failed on clang diagnostics:
+     - `[-Wenum-constexpr-conversion]` in `llvm/ADT/DenseMapInfo.h`.
+   - Fix: force `-DLLVM_ENABLE_WERROR=OFF` in `compiler/CMakeLists.txt` for the `amd-llvm` subproject.
+   - Recovery: `ninja -C build amd-llvm+expunge` and resume the build.
 ## TODO / Watchouts
 
 - When new third-party packages are added, verify their `dist/` directories are populated before dependent projects configure.  
