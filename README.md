@@ -218,6 +218,12 @@ run via `ninja` (no `cmake --build`). If
   ./test_gfx1031.sh --full # längere Bench
   ```
 
+### CCache defaults
+
+- `.local/bin/ccache` (4.11.1) wird automatisch vorangestellt, wenn vorhanden.
+- `configure_gfx1031.sh` evaluiert `build_tools/setup_ccache.py` automatisch und setzt die Launcher (`CMAKE_*_COMPILER_LAUNCHER=ccache`).
+- Für manuelle Nutzung in neuen Shells: `eval "$(./build_tools/setup_ccache.py)"`.
+
 ### Quick test helper (gfx1031)
 
 After a build, you can run basic sanity checks plus a lightweight GEMM
@@ -273,28 +279,3 @@ with ctest:
 ```
 ctest --test-dir build
 ```
-
-### CCache usage on Linux
-
-To build with the ccache compiler cache:
-
-* You must have a recent ccache (>= 4.11 recommended; helpers currently work with 4.9.1 but upgrade for `--offload-compress`).
-* export CCACHE_SLOPPINESS=include_file_ctime to support hard-linking
-* Proper setup of the compiler_check directive to do safe caching in the presence of compiler bootstrapping
-* Set the C/CXX compiler launcher options to cmake appropriately.
-
-The helper scripts (`configure_gfx1031.sh`, `build_gfx1031.sh`, `rebuild_gfx1031_subprojects.sh`) prepend the in-tree
-`.local/bin` (ccache 4.11.1) when present and set `CMAKE_*_COMPILER_LAUNCHER=ccache`.
-Run `./build_tools/setup_ccache.py` once per shell/session to export the recommended env
-(or configure ccache manually).
-
-Example:
-
-# Any shell used to build must eval setup_ccache.py to set environment variables.
-eval "$(./build_tools/setup_ccache.py)"
-systemd-run --user --scope -p MemoryHigh=28G -p MemoryMax=31G   cmake -B build -GNinja -DTHEROCK_AMDGPU_TARGETS=gfx1031 \
-  -DCMAKE_C_COMPILER_LAUNCHER=ccache \
-  -DCMAKE_CXX_COMPILER_LAUNCHER=ccache \
-  .
-
-systemd-run --user --scope -p MemoryHigh=28G -p MemoryMax=31G   cmake --build build
