@@ -22,6 +22,15 @@ set_property(GLOBAL PROPERTY THEROCK_DEFAULT_CMAKE_VARS
   THEROCK_BUILD_TESTING
   THEROCK_USE_SAFE_DEPENDENCY_PROVIDER
   ROCM_SYMLINK_LIBS
+  # Ensure a consistent in-tree ROCm/HIP root is visible to all subprojects
+  # (even those that try to clear it via -DROCM_PATH= / -DHIP_PATH=).
+  DEFAULT_ROCM_PATH
+  ROCM_PATH
+  ROCM_DIR
+  ROCM_ROOT
+  HIP_ROOT_DIR
+  HIP_DIR
+  HIP_PATH
 
   # RPATH handling.
   THEROCK_NO_INSTALL_RPATH

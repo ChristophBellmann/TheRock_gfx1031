@@ -4,6 +4,7 @@ set -euo pipefail
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 LOG_FILE_DEFAULT="${ROOT}/build.log"
 LOG_FILE="${LOG_FILE:-$LOG_FILE_DEFAULT}"
+BUILD_DIR="${BUILD_DIR:-build}"
 MEM_HIGH="${MEM_HIGH:-28G}"
 MEM_MAX="${MEM_MAX:-31G}"
 JOBS="${BOOTSTRAP_JOBS:-1}"
@@ -27,6 +28,7 @@ Environment overrides:
   BOOTSTRAP_JOBS         ninja -j value (default 1)
   LOG_FILE               log path (default ./build.log)
   PRESERVE_LD_LIBRARY_PATH  append inherited LD_LIBRARY_PATH (default 0)
+  BUILD_DIR              build directory name (default build)
 EOF_USAGE
 }
 
@@ -48,8 +50,8 @@ if [[ ! -f "${ROOT}/.venv/bin/activate" ]]; then
   echo "Missing .venv; run ./configure_gfx1031.sh once (it auto-creates venv) or create it per README." >&2
   exit 1
 fi
-if [[ ! -f "${ROOT}/build/build.ninja" ]]; then
-  echo "Missing build/build.ninja; run: ./configure_gfx1031.sh (or --clean) first." >&2
+if [[ ! -f "${ROOT}/${BUILD_DIR}/build.ninja" ]]; then
+  echo "Missing ${BUILD_DIR}/build.ninja; run: ./configure_gfx1031.sh (or --clean) first." >&2
   exit 1
 fi
 
@@ -67,13 +69,13 @@ fi
 
 compute_sysdeps_ld_library_path() {
   local -a sysdeps_libs=(
-    "${ROOT}/build/dist/rocm/lib/rocm_sysdeps/lib"
-    "${ROOT}/build/third-party/sysdeps/linux/zstd/build/dist/lib/rocm_sysdeps/lib"
-    "${ROOT}/build/third-party/sysdeps/linux/zstd/build/stage/lib/rocm_sysdeps/lib"
-    "${ROOT}/build/third-party/sysdeps/linux/zstd/build/build/b"
-    "${ROOT}/build/third-party/sysdeps/linux/zlib/build/dist/lib/rocm_sysdeps/lib"
-    "${ROOT}/build/third-party/sysdeps/linux/zlib/build/stage/lib/rocm_sysdeps/lib"
-    "${ROOT}/build/third-party/sysdeps/linux/zlib/build/build/b"
+    "${ROOT}/${BUILD_DIR}/dist/rocm/lib/rocm_sysdeps/lib"
+    "${ROOT}/${BUILD_DIR}/third-party/sysdeps/linux/zstd/build/dist/lib/rocm_sysdeps/lib"
+    "${ROOT}/${BUILD_DIR}/third-party/sysdeps/linux/zstd/build/stage/lib/rocm_sysdeps/lib"
+    "${ROOT}/${BUILD_DIR}/third-party/sysdeps/linux/zstd/build/build/b"
+    "${ROOT}/${BUILD_DIR}/third-party/sysdeps/linux/zlib/build/dist/lib/rocm_sysdeps/lib"
+    "${ROOT}/${BUILD_DIR}/third-party/sysdeps/linux/zlib/build/stage/lib/rocm_sysdeps/lib"
+    "${ROOT}/${BUILD_DIR}/third-party/sysdeps/linux/zlib/build/build/b"
   )
   local ldpath=""
   local p
@@ -127,21 +129,21 @@ bootstrap_targets=(
 echo "Bootstrapping ${#bootstrap_targets[@]} targets (ninja -j${JOBS})..." | tee -a "${LOG_FILE}"
 for t in "${bootstrap_targets[@]}"; do
   echo "==> ${t}" | tee -a "${LOG_FILE}"
-  run_cmd_array ninja -C build -j "${JOBS}" "${t}"
+  run_cmd_array ninja -C "${BUILD_DIR}" -j "${JOBS}" "${t}"
 done
 
 echo "Verifying expected stage/dist artifacts..." | tee -a "${LOG_FILE}"
 
 expect_paths=(
-  "${ROOT}/build/base/rocm-cmake/dist/share/rocmcmakebuildtools/cmake"
-  "${ROOT}/build/base/rocm-cmake/dist/share/rocm/cmake"
-  "${ROOT}/build/third-party/sysdeps/linux/zlib/build/dist/lib/rocm_sysdeps/lib/cmake/ZLIB/zlib-config.cmake"
-  "${ROOT}/build/third-party/sysdeps/linux/zlib/build/dist/lib/rocm_sysdeps/lib/librocm_sysdeps_z.so.1"
-  "${ROOT}/build/third-party/sysdeps/linux/zstd/build/dist/lib/rocm_sysdeps/lib/cmake/zstd/zstdConfig.cmake"
-  "${ROOT}/build/third-party/sysdeps/linux/zstd/build/dist/lib/rocm_sysdeps/lib/librocm_sysdeps_zstd.so.1"
-  "${ROOT}/build/third-party/sysdeps/linux/numactl/build/dist/lib/rocm_sysdeps/lib/cmake/NUMA/numa-config.cmake"
-  "${ROOT}/build/third-party/sysdeps/linux/elfutils/build/dist/lib/rocm_sysdeps/lib/cmake/LibElf/libelf-config.cmake"
-  "${ROOT}/build/third-party/host-blas/dist/lib/host-math/lib/cmake/OpenBLAS/OpenBLASConfig.cmake"
+  "${ROOT}/${BUILD_DIR}/base/rocm-cmake/dist/share/rocmcmakebuildtools/cmake"
+  "${ROOT}/${BUILD_DIR}/base/rocm-cmake/dist/share/rocm/cmake"
+  "${ROOT}/${BUILD_DIR}/third-party/sysdeps/linux/zlib/build/dist/lib/rocm_sysdeps/lib/cmake/ZLIB/zlib-config.cmake"
+  "${ROOT}/${BUILD_DIR}/third-party/sysdeps/linux/zlib/build/dist/lib/rocm_sysdeps/lib/librocm_sysdeps_z.so.1"
+  "${ROOT}/${BUILD_DIR}/third-party/sysdeps/linux/zstd/build/dist/lib/rocm_sysdeps/lib/cmake/zstd/zstdConfig.cmake"
+  "${ROOT}/${BUILD_DIR}/third-party/sysdeps/linux/zstd/build/dist/lib/rocm_sysdeps/lib/librocm_sysdeps_zstd.so.1"
+  "${ROOT}/${BUILD_DIR}/third-party/sysdeps/linux/numactl/build/dist/lib/rocm_sysdeps/lib/cmake/NUMA/numa-config.cmake"
+  "${ROOT}/${BUILD_DIR}/third-party/sysdeps/linux/elfutils/build/dist/lib/rocm_sysdeps/lib/cmake/LibElf/libelf-config.cmake"
+  "${ROOT}/${BUILD_DIR}/third-party/host-blas/dist/lib/host-math/lib/cmake/OpenBLAS/OpenBLASConfig.cmake"
 )
 
 missing=0

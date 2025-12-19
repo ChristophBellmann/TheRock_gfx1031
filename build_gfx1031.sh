@@ -3,6 +3,7 @@ set -euo pipefail
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 LOG_FILE="${ROOT}/build.log"
+BUILD_DIR="${BUILD_DIR:-build}"
 MEM_HIGH="${MEM_HIGH:-28G}"
 MEM_MAX="${MEM_MAX:-31G}"
 PRESERVE_LD_LIBRARY_PATH="${PRESERVE_LD_LIBRARY_PATH:-0}"
@@ -28,6 +29,7 @@ Environment overrides:
   MEM_HIGH / MEM_MAX      systemd-run memory limits (default 28G/31G)
   THEROCK_AMDGPU_TARGETS  override GPU target (default gfx1031)
   PRESERVE_LD_LIBRARY_PATH  append inherited LD_LIBRARY_PATH (default 0)
+  BUILD_DIR               build directory name (default build)
 EOF_USAGE
 }
 
@@ -106,12 +108,12 @@ if [[ ! -d "${ROOT}/rocm-libraries" || ! -d "${ROOT}/rocm-systems" ]]; then
 fi
 
 if (( DO_CLEAN )); then
-  rm -rf "${ROOT}/build"
+  rm -rf "${ROOT}/${BUILD_DIR}"
 fi
 
 # Only enforce a clean build dir when (re)configuring.
 if (( CHECK_CLEAN )) && (( SKIP_CONFIGURE == 0 )); then
-  if [[ -d "${ROOT}/build" ]] && [[ -n "$(ls -A "${ROOT}/build" 2>/dev/null)" ]]; then
+  if [[ -d "${ROOT}/${BUILD_DIR}" ]] && [[ -n "$(ls -A "${ROOT}/${BUILD_DIR}" 2>/dev/null)" ]]; then
     echo "build/ is not clean. Use --clean or --no-check-clean." >&2
     exit 1
   fi
@@ -130,23 +132,23 @@ run_cmd() {
   local cmd="$1"
   # Ensure sysdeps shared libs are found by host tools during the build (llvm-min-tblgen, etc.)
   local sysdeps_libs=(
-    "${ROOT}/build/dist/rocm/lib/rocm_sysdeps/lib"
-    "${ROOT}/build/third-party/sysdeps/linux/zstd/build/dist/lib/rocm_sysdeps/lib"
-    "${ROOT}/build/third-party/sysdeps/linux/zstd/build/stage/lib/rocm_sysdeps/lib"
-    "${ROOT}/build/third-party/sysdeps/linux/zstd/build/build/b"
-    "${ROOT}/build/third-party/sysdeps/linux/zlib/build/dist/lib/rocm_sysdeps/lib"
-    "${ROOT}/build/third-party/sysdeps/linux/zlib/build/stage/lib/rocm_sysdeps/lib"
-    "${ROOT}/build/third-party/sysdeps/linux/zlib/build/build/b"
-    "${ROOT}/build/third-party/sysdeps/linux/bzip2/build/dist/lib/rocm_sysdeps/lib"
-    "${ROOT}/build/third-party/sysdeps/linux/bzip2/build/stage/lib/rocm_sysdeps/lib"
-    "${ROOT}/build/third-party/sysdeps/linux/liblzma/build/dist/lib/rocm_sysdeps/lib"
-    "${ROOT}/build/third-party/sysdeps/linux/liblzma/build/stage/lib/rocm_sysdeps/lib"
-    "${ROOT}/build/third-party/sysdeps/linux/elfutils/build/dist/lib/rocm_sysdeps/lib"
-    "${ROOT}/build/third-party/sysdeps/linux/elfutils/build/stage/lib/rocm_sysdeps/lib"
-    "${ROOT}/build/third-party/sysdeps/linux/libdrm/build/dist/lib/rocm_sysdeps/lib"
-    "${ROOT}/build/third-party/sysdeps/linux/libdrm/build/stage/lib/rocm_sysdeps/lib"
-    "${ROOT}/build/third-party/sysdeps/linux/numactl/build/dist/lib/rocm_sysdeps/lib"
-    "${ROOT}/build/third-party/sysdeps/linux/numactl/build/stage/lib/rocm_sysdeps/lib"
+    "${ROOT}/${BUILD_DIR}/dist/rocm/lib/rocm_sysdeps/lib"
+    "${ROOT}/${BUILD_DIR}/third-party/sysdeps/linux/zstd/build/dist/lib/rocm_sysdeps/lib"
+    "${ROOT}/${BUILD_DIR}/third-party/sysdeps/linux/zstd/build/stage/lib/rocm_sysdeps/lib"
+    "${ROOT}/${BUILD_DIR}/third-party/sysdeps/linux/zstd/build/build/b"
+    "${ROOT}/${BUILD_DIR}/third-party/sysdeps/linux/zlib/build/dist/lib/rocm_sysdeps/lib"
+    "${ROOT}/${BUILD_DIR}/third-party/sysdeps/linux/zlib/build/stage/lib/rocm_sysdeps/lib"
+    "${ROOT}/${BUILD_DIR}/third-party/sysdeps/linux/zlib/build/build/b"
+    "${ROOT}/${BUILD_DIR}/third-party/sysdeps/linux/bzip2/build/dist/lib/rocm_sysdeps/lib"
+    "${ROOT}/${BUILD_DIR}/third-party/sysdeps/linux/bzip2/build/stage/lib/rocm_sysdeps/lib"
+    "${ROOT}/${BUILD_DIR}/third-party/sysdeps/linux/liblzma/build/dist/lib/rocm_sysdeps/lib"
+    "${ROOT}/${BUILD_DIR}/third-party/sysdeps/linux/liblzma/build/stage/lib/rocm_sysdeps/lib"
+    "${ROOT}/${BUILD_DIR}/third-party/sysdeps/linux/elfutils/build/dist/lib/rocm_sysdeps/lib"
+    "${ROOT}/${BUILD_DIR}/third-party/sysdeps/linux/elfutils/build/stage/lib/rocm_sysdeps/lib"
+    "${ROOT}/${BUILD_DIR}/third-party/sysdeps/linux/libdrm/build/dist/lib/rocm_sysdeps/lib"
+    "${ROOT}/${BUILD_DIR}/third-party/sysdeps/linux/libdrm/build/stage/lib/rocm_sysdeps/lib"
+    "${ROOT}/${BUILD_DIR}/third-party/sysdeps/linux/numactl/build/dist/lib/rocm_sysdeps/lib"
+    "${ROOT}/${BUILD_DIR}/third-party/sysdeps/linux/numactl/build/stage/lib/rocm_sysdeps/lib"
   )
   local ldpath=""
   for p in "${sysdeps_libs[@]}"; do
@@ -159,7 +161,7 @@ run_cmd() {
   if (( DETACH )); then
     # Fully detached build: run as a transient user service so the build is not
     # tied to the parent shell/PTY (tool timeouts won't kill it).
-    local unit="therock-gfx1031-build"
+    local unit="therock-gfx1031-${BUILD_DIR}-build"
     systemd-run --user --no-block --quiet --collect --unit "${unit}" --property=Restart=no \
       --property="MemoryHigh=${MEM_HIGH}" --property="MemoryMax=${MEM_MAX}" \
       --property=MemoryAccounting=yes --property=CPUAccounting=yes \
@@ -179,39 +181,9 @@ run_cmd_array() {
   run_cmd "${escaped}"
 }
 
-TARGETS="${THEROCK_AMDGPU_TARGETS:-gfx1031}"
-
-cmake_args=(
-  -DTHEROCK_AMDGPU_TARGETS="${TARGETS}"
-  -DTHEROCK_ENABLE_ALL=OFF
-  -DTHEROCK_ENABLE_COMPILER=ON
-  -DTHEROCK_ENABLE_CORE_RUNTIME=ON
-  -DTHEROCK_ENABLE_HIP_RUNTIME=ON
-  -DTHEROCK_ENABLE_HIPIFY=ON
-  -DTHEROCK_ENABLE_BLAS=ON
-  -DTHEROCK_ENABLE_PRIM=ON
-  -DTHEROCK_ENABLE_RAND=ON
-  -DTHEROCK_ENABLE_FFT=ON
-  -DTHEROCK_ENABLE_SPARSE=ON
-  -DTHEROCK_ENABLE_SOLVER=ON
-  -DTHEROCK_ENABLE_HIPBLASLT=OFF
-  -DTHEROCK_ENABLE_HIPSPARSELT=OFF
-  -DTHEROCK_ENABLE_MIOPEN=ON
-  -DTHEROCK_ENABLE_HIPDNN=ON
-  -DTHEROCK_ENABLE_COMPOSABLE_KERNEL=ON
-  -DTHEROCK_ENABLE_RCCL=ON
-  -DTHEROCK_ENABLE_ROCWMMA=OFF
-  -DTHEROCK_ENABLE_PROFILER=ON
-  -DTHEROCK_ENABLE_DC_TOOLS=OFF
-  -DTHEROCK_ENABLE_ROCPROFSYS=OFF
-  -DBUILD_TESTING=OFF
-  -DCMAKE_C_COMPILER=clang
-  -DCMAKE_CXX_COMPILER=clang++
-  -DCMAKE_C_COMPILER_LAUNCHER=ccache
-  -DCMAKE_CXX_COMPILER_LAUNCHER=ccache
-)
-
 if (( ! SKIP_CONFIGURE )); then
-  run_cmd_array cmake -B build -GNinja . "${cmake_args[@]}" "${EXTRA_CMAKE_ARGS[@]}"
+  echo "This helper no longer re-runs CMake configure (to avoid accidentally switching compilers or flags)." >&2
+  echo "Run ./configure_gfx1031.sh first, then re-run this with --skip-configure." >&2
+  exit 2
 fi
-run_cmd_array ninja -C build
+run_cmd_array ninja -C "${BUILD_DIR}"

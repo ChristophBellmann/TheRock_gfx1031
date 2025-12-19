@@ -68,6 +68,34 @@ installs into `./install`).
 Default behavior is a **clean configure**: it removes `build/` before running
 CMake. Use `--no-clean` if you explicitly want to reconfigure in-place.
 
+### Stage-1 / Stage-2 bootstrapping (recommended)
+
+To avoid subtle issues from mixing the system toolchain (`/usr/lib/llvm-18`) and
+the in-tree ROCm toolchain, use two build directories:
+
+- **Stage-1** (`build-stage1`): build the in-tree toolchain (`amd-llvm` + `hip-clr`)
+  using system `clang/clang++` (Werror is disabled intentionally).
+- **Stage-2** (`build-stage2`): fresh configure/build, but set the **top-level**
+  `CMAKE_C_COMPILER/CMAKE_CXX_COMPILER/CMAKE_LINKER` to the Stage-1 in-tree
+  toolchain so *even “forgotten” subprojects* won't fall back to system clang.
+
+Workflow:
+
+```bash
+# Stage-1: toolchain only (system clang)
+./configure_stage1_gfx1031.sh
+./bootstrap_stage1_gfx1031.sh
+./build_stage1_gfx1031.sh --detach
+
+# Stage-2: full build (TheRock toolchain, fresh build dir)
+./configure_stage2_gfx1031.sh
+./bootstrap_stage2_gfx1031.sh
+./build_stage2_gfx1031.sh --detach
+```
+
+Important: **Never** switch compilers inside the same build directory. Always
+use a fresh build dir for Stage-2.
+
 ### What `cmake -B build -GNinja .` actually does (ASCII overview)
 
 ```text

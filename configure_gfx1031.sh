@@ -3,6 +3,9 @@ set -euo pipefail
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 LOG_FILE="${ROOT}/build.log"
+BUILD_DIR="${BUILD_DIR:-build}"
+STAGE="${STAGE:-1}"
+STAGE1_BUILD_DIR="${STAGE1_BUILD_DIR:-build-stage1}"
 MEM_HIGH="${MEM_HIGH:-28G}"
 MEM_MAX="${MEM_MAX:-31G}"
 CHECK_CLEAN=1
@@ -45,6 +48,9 @@ Options:
 Environment overrides:
   MEM_HIGH / MEM_MAX      systemd-run memory limits (default 28G/31G)
   THEROCK_AMDGPU_TARGETS  override GPU target (default gfx1031)
+  BUILD_DIR              build directory name (default build)
+  STAGE                  bootstrapping stage: 1 (system clang) or 2 (use Stage-1 TheRock clang) (default 1)
+  STAGE1_BUILD_DIR       Stage-1 build dir used by STAGE=2 (default build-stage1)
 EOF_USAGE
 }
 
@@ -138,11 +144,11 @@ if [[ ! -d "${ROOT}/rocm-libraries" || ! -d "${ROOT}/rocm-systems" ]]; then
 fi
 
 if (( DO_CLEAN )); then
-  rm -rf "${ROOT}/build"
+  rm -rf "${ROOT}/${BUILD_DIR}"
 fi
 
 if (( CHECK_CLEAN )); then
-  if [[ -d "${ROOT}/build" ]] && [[ -n "$(ls -A "${ROOT}/build" 2>/dev/null)" ]]; then
+  if [[ -d "${ROOT}/${BUILD_DIR}" ]] && [[ -n "$(ls -A "${ROOT}/${BUILD_DIR}" 2>/dev/null)" ]]; then
     echo "build/ is not clean. Use --clean or --no-check-clean." >&2
     exit 1
   fi
@@ -168,16 +174,44 @@ run_cmd_array() {
 
 TARGETS="${THEROCK_AMDGPU_TARGETS:-gfx1031}"
 
-	cmake_args=(
+BUILD_PATH="${ROOT}/${BUILD_DIR}"
+
+# Stage-2: point the top-level compilers/linkers at the Stage-1 in-tree toolchain
+# so even subprojects that forget COMPILER_TOOLCHAIN won't fall back to system clang.
+if [[ "${STAGE}" == "2" ]]; then
+  STAGE1_PATH="${ROOT}/${STAGE1_BUILD_DIR}"
+  STAGE1_LLVM_BIN="${STAGE1_PATH}/compiler/amd-llvm/dist/lib/llvm/bin"
+  if [[ ! -x "${STAGE1_LLVM_BIN}/clang" || ! -x "${STAGE1_LLVM_BIN}/clang++" || ! -x "${STAGE1_LLVM_BIN}/lld" ]]; then
+    echo "STAGE=2 requires Stage-1 toolchain in ${STAGE1_LLVM_BIN} (missing clang/clang++/lld)." >&2
+    echo "Build Stage-1 first (amd-llvm + hip-clr) in BUILD_DIR=${STAGE1_BUILD_DIR}." >&2
+    exit 1
+  fi
+  STAGE2_C_COMPILER="${STAGE1_LLVM_BIN}/clang"
+  STAGE2_CXX_COMPILER="${STAGE1_LLVM_BIN}/clang++"
+  STAGE2_LINKER="${STAGE1_LLVM_BIN}/lld"
+  STAGE2_AR="${STAGE1_LLVM_BIN}/llvm-ar"
+  STAGE2_RANLIB="${STAGE1_LLVM_BIN}/llvm-ranlib"
+  STAGE2_NM="${STAGE1_LLVM_BIN}/llvm-nm"
+else
+  STAGE2_C_COMPILER="clang"
+  STAGE2_CXX_COMPILER="clang++"
+  STAGE2_LINKER=""
+  STAGE2_AR=""
+  STAGE2_RANLIB=""
+  STAGE2_NM=""
+fi
+
+cmake_args=(
 	  -DTHEROCK_AMDGPU_TARGETS="${TARGETS}"
 	  -DTHEROCK_DIST_AMDGPU_TARGETS="${TARGETS}"
 	  -DTHEROCK_DIST_AMDGPU_FAMILIES="${TARGETS}"
-	  -DROCM_PATH="${ROOT}/build/core/clr/dist"
-	  -DROCM_DIR="${ROOT}/build/core/clr/dist"
-	  -DROCM_ROOT="${ROOT}/build/core/clr/dist"
-	  -DHIP_ROOT_DIR="${ROOT}/build/core/clr/dist"
-	  -DHIP_DIR="${ROOT}/build/core/clr/dist"
-	  -DHIP_PATH="${ROOT}/build/core/clr/dist"
+	  -DDEFAULT_ROCM_PATH="${BUILD_PATH}/core/clr/dist"
+	  -DROCM_PATH="${BUILD_PATH}/core/clr/dist"
+	  -DROCM_DIR="${BUILD_PATH}/core/clr/dist"
+	  -DROCM_ROOT="${BUILD_PATH}/core/clr/dist"
+	  -DHIP_ROOT_DIR="${BUILD_PATH}/core/clr/dist"
+	  -DHIP_DIR="${BUILD_PATH}/core/clr/dist"
+	  -DHIP_PATH="${BUILD_PATH}/core/clr/dist"
 	  -DTHEROCK_ENABLE_ALL=OFF
 	  -DSPDLOG_FMT_EXTERNAL=OFF
 	  -DTHEROCK_ENABLE_COMPILER=$(bool_on_off "${ENABLE_COMPILER}")
@@ -206,15 +240,27 @@ TARGETS="${THEROCK_AMDGPU_TARGETS:-gfx1031}"
   # older in-place configure.
   -DCMAKE_C_FLAGS=
   -DCMAKE_CXX_FLAGS=
-  -DCMAKE_C_COMPILER=clang
-  -DCMAKE_CXX_COMPILER=clang++
+  -DCMAKE_C_COMPILER="${STAGE2_C_COMPILER}"
+  -DCMAKE_CXX_COMPILER="${STAGE2_CXX_COMPILER}"
   -DCMAKE_C_COMPILER_LAUNCHER=ccache
   -DCMAKE_CXX_COMPILER_LAUNCHER=ccache
 )
+if [[ -n "${STAGE2_LINKER}" ]]; then
+  cmake_args+=( -DCMAKE_LINKER="${STAGE2_LINKER}" )
+fi
+if [[ -x "${STAGE2_AR}" ]]; then
+  cmake_args+=( -DCMAKE_AR="${STAGE2_AR}" )
+fi
+if [[ -x "${STAGE2_RANLIB}" ]]; then
+  cmake_args+=( -DCMAKE_RANLIB="${STAGE2_RANLIB}" )
+fi
+if [[ -x "${STAGE2_NM}" ]]; then
+  cmake_args+=( -DCMAKE_NM="${STAGE2_NM}" )
+fi
 if [[ -n "${HIP_COMPILER}" ]]; then
   cmake_args+=( -DCMAKE_HIP_COMPILER="${HIP_COMPILER}" )
 fi
 
-run_cmd_array cmake -B build -GNinja . "${cmake_args[@]}" "${EXTRA_CMAKE_ARGS[@]}"
+run_cmd_array cmake -B "${BUILD_DIR}" -GNinja . "${cmake_args[@]}" "${EXTRA_CMAKE_ARGS[@]}"
 
 echo "Configure complete. Next: ./build_gfx1031.sh (use --skip-configure to reuse) " | tee -a "${LOG_FILE}"

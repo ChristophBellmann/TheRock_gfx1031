@@ -292,6 +292,22 @@
      - Additionally, avoid editing the `compiler/spirv-llvm-translator` submodule by adding a narrow amd-llvm-only workaround in `compiler/pre_hook_amd-llvm.cmake`:
        - `add_compile_options($<$<CXX_COMPILER_ID:Clang>:-Wno-enum-constexpr-conversion>)`
    - Recovery: `ninja -C build amd-llvm+expunge` and resume the build.
+
+41. **2025-12-19: Stage-1 / Stage-2 bootstrapping to avoid toolchain mixing**
+   - Goal: avoid mixing the system toolchain (`/usr/lib/llvm-18`) and the in-tree
+     ROCm toolchain across subprojects (can lead to phantom ABI/tool mismatch failures).
+   - Approach:
+     - Stage-1 in `build-stage1`: build the in-tree toolchain (`amd-llvm` + `hip-clr`)
+       using system `clang/clang++`. Werror is disabled intentionally.
+     - Stage-2 in `build-stage2`: fresh configure/build where the *top-level* CMake
+       compilers/linker are set to the Stage-1 in-tree `clang/clang++/lld`, so even
+       subprojects that forget `COMPILER_TOOLCHAIN` don't fall back to system clang.
+   - Helpers:
+     - `./configure_stage1_gfx1031.sh`, `./bootstrap_stage1_gfx1031.sh`, `./build_stage1_gfx1031.sh`
+     - `./configure_stage2_gfx1031.sh`, `./bootstrap_stage2_gfx1031.sh`, `./build_stage2_gfx1031.sh`
+   - Notes:
+     - Do not switch compilers in-place inside a build directory; always use a new build dir.
+     - `configure_gfx1031.sh` supports `BUILD_DIR`, `STAGE`, and `STAGE1_BUILD_DIR` env vars.
 ## TODO / Watchouts
 
 - When new third-party packages are added, verify their `dist/` directories are populated before dependent projects configure.  
