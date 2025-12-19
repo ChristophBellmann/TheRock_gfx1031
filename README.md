@@ -49,8 +49,7 @@ use:
 It uses the recommended gfx1031 profile (LLM/Vision/Audio), enables ccache, and
 applies the same RAM limits. Host compiler is set to `clang/clang++` (avoid
 GCC/clang mix) and builds run via `ninja` (no `cmake --build`). The helper also
-applies a Clang 18 compatibility flag (`-Wno-enum-constexpr-conversion`) to
-avoid a SPIR-V headers build failure.
+ensures a consistent Python/ccache/compiler environment (see below).
 
 Compared to calling `cmake -B build -GNinja .` directly, the helper script mainly
 adds **repeatability** and **guard rails**:

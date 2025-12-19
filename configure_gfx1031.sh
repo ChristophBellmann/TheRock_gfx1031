@@ -196,7 +196,10 @@ cmake_args=(
   -DTHEROCK_ENABLE_DC_TOOLS=$(bool_on_off "${ENABLE_DC_TOOLS}")
   -DBUILD_TESTING=$(bool_on_off "${ENABLE_BUILD_TESTING}")
   -DTHEROCK_MIOPEN_USE_COMPOSABLE_KERNEL=$(bool_on_off "${ENABLE_COMPOSABLE_KERNEL}")
-  -DCMAKE_CXX_FLAGS="-Wno-enum-constexpr-conversion"
+  # Keep these explicit so we don't accidentally inherit stale values from an
+  # older in-place configure.
+  -DCMAKE_C_FLAGS=
+  -DCMAKE_CXX_FLAGS=
   -DCMAKE_C_COMPILER=clang
   -DCMAKE_CXX_COMPILER=clang++
   -DCMAKE_C_COMPILER_LAUNCHER=ccache

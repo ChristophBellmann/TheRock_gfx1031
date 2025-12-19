@@ -202,7 +202,7 @@
 
 25. **2025-12-19: Build helper hygiene (hipcc notice + clang 18 enum fix)**
    - `configure_gfx1031.sh` now warns loudly if hipcc/amdclang++ is missing (bootstrap still proceeds with host clang++) so we remember to switch to ROCm toolchain after Stage 1.
-   - Added `-Wno-enum-constexpr-conversion` via `CMAKE_CXX_FLAGS` to tolerate SPIR-V headers with large enum sentinels when compiling with clang 18 (fixes clang error in spirv-llvm-translator).
+   - Initially tried adding `-Wno-enum-constexpr-conversion` via global `CMAKE_CXX_FLAGS`, but this later broke projects that treat unknown warning options as errors (e.g. `rocminfo` with `-Werror,-Wunknown-warning-option`). The helper no longer sets this globally; if SPIR-V headers cause issues again, the fix must be applied narrowly (to the affected subproject/toolchain only).
    - `build_gfx1031.sh` extends `LD_LIBRARY_PATH` to include the raw `build/.../zlib|zstd/build/b` directories in addition to stage/dist `rocm_sysdeps` to keep host tools (llvm-min-tblgen, etc.) finding `librocm_sysdeps_z*.so` during early compiler build.
    - Next step: rerun `./configure_gfx1031.sh --clean` then `./build_gfx1031.sh --skip-configure` to verify amd-llvm now builds cleanly.
 
