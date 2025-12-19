@@ -281,6 +281,13 @@ systemctl --user stop therock-gfx1031-build.service
 
 Wenn der Build endet (success/fail), schreibt `build_gfx1031.sh --detach` automatisch eine Zusammenfassung nach `build_result.txt`.
 
+Zusätzlich: Bei einem Fail wird automatisch ein OnFailure-Handler gestartet, der:
+- `build_result.txt` aktualisiert,
+- (falls passend) `./bootstrap_gfx1031.sh` erneut ausführt,
+- und den Build bis zu `MAX_RETRIES` mal neu startet.
+
+Der Handler loggt nach `autodebug.log` und nutzt `auto_debug_on_fail_gfx1031.sh`.
+
 ### composable_kernel & MIOpen
 
 - `THEROCK_MIOPEN_USE_COMPOSABLE_KERNEL` wird im Helper an `THEROCK_ENABLE_COMPOSABLE_KERNEL` gespiegelt.

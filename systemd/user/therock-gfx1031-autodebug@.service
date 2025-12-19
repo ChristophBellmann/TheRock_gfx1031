@@ -1,0 +1,9 @@
+[Unit]
+Description=TheRock gfx1031 auto-debug on failure (%i)
+After=default.target
+
+[Service]
+Type=oneshot
+WorkingDirectory=%h
+ExecStart=/usr/bin/bash -lc 'cd "/media/christoph/some_space/make_my_gpu_useful/TheRock_gfx1031" && ./auto_debug_on_fail_gfx1031.sh --unit "%i"'
+
