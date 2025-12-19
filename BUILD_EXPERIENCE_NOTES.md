@@ -183,6 +183,12 @@
    - `configure_gfx1031.sh` now sets `THEROCK_MIOPEN_USE_COMPOSABLE_KERNEL` to match the CK flag.
    - README notes: CK unsupported on gfx1031; MIOpen disables CK internally with a warning only.
 
+22. **2025-12-19: Phase 1 clang build (ROCPROFSYS=OFF) stalled on sysdeps cmake configs**
+   - Configure succeeds with clang18, BUILD_TESTING=OFF, ROCPROFSYS=OFF, hipBLASLt/hipSPARSELt/ROCWMMA=OFF.
+   - `build_gfx1031.sh --skip-configure` fails during configure of `rocm-half` and `grpc`: missing `ROCmCMakeBuildTools` (from rocm-cmake) and `ZLIBConfig.cmake` (from sysdeps zlib) under `dist/share/...`.
+   - Stage artifacts exist (`build/base/rocm-cmake/stage/share/rocmcmakebuildtools/cmake`, sysdeps zlib stage), but cmake configs are not present in corresponding `dist/` paths.
+   - Workaround pending: copy cmake config dirs from stage→dist for rocm-cmake and sysdeps (zlib, possibly other pkgs), or set explicit `*_DIR`/`CMAKE_PREFIX_PATH` per subproject.
+
 ## TODO / Watchouts
 
 - When new third-party packages are added, verify their `dist/` directories are populated before dependent projects configure.  
