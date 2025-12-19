@@ -277,12 +277,13 @@ Wenn der Build detached als `therock-gfx1031-build.service` läuft:
 
 ### 6h monitor (5min interval)
 
-Für lange Builds kann ein 6‑Stunden Monitor als eigener systemd‑User‑Service gestartet werden
-(pollt alle 5 Minuten und schreibt nach `monitor_6h.log`):
+Für lange Builds kann ein 6‑Stunden Monitor als eigener systemd‑User‑Service gestartet werden.
+Das ist bewusst “detached”, weil eine interaktive Session nicht 6 Stunden “wach” bleiben kann.
+Der Monitor pollt alle 5 Minuten und schreibt nach `monitor_6h.log`:
 
 ```bash
 systemctl --user stop therock-gfx1031-monitor.service 2>/dev/null || true
-rm -f monitor_6h.log
+test -f monitor_6h.log && mv -v monitor_6h.log "monitor_6h.log.$(date +%Y%m%d_%H%M%S)" || true
 systemd-run --user --no-block --collect --unit therock-gfx1031-monitor \
   bash -lc 'cd "/media/christoph/some_space/make_my_gpu_useful/TheRock_gfx1031" && ./monitor_gfx1031.sh --interval 300 --duration 21600 >> monitor_6h.log 2>&1'
 tail -f monitor_6h.log
@@ -294,6 +295,9 @@ systemctl --user stop therock-gfx1031-build.service
 ```
 
 Wenn der Build endet (success/fail), schreibt `build_gfx1031.sh --detach` automatisch eine Zusammenfassung nach `build_result.txt`.
+
+Wenn der Build fehlschlägt, ist die “erste echte” Fehlermeldung meist in `build.log` und zusätzlich
+pro Subprojekt in `build/logs/*_build.log`.
 
 ### composable_kernel & MIOpen
 

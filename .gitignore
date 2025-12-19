@@ -28,10 +28,13 @@ __pycache__
 build*.log
 build.log.bak-*
 *.log
+*.log.*
 install*.log
 *.pcap
 *.pp
 *.te
+build_result.txt
+monitor_*.log*
 Konsole/
 blah/
 FORK_SUMMARY.md
