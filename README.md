@@ -52,6 +52,16 @@ GCC/clang mix) and builds run via `ninja` (no `cmake --build`). The helper also
 applies a Clang 18 compatibility flag (`-Wno-enum-constexpr-conversion`) to
 avoid a SPIR-V headers build failure.
 
+Compared to calling `cmake -B build -GNinja .` directly, the helper script mainly
+adds **repeatability** and **guard rails**:
+
+- Applies the repo's **gfx1031 build profile** (`THEROCK_ENABLE_*`, `BUILD_TESTING`, `THEROCK_ENABLE_ROCPROFSYS=OFF`, `THEROCK_ENABLE_COMPOSABLE_KERNEL=ON`, targets/dist bundle).
+- Enforces **clang/clang++** as host compiler (avoid GCC/clang mixing and GCC ICE issues).
+- Ensures a working **Python venv** (`.venv`) so build tools run consistently.
+- Enables/configures **ccache** via `build_tools/setup_ccache.py`.
+- Runs configure under the same **systemd memory limits** used for builds and logs to `build.log`.
+- Avoids accidental **system ROCm toolchain mixing** (`CMAKE_HIP_COMPILER` only set if `./install/bin/hipcc` exists).
+
 If `hipcc/amdclang++` is not found yet, the script prints a **WARNING** (this is
 expected in a clean bootstrap: hipcc only exists after the toolchain build
 installs into `./install`).
