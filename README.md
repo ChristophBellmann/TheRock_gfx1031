@@ -266,6 +266,19 @@ Auflösungen während des eigentlichen Builds nicht an fehlenden `*Config.cmake`
 
 `bootstrap_gfx1031.sh` schreibt wie Configure/Build nach `build.log` (append).
 
+### Build monitoring (detached)
+
+Wenn der Build detached als `therock-gfx1031-build.service` läuft:
+
+```bash
+./watch_build_gfx1031.sh
+```
+
+Stoppen:
+```bash
+systemctl --user stop therock-gfx1031-build.service
+```
+
 ### composable_kernel & MIOpen
 
 - `THEROCK_MIOPEN_USE_COMPOSABLE_KERNEL` wird im Helper an `THEROCK_ENABLE_COMPOSABLE_KERNEL` gespiegelt.
