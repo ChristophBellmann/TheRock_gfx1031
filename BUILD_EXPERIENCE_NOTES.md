@@ -237,6 +237,14 @@
 32. **2025-12-19: amd-llvm rocr-runtime configure needed LibElfConfig (elfutils)**
    - Failure: `rocr-runtime` (hsa-runtime) `find_package(LibElf)` expected `build/third-party/sysdeps/linux/elfutils/build/dist/lib/rocm_sysdeps/lib/cmake/LibElf` but sysdeps `therock-elfutils` was not in bootstrap.
    - Fix: `bootstrap_gfx1031.sh` now includes `therock-elfutils+stage`, adds stage→dist for elfutils, and verifies `libelf-config.cmake` exists.
+
+33. **2025-12-19: Dist dirs stayed empty (Python3_EXECUTABLE not exported) → find_package failures**
+   - Symptom: subproject configures (notably `amd-comgr-impl`) failed with messages like:
+     - `Super-project based find_package(AMDDeviceLibs) config file not found under .../build/compiler/amd-llvm/dist/...`
+     - after manually copying one config, it would then fail on the next (`ClangConfig.cmake`, `LLVMConfig.cmake`, …).
+   - Root cause: `Python3_EXECUTABLE` was not exported from `therock_setup_python_and_topology()` (function scope), so generated Ninja rules invoked `build_tools/teatime.py` and `build_tools/fileset_tool.py` without an explicit interpreter. This also prevented the stage→dist population step from running reliably, leaving many `dist/` dirs empty.
+   - Fix: `cmake/therock_python_setup.cmake` now forces `Python3_EXECUTABLE` into the cache so generated rules consistently use the venv interpreter (`.venv/bin/python3`) for `teatime.py` and `fileset_tool.py`.
+   - Recovery: re-run `./configure_gfx1031.sh --no-clean` to regenerate `build/build.ninja`, then `./build_gfx1031.sh --skip-configure --detach` to continue.
 ## TODO / Watchouts
 
 - When new third-party packages are added, verify their `dist/` directories are populated before dependent projects configure.  

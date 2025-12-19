@@ -20,7 +20,14 @@ function(therock_setup_python_and_topology)
   ################################################################################
   # Python is used throughout the build. Ensure it is initialized early.
 
+  # Note: This function is called from the top-level configure but runs in
+  # function scope. Ensure that the Python interpreter path is available in the
+  # directory scope (and cache) so other build system modules can reliably use
+  # `${Python3_EXECUTABLE}` in generated build rules (teatime/fileset_tool, dist
+  # population, etc).
   find_package(Python3 3.9 COMPONENTS Interpreter REQUIRED)
+  set(Python3_EXECUTABLE "${Python3_EXECUTABLE}" CACHE FILEPATH
+    "Python3 interpreter used by TheRock build system" FORCE)
 
   ################################################################################
   # Generate Build Topology Targets
