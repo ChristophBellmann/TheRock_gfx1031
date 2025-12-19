@@ -8,6 +8,7 @@ MEM_MAX="${MEM_MAX:-31G}"
 CHECK_CLEAN=1
 DO_CLEAN=0
 SKIP_CONFIGURE=1
+DETACH=0
 EXTRA_CMAKE_ARGS=()
 
 usage() {
@@ -19,6 +20,7 @@ Options:
   --no-check-clean  Skip clean build directory check
   --configure       Re-run CMake configure before building (default: skip)
   --skip-configure  Do not re-run CMake configure (default)
+  --detach          Start build in background via systemd-run (logs to build.log)
   -h, --help        Show this help
 
 Environment overrides:
@@ -43,6 +45,10 @@ while [[ $# -gt 0 ]]; do
       ;;
     --configure)
       SKIP_CONFIGURE=0
+      shift
+      ;;
+    --detach)
+      DETACH=1
       shift
       ;;
     -h|--help)
@@ -144,8 +150,16 @@ run_cmd() {
   for p in "${sysdeps_libs[@]}"; do
     [[ -d "$p" ]] && ldpath="${ldpath:+$ldpath:}$p"
   done
-  systemd-run --user --scope -p "MemoryHigh=${MEM_HIGH}" -p "MemoryMax=${MEM_MAX}" \
-    bash -lc "source \"${ROOT}/.venv/bin/activate\" && export LD_LIBRARY_PATH=\"${ldpath:+$ldpath:}\${LD_LIBRARY_PATH}\" && ${cmd}" 2>&1 | tee -a "${LOG_FILE}"
+  if (( DETACH )); then
+    # Important: log piping must happen inside the transient unit, otherwise
+    # killing the parent shell can terminate the pipeline and stop the build.
+    systemd-run --user --scope --no-block \
+      -p "MemoryHigh=${MEM_HIGH}" -p "MemoryMax=${MEM_MAX}" -p MemoryAccounting=yes -p CPUAccounting=yes \
+      bash -lc "cd \"${ROOT}\" && source \"${ROOT}/.venv/bin/activate\" && export LD_LIBRARY_PATH=\"${ldpath:+$ldpath:}\${LD_LIBRARY_PATH}\" && ${cmd} 2>&1 | tee -a \"${LOG_FILE}\""
+  else
+    systemd-run --user --scope -p "MemoryHigh=${MEM_HIGH}" -p "MemoryMax=${MEM_MAX}" \
+      bash -lc "cd \"${ROOT}\" && source \"${ROOT}/.venv/bin/activate\" && export LD_LIBRARY_PATH=\"${ldpath:+$ldpath:}\${LD_LIBRARY_PATH}\" && ${cmd}" 2>&1 | tee -a "${LOG_FILE}"
+  fi
 }
 
 run_cmd_array() {
