@@ -59,6 +59,9 @@ fi
 if [[ -x "${ROOT}/.local/bin/ccache" ]]; then
   PATH="${ROOT}/.local/bin:${PATH}"
 fi
+if [[ -x "${ROOT}/.local/bin/ccache" ]]; then
+  PATH="${ROOT}/.local/bin:${PATH}"
+fi
 if ! command -v ccache >/dev/null 2>&1; then
   echo "ccache not found; install it or run setup_ccache.py as in README." >&2
   exit 1
@@ -66,6 +69,11 @@ fi
 if ! command -v ninja >/dev/null 2>&1; then
   echo "ninja not found; install it before building." >&2
   exit 1
+fi
+if ! command -v clang >/dev/null 2>&1 || ! command -v clang++ >/dev/null 2>&1; then
+  if [[ -x "/usr/lib/llvm-18/bin/clang" ]]; then
+    PATH="/usr/lib/llvm-18/bin:${PATH}"
+  fi
 fi
 if ! command -v clang >/dev/null 2>&1 || ! command -v clang++ >/dev/null 2>&1; then
   echo "clang/clang++ not found; install clang (host compiler) before building." >&2
