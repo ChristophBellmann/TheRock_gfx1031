@@ -101,6 +101,11 @@ if(THEROCK_ENABLE_MIOPEN)
     set(_THEROCK_MIOPEN_ENABLE_TESTING ${THEROCK_BUILD_TESTING})
   endif()
 
+  set(_miopen_optional_runtime_deps)
+  if(THEROCK_ENABLE_HIPBLASLT)
+    list(APPEND _miopen_optional_runtime_deps hipBLASLt)
+  endif()
+
   therock_cmake_subproject_declare(MIOpen
     EXTERNAL_SOURCE_DIR "${THEROCK_ROCM_LIBRARIES_SOURCE_DIR}/projects/miopen"
     BINARY_DIR "${CMAKE_CURRENT_BINARY_DIR}/MIOpen"
@@ -132,10 +137,10 @@ if(THEROCK_ENABLE_MIOPEN)
       hipBLAS-common
       hip-clr
       hipBLAS
-      hipBLASLt
       rocm-half
       rocBLAS
       rocRAND
+      ${_miopen_optional_runtime_deps}
       ${THEROCK_BUNDLED_BZIP2}
       ${THEROCK_BUNDLED_SQLITE3}
       ${optional_profiler_deps}
