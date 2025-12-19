@@ -145,6 +145,20 @@ Result of the *cmake configure step alone*
   -> You end up with a generated Ninja build system in `build/`.
 ```
 
+### Clean bootstrap helper (gfx1031)
+
+After configuring, run a one-time bootstrap step to build and stage the
+third‑party/sysdeps bits that tend to be needed early (so later parallel
+subproject configures don’t fail on missing `*Config.cmake` or sysdeps libs):
+
+```bash
+./bootstrap_gfx1031.sh
+```
+
+It uses `ninja` under the same systemd RAM limits, appends to `build.log`, and
+prepares a minimal set of `+stage` targets (sysdeps + host tools + host-blas)
+so `find_package(...)` resolution in subsequent projects can succeed reliably.
+
 ### HIP compiler (hipcc/amdclang++)
 
 Ja: für HIP-Projekte wird sichergestellt, dass **nicht GCC** und **nicht ein beliebiges system-weites ROCm** verwendet wird.
