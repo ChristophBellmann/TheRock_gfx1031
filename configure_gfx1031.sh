@@ -105,6 +105,11 @@ if ! command -v ccache >/dev/null 2>&1; then
   exit 1
 fi
 if ! command -v clang >/dev/null 2>&1 || ! command -v clang++ >/dev/null 2>&1; then
+  if [[ -x "/usr/lib/llvm-18/bin/clang" ]]; then
+    PATH="/usr/lib/llvm-18/bin:${PATH}"
+  fi
+fi
+if ! command -v clang >/dev/null 2>&1 || ! command -v clang++ >/dev/null 2>&1; then
   echo "clang/clang++ not found; install clang (host compiler) before configuring." >&2
   exit 1
 fi
