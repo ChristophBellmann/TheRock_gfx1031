@@ -114,6 +114,21 @@ if ! command -v clang >/dev/null 2>&1 || ! command -v clang++ >/dev/null 2>&1; t
   exit 1
 fi
 
+# Detect hipcc/amdclang++ for HIP builds
+HIP_COMPILER=""
+if [[ -x "${ROOT}/build/dist/rocm/bin/hipcc" ]]; then
+  HIP_COMPILER="${ROOT}/build/dist/rocm/bin/hipcc"
+elif command -v hipcc >/dev/null 2>&1; then
+  HIP_COMPILER="$(command -v hipcc)"
+elif [[ -x "/opt/rocm/bin/hipcc" ]]; then
+  HIP_COMPILER="/opt/rocm/bin/hipcc"
+elif command -v amdclang++ >/dev/null 2>&1; then
+  HIP_COMPILER="$(command -v amdclang++)"
+fi
+if [[ -z "${HIP_COMPILER}" ]]; then
+  echo "Warning: hipcc/amdclang++ not found; HIP projects will rely on default toolchain." >&2
+fi
+
 if [[ ! -d "${ROOT}/rocm-libraries" || ! -d "${ROOT}/rocm-systems" ]]; then
   echo "Missing sources; run: python3 ./build_tools/fetch_sources.py" >&2
   exit 1
@@ -178,5 +193,8 @@ cmake_args=(
   -DCMAKE_C_COMPILER_LAUNCHER=ccache
   -DCMAKE_CXX_COMPILER_LAUNCHER=ccache
 )
+if [[ -n "${HIP_COMPILER}" ]]; then
+  cmake_args+=( -DCMAKE_HIP_COMPILER="${HIP_COMPILER}" )
+fi
 
 run_cmd_array cmake -B build -GNinja . "${cmake_args[@]}" "${EXTRA_CMAKE_ARGS[@]}"
