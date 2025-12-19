@@ -74,6 +74,10 @@ if ! command -v ccache >/dev/null 2>&1; then
   echo "ccache not found; install it or run setup_ccache.py as in README." >&2
   exit 1
 fi
+if [[ -x "${ROOT}/build_tools/setup_ccache.py" ]]; then
+  eval "$("${ROOT}/build_tools/setup_ccache.py")"
+fi
+export CCACHE_SLOPPINESS="${CCACHE_SLOPPINESS:-include_file_ctime}"
 if ! command -v ninja >/dev/null 2>&1; then
   echo "ninja not found; install it before building." >&2
   exit 1
