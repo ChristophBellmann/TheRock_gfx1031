@@ -6,6 +6,8 @@ LOG_FILE="${ROOT}/test_gfx1031.log"
 MODE="quick"
 RUN_SANITY=1
 RUN_BENCH=1
+RUN_MIOPEN=0
+RUN_MIOPEN_SMOKE=0
 BUILD_DIR="${BUILD_DIR:-build}"
 RUN_CONSISTENCY=0
 CONSISTENCY_DEEP=0
@@ -21,6 +23,8 @@ Options:
   --full         Longer benchmarks (bigger sizes / more iters)
   --no-bench     Skip performance benchmarks
   --bench-only   Run benchmarks only
+  --miopen       Check MIOpen + composable_kernel artifacts (and MIOpenDriver --version if present)
+  --miopen-smoke Run a tiny MIOpenDriver smoke test (may take time on first run)
   --consistency  Run build/toolchain consistency checks
   --consistency-only
                 Run consistency checks only
@@ -61,6 +65,15 @@ while [[ $# -gt 0 ]]; do
     --bench-only)
       RUN_SANITY=0
       RUN_BENCH=1
+      shift
+      ;;
+    --miopen)
+      RUN_MIOPEN=1
+      shift
+      ;;
+    --miopen-smoke)
+      RUN_MIOPEN=1
+      RUN_MIOPEN_SMOKE=1
       shift
       ;;
     --consistency)
@@ -163,6 +176,73 @@ add_result() {
   RESULT_STATUS+=("$2")
   RESULT_TIME+=("$3")
   RESULT_METRIC+=("$4")
+}
+
+miopen_find_driver() {
+  if command -v MIOpenDriver >/dev/null 2>&1; then
+    echo "MIOpenDriver"
+    return 0
+  fi
+  if command -v miopen-driver >/dev/null 2>&1; then
+    echo "miopen-driver"
+    return 0
+  fi
+  return 1
+}
+
+check_miopen_artifacts() {
+  local label_prefix="$1"
+  local start=$SECONDS
+  local ok=0
+
+  # MIOpen library presence
+  if [[ -e "${ROCM_PATH}/lib/libMIOpen.so" || -n "$(ls -1 "${ROCM_PATH}/lib/libMIOpen.so"* 2>/dev/null | head -n 1)" ]]; then
+    add_result "${label_prefix} miopen library" "OK" "0s" "libMIOpen found"
+    ok=1
+  elif [[ -e "${ROCM_PATH}/lib64/libMIOpen.so" || -n "$(ls -1 "${ROCM_PATH}/lib64/libMIOpen.so"* 2>/dev/null | head -n 1)" ]]; then
+    add_result "${label_prefix} miopen library" "OK" "0s" "libMIOpen found (lib64)"
+    ok=1
+  else
+    add_result "${label_prefix} miopen library" "FAIL" "0s" "libMIOpen not found under ${ROCM_PATH}/lib{,64}"
+  fi
+
+  # composable_kernel headers (may or may not be installed depending on packaging)
+  if [[ -d "${ROCM_PATH}/include/ck" || -d "${ROCM_PATH}/include/composable_kernel" ]]; then
+    add_result "${label_prefix} ck headers" "OK" "0s" "headers present"
+  else
+    add_result "${label_prefix} ck headers" "SKIP" "0s" "not found under ${ROCM_PATH}/include (may be ok)"
+  fi
+
+  local elapsed=$((SECONDS - start))
+  if (( ok )); then
+    add_result "${label_prefix} miopen artifacts" "OK" "${elapsed}s" ""
+  else
+    add_result "${label_prefix} miopen artifacts" "FAIL" "${elapsed}s" ""
+  fi
+}
+
+run_miopen_checks() {
+  local label_prefix="$1"
+  if (( HAVE_ROCM_ENV == 0 )); then
+    add_result "${label_prefix} miopen" "FAIL" "0s" "ROCM_PATH missing"
+    return 1
+  fi
+  check_miopen_artifacts "${label_prefix}" || true
+
+  local drv
+  if drv="$(miopen_find_driver)"; then
+    run_timed "${label_prefix} driver --version" "<5s" "${drv}" --version || true
+    if (( RUN_MIOPEN_SMOKE )); then
+      # Very small conv; kernel compilation may still take time on first run.
+      # Use conservative sizes to keep it quick if cache is warm.
+      run_timed "${label_prefix} conv (smoke)" "30-180s" "${drv}" conv -n 1 -c 1 -H 8 -W 8 -k 1 -y 3 -x 3 -p 1 -q 1 || true
+    else
+      add_result "${label_prefix} conv (smoke)" "SKIP" "0s" "use --miopen-smoke to run"
+    fi
+  else
+    add_result "${label_prefix} driver --version" "SKIP" "0s" "MIOpenDriver/miopen-driver not in PATH"
+    add_result "${label_prefix} conv (smoke)" "SKIP" "0s" "MIOpenDriver/miopen-driver not in PATH"
+  fi
 }
 
 detect_expect_stage() {
@@ -527,6 +607,10 @@ if (( RUN_SANITY )); then
   else
     add_result "hipinfo (sanity)" "SKIP" "0s" "not in PATH"
   fi
+fi
+
+if (( RUN_MIOPEN )); then
+  run_miopen_checks "miopen" || true
 fi
 
 if (( RUN_BENCH )); then

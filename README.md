@@ -375,7 +375,7 @@ The following component flags for selected subsets are not used:
 
 ### Clean build helper (gfx1031)
 
-For a fresh, repeatable build, use:
+For a fresh, repeatable build (same defaults, same logs, same RAM limits), use:
 
 ```bash
 ./build_gfx1031.sh configure
@@ -383,8 +383,14 @@ For a fresh, repeatable build, use:
 ./build_gfx1031.sh build
 ```
 
-This runs `cmake -B <builddir> -GNinja .` and then `ninja -C <builddir>` under systemd
-memory limits and appends to `build.log`. Use `--no-clean` for an in-place reconfigure.
+This runs `cmake -B <builddir> -GNinja .` and then `ninja -C <builddir>` under
+systemd memory limits and appends to `build.log`.
+
+Notes:
+- Configure defaults are in `config_gfx1031.yaml` (env/CLI overrides work).
+- Fresh clone convenience: `configure` auto-runs `fetch_sources.py` and applies the
+  minimal local patch set if submodules are missing.
+- Use `--no-clean --no-check-clean` only if you *know* the build dir is still coherent.
 
 ### Typical workflows
 
@@ -407,10 +413,14 @@ memory limits and appends to `build.log`. Use `--no-clean` for an in-place recon
   ./build_gfx1031.sh rebuild hipBLAS rocBLAS
   ./build_gfx1031.sh rebuild hipSPARSE
   ```
-- Nach dem Build: Sanity + Benchmarks:
+- Nach dem Build: Sanity / Benchmarks / Komponenten-Smokes:
   ```bash
   ./test_gfx1031.sh        # quick
   ./test_gfx1031.sh --full # längere Bench
+
+  # MIOpen + composable_kernel checks (fast) + optional tiny smoke
+  ./test_gfx1031.sh --miopen --stage2
+  ./test_gfx1031.sh --miopen-smoke --stage2
   ```
 - Konsistenz-Checks (Toolchain/ROCm-Pfade):
   ```bash
@@ -493,7 +503,12 @@ pro Subprojekt in `build/logs/*_build.log`.
 ### composable_kernel & MIOpen
 
 - `THEROCK_MIOPEN_USE_COMPOSABLE_KERNEL` wird im Helper an `THEROCK_ENABLE_COMPOSABLE_KERNEL` gespiegelt.
-- gfx1031 wird von composable_kernel nicht direkt unterstützt; MIOpen schaltet dann intern CK ab (nur Warnung im Configure, kein Fehler).
+- gfx1031 wird von composable_kernel nicht direkt unterstützt; MIOpen schaltet dann intern CK ab (Warnung im Configure, kein harter Fehler).
+- Tests:
+  ```bash
+  ./test_gfx1031.sh --miopen --stage2
+  ./test_gfx1031.sh --miopen-smoke --stage2
+  ```
 
 ### Notes on testing
 
@@ -506,19 +521,6 @@ pro Subprojekt in `build/logs/*_build.log`.
   ```bash
   ./build_gfx1031.sh rocprofiler-gcc
   ```
-
-### Quick test helper (gfx1031)
-
-After a build, you can run basic sanity checks plus a lightweight GEMM
-benchmark (with approximate TFLOPS extraction) using:
-
-```bash
-./test_gfx1031.sh
-```
-
-Use `--full` for a longer benchmark run, `--no-bench` to skip performance
-tests, or `--bench-only` to run benchmarks only. Output is summarized on
-stdout and saved to `test_gfx1031.log`.
 
 ### Environment activation (in-tree ROCm)
 
