@@ -5,7 +5,9 @@ ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 LOG_FILE="${ROOT}/test_gfx1031.log"
 MODE="quick"
 RUN_SANITY=1
-RUN_BENCH=1
+# Default behavior is *build validation* (sanity + consistency). Benchmarks are
+# opt-in because they can be slow and depend on installed bench binaries.
+RUN_BENCH=0
 RUN_MIOPEN=0
 RUN_MIOPEN_SMOKE=0
 BUILD_DIR="${BUILD_DIR:-build}"
@@ -19,10 +21,11 @@ usage() {
 Usage: test_gfx1031.sh [options]
 
 Options:
-  --quick        Quick sanity + light benchmarks (default)
-  --full         Longer benchmarks (bigger sizes / more iters)
-  --no-bench     Skip performance benchmarks
-  --bench-only   Run benchmarks only
+  --quick        Select quick benchmark sizes (default mode)
+  --full         Select longer benchmark sizes (bigger sizes / more iters)
+  --bench        Run performance benchmarks (in addition to sanity)
+  --no-bench     Skip performance benchmarks (default)
+  --bench-only   Run benchmarks only (no sanity)
   --miopen       Check MIOpen + composable_kernel artifacts (and MIOpenDriver --version if present)
   --miopen-smoke Run a tiny MIOpenDriver smoke test (may take time on first run)
   --consistency  Run build/toolchain consistency checks
@@ -56,6 +59,10 @@ while [[ $# -gt 0 ]]; do
       ;;
     --full)
       MODE="full"
+      shift
+      ;;
+    --bench)
+      RUN_BENCH=1
       shift
       ;;
     --no-bench)

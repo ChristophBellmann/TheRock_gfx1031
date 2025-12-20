@@ -495,21 +495,29 @@ pro Subprojekt in `build/logs/*_build.log`.
 
 ### Notes on testing
 
-This repo provides a single entrypoint for post-build validation and quick perf
-sanity: `./test_gfx1031.sh`. It auto-activates the in-tree ROCm environment from
-`<builddir>/dist/rocm` (so you don’t accidentally pick up `/opt/rocm-*`).
+`./test_gfx1031.sh` has two main roles:
+
+1) **Build validation / hygiene** (what we use during active development):
+   verify the build graph is coherent (no `/opt/rocm` leakage), toolchain
+   expectations match the stage, and basic runtime tools are callable.
+
+2) **Post-build functionality checks + micro-benchmarks** (what we use once the
+   build is “installed” into `<builddir>/dist/rocm`):
+   run real GPU workloads via installed tools (rocBLAS/hipBLAS benches, MIOpen
+   driver smoke, etc.) to confirm the built stack is usable and reasonably fast.
+
+The script auto-activates the in-tree ROCm environment from `<builddir>/dist/rocm`
+(so you don’t accidentally pick up `/opt/rocm-*`).
 
 **Common usage:**
 
 ```bash
-# Stage-2: quick sanity + light GEMM benchmarks (default)
+# Stage-2: sanity only (default; no benchmarks unless you opt-in)
 ./test_gfx1031.sh --stage2
 
-# Longer benchmarks
-./test_gfx1031.sh --full --stage2
-
-# Sanity only (no perf benchmarks)
-./test_gfx1031.sh --no-bench --stage2
+# Enable benchmarks (requires the bench binaries to exist in PATH)
+./test_gfx1031.sh --bench --stage2
+./test_gfx1031.sh --bench --full --stage2
 
 # Benchmarks only
 ./test_gfx1031.sh --bench-only --stage2
@@ -536,7 +544,7 @@ sanity: `./test_gfx1031.sh`. It auto-activates the in-tree ROCm environment from
 **CLI options (overview):**
 
 - Modes: `--quick` (default), `--full`
-- Bench control: `--no-bench`, `--bench-only`
+- Bench control: `--bench`, `--no-bench` (default), `--bench-only`
 - Consistency: `--consistency`, `--consistency-only`, `--deep`, `--expect-stage1`, `--expect-stage2`
 - Components: `--miopen`, `--miopen-smoke`
 - Build dir: `--stage1`, `--stage2`, `--build-dir <dir>`
