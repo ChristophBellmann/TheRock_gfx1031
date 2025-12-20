@@ -9,6 +9,7 @@ MEM_MAX="${MEM_MAX:-31G}"
 PRESERVE_LD_LIBRARY_PATH="${PRESERVE_LD_LIBRARY_PATH:-0}"
 DETACH=0
 JOBS="${JOBS:-}"
+WAIT_LOCK=0
 
 usage() {
   cat <<'EOF_USAGE'
@@ -27,6 +28,7 @@ Options:
   --stage2          Use BUILD_DIR=build-stage2
   --build-dir <dir> Override build directory (default: build)
   --detach          Run build in background via systemd-run (build only)
+  --wait            Wait for an in-progress build lock
   -j, --jobs <n>    Ninja parallelism (default: inherit ninja default)
   -h, --help        Show this help
 
@@ -53,12 +55,28 @@ while [[ $# -gt 0 ]]; do
     --stage2) BUILD_DIR="build-stage2"; shift ;;
     --build-dir) BUILD_DIR="${2:-}"; shift 2 ;;
     --detach) DETACH=1; shift ;;
+    --wait) WAIT_LOCK=1; shift ;;
     -j|--jobs) JOBS="${2:-}"; shift 2 ;;
     -h|--help) usage; exit 0 ;;
     --) shift; SUBPROJECTS+=("$@"); break ;;
     *) SUBPROJECTS+=("$1"); shift ;;
   esac
 done
+
+LOCK_FILE="${ROOT}/${BUILD_DIR}/.therock_build.lock"
+LOCK_FD=200
+mkdir -p "${ROOT}/${BUILD_DIR}"
+if (( WAIT_LOCK )); then
+  exec {LOCK_FD}>"${LOCK_FILE}"
+  flock "${LOCK_FD}"
+else
+  exec {LOCK_FD}>"${LOCK_FILE}"
+  if ! flock -n "${LOCK_FD}"; then
+    echo "Another build is already running for BUILD_DIR='${BUILD_DIR}' (lock: ${LOCK_FILE})." >&2
+    echo "Use: ./build_gfx1031.sh <command> --build-dir ${BUILD_DIR} --wait" >&2
+    exit 3
+  fi
+fi
 
 if [[ ! -f "${ROOT}/.venv/bin/activate" ]]; then
   echo "Missing .venv; run ./configure_gfx1031.sh first (it auto-creates venv) or create it per README." >&2
