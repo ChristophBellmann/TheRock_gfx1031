@@ -13,6 +13,10 @@ MEM_HIGH="${MEM_HIGH:-}"
 MEM_MAX="${MEM_MAX:-}"
 PRESERVE_LD_LIBRARY_PATH="${PRESERVE_LD_LIBRARY_PATH:-}"
 JOBS="${JOBS:-}"
+AUTO_FETCH_SOURCES="${AUTO_FETCH_SOURCES:-}"
+AUTO_APPLY_PATCHES="${AUTO_APPLY_PATCHES:-}"
+PATCH_TAG="${PATCH_TAG:-}"
+PATCH_COMPILER_PROJECTS="${PATCH_COMPILER_PROJECTS:-}"
 DETACH=0
 WAIT_LOCK=0
 
@@ -24,6 +28,10 @@ DEFAULT_STAGE1_BUILD_DIR="build-stage1"
 DEFAULT_MEM_HIGH="28G"
 DEFAULT_MEM_MAX="31G"
 DEFAULT_PRESERVE_LD_LIBRARY_PATH="0"
+DEFAULT_AUTO_FETCH_SOURCES="true"
+DEFAULT_AUTO_APPLY_PATCHES="true"
+DEFAULT_PATCH_TAG="amd-mainline"
+DEFAULT_PATCH_COMPILER_PROJECTS="spirv-llvm-translator"
 
 # Feature defaults (config YAML should normally set these; env overrides always win).
 DEFAULT_ENABLE_COMPILER="true"
@@ -232,6 +240,16 @@ emit("BUILD_DIR", get(data, "build", "build_dir"))
 emit("STAGE1_BUILD_DIR", get(data, "build", "stage1_build_dir"))
 emit("JOBS", get(data, "build", "jobs"))
 emit("PRESERVE_LD_LIBRARY_PATH", get(data, "build", "preserve_ld_library_path"))
+emit("AUTO_FETCH_SOURCES", get(data, "build", "auto_fetch_sources"))
+
+emit("AUTO_APPLY_PATCHES", get(data, "patches", "auto_apply"))
+emit("PATCH_TAG", get(data, "patches", "tag"))
+compiler_projects = get(data, "patches", "compiler_projects", default=[]) or []
+if not os.environ.get("PATCH_COMPILER_PROJECTS"):
+    if isinstance(compiler_projects, list) and compiler_projects:
+        print(f'export PATCH_COMPILER_PROJECTS={shlex.quote(chr(31).join(str(x) for x in compiler_projects))}')
+    else:
+        print('export PATCH_COMPILER_PROJECTS=""')
 
 features = get(data, "features", default={}) or {}
 mapping = {
@@ -309,6 +327,10 @@ STAGE1_BUILD_DIR="${STAGE1_BUILD_DIR:-${DEFAULT_STAGE1_BUILD_DIR}}"
 MEM_HIGH="${MEM_HIGH:-${DEFAULT_MEM_HIGH}}"
 MEM_MAX="${MEM_MAX:-${DEFAULT_MEM_MAX}}"
 PRESERVE_LD_LIBRARY_PATH="${PRESERVE_LD_LIBRARY_PATH:-${DEFAULT_PRESERVE_LD_LIBRARY_PATH}}"
+AUTO_FETCH_SOURCES="${AUTO_FETCH_SOURCES:-${DEFAULT_AUTO_FETCH_SOURCES}}"
+AUTO_APPLY_PATCHES="${AUTO_APPLY_PATCHES:-${DEFAULT_AUTO_APPLY_PATCHES}}"
+PATCH_TAG="${PATCH_TAG:-${DEFAULT_PATCH_TAG}}"
+PATCH_COMPILER_PROJECTS="${PATCH_COMPILER_PROJECTS:-${DEFAULT_PATCH_COMPILER_PROJECTS}}"
 
 ENABLE_COMPILER="${ENABLE_COMPILER:-${DEFAULT_ENABLE_COMPILER}}"
 ENABLE_CORE_RUNTIME="${ENABLE_CORE_RUNTIME:-${DEFAULT_ENABLE_CORE_RUNTIME}}"
@@ -420,10 +442,69 @@ setup_ccache
 require_cmd ninja "install it before building."
 require_cmd cmake "install CMake (system /usr/bin/cmake recommended)."
 
-if [[ ! -d "${ROOT}/rocm-libraries" || ! -d "${ROOT}/rocm-systems" ]]; then
-  echo "Missing sources; run: python3 ./build_tools/fetch_sources.py" >&2
-  exit 1
-fi
+bool_is_true() {
+  local v="${1:-}"
+  [[ "${v}" == "1" || "${v}" == "true" || "${v}" == "True" || "${v}" == "TRUE" || "${v}" == "yes" || "${v}" == "YES" || "${v}" == "on" || "${v}" == "ON" ]]
+}
+
+have_submodule_content() {
+  local path="$1"
+  # Submodules have a .git file/dir. Also check for "not empty" to avoid
+  # corner cases where a directory exists but wasn't initialized.
+  if [[ -d "${ROOT}/${path}" && -n "$(ls -A "${ROOT}/${path}" 2>/dev/null)" ]]; then
+    [[ -e "${ROOT}/${path}/.git" ]]
+    return $?
+  fi
+  return 1
+}
+
+ensure_sources() {
+  # If this is a fresh clone without initialized submodules, bootstrap them.
+  local need_update=0
+  if ! have_submodule_content "rocm-libraries" || ! have_submodule_content "rocm-systems" || ! have_submodule_content "compiler/amd-llvm"; then
+    need_update=1
+  fi
+
+  if (( need_update == 0 )); then
+    return 0
+  fi
+
+  if ! bool_is_true "${AUTO_FETCH_SOURCES}"; then
+    echo "Missing sources/submodules. Enable AUTO_FETCH_SOURCES=true or run:" >&2
+    echo "  python3 ./build_tools/fetch_sources.py" >&2
+    exit 1
+  fi
+
+  echo "Sources/submodules missing (fresh clone). Running fetch_sources.py..." | tee -a "${LOG_FILE}"
+  python3 "${ROOT}/build_tools/fetch_sources.py" \
+    --update-submodules --no-remote \
+    --no-apply-patches \
+    --include-system-projects \
+    --include-compilers \
+    --include-rocm-libraries \
+    --include-rocm-systems \
+    --include-ml-frameworks \
+    --include-rocm-media | tee -a "${LOG_FILE}"
+
+  if bool_is_true "${AUTO_APPLY_PATCHES}" && [[ -n "${PATCH_TAG:-}" ]]; then
+    # Apply only the patches needed for this fork's workflow by default.
+    if [[ -n "${PATCH_COMPILER_PROJECTS:-}" ]]; then
+      local -a projs=()
+      IFS=$'\x1f' read -r -a projs <<<"${PATCH_COMPILER_PROJECTS}"
+      if [[ ${#projs[@]} -gt 0 ]]; then
+        echo "Applying compiler patches (tag=${PATCH_TAG}): ${projs[*]}" | tee -a "${LOG_FILE}"
+        python3 "${ROOT}/build_tools/fetch_sources.py" \
+          --no-update-submodules --no-remote \
+          --apply-patches --patch-tag "${PATCH_TAG}" \
+          --no-include-system-projects \
+          --include-compilers --no-include-rocm-libraries --no-include-rocm-systems --no-include-ml-frameworks --no-include-rocm-media \
+          --compiler-projects "${projs[@]}" | tee -a "${LOG_FILE}"
+      fi
+    fi
+  fi
+}
+
+ensure_sources
 
 if [[ "${cmd}" != "configure" && "${cmd}" != "rocprofiler-gcc" ]]; then
   if [[ ! -f "${ROOT}/${BUILD_DIR}/build.ninja" ]]; then

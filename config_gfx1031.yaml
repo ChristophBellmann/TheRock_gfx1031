@@ -23,6 +23,17 @@ build:
   stage1_build_dir: build-stage1
   jobs: ""  # set e.g. "4" to pass -j 4 to ninja (optional)
   preserve_ld_library_path: false
+  # If sources/submodules are missing (fresh clone), auto-run fetch_sources.py.
+  auto_fetch_sources: true
+
+patches:
+  # Apply local patches under patches/<tag>/<submodule-name>/*.patch.
+  # This keeps submodules pinned while still allowing local fixes needed for this fork.
+  auto_apply: true
+  tag: amd-mainline
+  # Start minimal: only apply the spirv-llvm-translator patch required for clang 22 builds.
+  compiler_projects:
+    - spirv-llvm-translator
 
 features:
   enable_compiler: true
@@ -50,4 +61,3 @@ features:
 
 # Extra args appended to the top-level `cmake -B <build_dir> -GNinja .`
 extra_cmake_args: []
-

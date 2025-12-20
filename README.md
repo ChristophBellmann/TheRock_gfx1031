@@ -37,6 +37,10 @@ pip install -r requirements.txt
 
 # Fetch sources
 python3 ./build_tools/fetch_sources.py
+
+Note: `./build_gfx1031.sh configure` will also auto-run `fetch_sources.py` and
+apply the minimal local patch set if it detects a fresh clone with missing
+submodules (configurable in `config_gfx1031.yaml`).
 ```
 
 ### Configuration (gfx1031)
