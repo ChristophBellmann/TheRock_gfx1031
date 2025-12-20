@@ -1,0 +1,68 @@
+From 51cad1fd89afddce934bde5d975e912867057fc6 Mon Sep 17 00:00:00 2001
+From: therockbot <therockbot@amd.com>
+Date: Sat, 20 Dec 2025 04:32:22 +0100
+Subject: [PATCH] Fix DenseMap<spv::Op> enum sentinel constexpr issue
+
+---
+ lib/SPIRV/SPIRVToOCL20.cpp | 38 +++++++++++++++++++++-----------------
+ 1 file changed, 21 insertions(+), 17 deletions(-)
+
+diff --git a/lib/SPIRV/SPIRVToOCL20.cpp b/lib/SPIRV/SPIRVToOCL20.cpp
+index f5340ebf..6a92beea 100644
+--- a/lib/SPIRV/SPIRVToOCL20.cpp
++++ b/lib/SPIRV/SPIRVToOCL20.cpp
+@@ -120,22 +120,26 @@ static void translateSPIRVAtomicBuiltinToLLVMAtomicOp(CallInst *CI, Op OC) {
+   if (OC == OpAtomicCompareExchange || OC == OpAtomicCompareExchangeWeak)
+     return translateSPIRVCmpXchgToLLVM(CI, OC);
+ 
+-  static const DenseMap<Op, AtomicRMWInst::BinOp> SPIRVtoLLVM{
+-    {OpAtomicAnd, AtomicRMWInst::And},
+-    {OpAtomicExchange, AtomicRMWInst::Xchg},
+-    {OpAtomicFAddEXT, AtomicRMWInst::FAdd},
+-    {OpAtomicFMaxEXT, AtomicRMWInst::FMax},
+-    {OpAtomicFMinEXT, AtomicRMWInst::FMin},
+-    {OpAtomicIAdd, AtomicRMWInst::Add},
+-    {OpAtomicIDecrement, AtomicRMWInst::UDecWrap},
+-    {OpAtomicIIncrement, AtomicRMWInst::UIncWrap},
+-    {OpAtomicISub, AtomicRMWInst::Sub},
+-    {OpAtomicOr, AtomicRMWInst::Or},
+-    {OpAtomicSMax, AtomicRMWInst::Max},
+-    {OpAtomicSMin, AtomicRMWInst::Min},
+-    {OpAtomicUMax, AtomicRMWInst::UMax},
+-    {OpAtomicUMin, AtomicRMWInst::UMin},
+-    {OpAtomicXor, AtomicRMWInst::Xor}
++  // NOTE: spv::Op is an enum without a fixed underlying type. With newer clang
++  // versions, LLVM's DenseMapInfo<Enum> intentionally rejects out-of-range
++  // sentinel values in constant expressions, which can break DenseMap<spv::Op>.
++  // Store the opcode as an integer to keep the mapping constexpr-friendly.
++  static const DenseMap<unsigned, AtomicRMWInst::BinOp> SPIRVtoLLVM{
++    {static_cast<unsigned>(OpAtomicAnd), AtomicRMWInst::And},
++    {static_cast<unsigned>(OpAtomicExchange), AtomicRMWInst::Xchg},
++    {static_cast<unsigned>(OpAtomicFAddEXT), AtomicRMWInst::FAdd},
++    {static_cast<unsigned>(OpAtomicFMaxEXT), AtomicRMWInst::FMax},
++    {static_cast<unsigned>(OpAtomicFMinEXT), AtomicRMWInst::FMin},
++    {static_cast<unsigned>(OpAtomicIAdd), AtomicRMWInst::Add},
++    {static_cast<unsigned>(OpAtomicIDecrement), AtomicRMWInst::UDecWrap},
++    {static_cast<unsigned>(OpAtomicIIncrement), AtomicRMWInst::UIncWrap},
++    {static_cast<unsigned>(OpAtomicISub), AtomicRMWInst::Sub},
++    {static_cast<unsigned>(OpAtomicOr), AtomicRMWInst::Or},
++    {static_cast<unsigned>(OpAtomicSMax), AtomicRMWInst::Max},
++    {static_cast<unsigned>(OpAtomicSMin), AtomicRMWInst::Min},
++    {static_cast<unsigned>(OpAtomicUMax), AtomicRMWInst::UMax},
++    {static_cast<unsigned>(OpAtomicUMin), AtomicRMWInst::UMin},
++    {static_cast<unsigned>(OpAtomicXor), AtomicRMWInst::Xor}
+   };
+ 
+   assert(isa<ConstantInt>(CI->getArgOperand(CI->arg_size() - 1)));
+@@ -156,7 +160,7 @@ static void translateSPIRVAtomicBuiltinToLLVMAtomicOp(CallInst *CI, Op OC) {
+     ST->setAtomic(Order, S);
+     CI->replaceAllUsesWith(ST);
+   } else {
+-    auto RMW = Builder.CreateAtomicRMW(SPIRVtoLLVM.at(OC), CI->getOperand(0),
++    auto RMW = Builder.CreateAtomicRMW(SPIRVtoLLVM.at(static_cast<unsigned>(OC)), CI->getOperand(0),
+                                        CI->getOperand(1), {}, Order, S);
+     CI->replaceAllUsesWith(RMW);
+   }
+-- 
+2.43.0
+

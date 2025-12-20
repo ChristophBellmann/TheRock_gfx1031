@@ -310,6 +310,11 @@
    - Notes:
      - Do not switch compilers in-place inside a build directory; always use a new build dir.
      - `build_gfx1031.sh` supports `BUILD_DIR`, `STAGE`, and `STAGE1_BUILD_DIR` via config YAML/env/flags.
+
+42. **2025-12-20: amd-llvm build failed in spirv-llvm-translator with newer clang (enum DenseMapInfo)**
+   - Failure (Stage-2, clang 22): `SPIRVToOCL20.cpp` failed with errors in `llvm/ADT/DenseMapInfo.h` about enum sentinel values not being constant expressions (`spv::Op` has no fixed underlying type).
+   - Fix: avoid `DenseMap<spv::Op, ...>` by storing the opcode as an integer key (`DenseMap<unsigned, ...>`) and casting on lookup in `compiler/spirv-llvm-translator/lib/SPIRV/SPIRVToOCL20.cpp`.
+   - Recovery: `./build_gfx1031.sh expunge --stage2 amd-llvm && ./build_gfx1031.sh configure-sub --stage2 amd-llvm` then resume `./build_gfx1031.sh build --stage2 --detach`.
 ## TODO / Watchouts
 
 - When new third-party packages are added, verify their `dist/` directories are populated before dependent projects configure.  
