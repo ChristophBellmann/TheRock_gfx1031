@@ -33,6 +33,7 @@ _(What I looked at to understand the repo/state before changing anything)_
 - What I intend to change (minimal set):
 - What I explicitly will not change:
 - Success criteria:
+- If anything is ambiguous: clarify or state assumptions explicitly.
 
 ---
 
@@ -53,6 +54,7 @@ _(What I ran/checked to build confidence)_
 - Quick checks:
 - Targeted checks:
 - What remains unverified (and why):
+- Always distinguish “verified” vs “assumed/planned”.
 
 ---
 
@@ -63,6 +65,7 @@ _(What I updated so future readers/AIs understand the state)_
 - Docs updated:
 - Notes/experience captured:
 - Open questions / TODOs recorded:
+- Prefer a single source of truth for configuration; avoid duplicating it across files.
 
 ---
 
@@ -77,6 +80,7 @@ _(How I recorded changes in version control)_
   - Keep commits small and purpose-driven; avoid mixing unrelated changes.
   - If a file changed unintentionally, revert it before committing.
   - Write commit intent so a future reader can understand “what/why” quickly.
+  - Treat long-running/stateful operations as explicit steps (make progress observable, capture logs/status).
 
 ---
 
