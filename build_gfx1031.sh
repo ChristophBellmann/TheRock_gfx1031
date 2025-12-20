@@ -16,6 +16,7 @@ Usage: build_gfx1031.sh <command> [options] [subprojects...]
 
 Commands:
   bootstrap         Build early sysdeps (+dist) and verify outputs
+  configure         (Re)configure specific subprojects only
   build             Build the full superbuild (ninja -C <builddir>)
   rebuild           Expunge + rebuild specific subprojects
   expunge           Expunge specific subprojects (no rebuild)
@@ -200,6 +201,15 @@ case "${cmd}" in
     fi
     echo "Bootstrap complete. Next: ./build_gfx1031.sh build --build-dir ${BUILD_DIR}" | tee -a "${LOG_FILE}"
     ;;
+  configure)
+    if [[ ${#SUBPROJECTS[@]} -eq 0 ]]; then
+      echo "configure requires subproject names (e.g. amd-llvm hip-clr roctracer rocPRIM rocprofiler-sdk)." >&2
+      exit 2
+    fi
+    for t in "${SUBPROJECTS[@]}"; do
+      run_cmd_array ninja -C "${BUILD_DIR}" "${t}+configure"
+    done
+    ;;
   build)
     if (( DETACH )) && [[ "${LOG_FILE}" == "${ROOT}/build.log" ]]; then
       # Default to distinct log files per build dir when detached.
@@ -252,4 +262,3 @@ case "${cmd}" in
     exit 2
     ;;
 esac
-
