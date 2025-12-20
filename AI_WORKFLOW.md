@@ -13,6 +13,10 @@
 - What is being asked / desired outcome:
 - Constraints (time, risk, environment, scope):
 - What is already running / in progress (if relevant):
+- Autonomy boundary (when to ask first):
+  - Destructive actions, system-wide changes, or irreversible steps.
+  - Decisions with multiple reasonable “policy” outcomes.
+  - Anything that changes external state beyond the repo/workspace.
 
 ---
 
