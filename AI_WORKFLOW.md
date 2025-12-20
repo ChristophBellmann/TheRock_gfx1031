@@ -73,6 +73,10 @@ _(How I recorded changes in version control)_
 - What I staged:
 - Commit(s) and intent:
 - Push/PR context:
+- Guidelines (repo-agnostic):
+  - Keep commits small and purpose-driven; avoid mixing unrelated changes.
+  - If a file changed unintentionally, revert it before committing.
+  - Write commit intent so a future reader can understand “what/why” quickly.
 
 ---
 
