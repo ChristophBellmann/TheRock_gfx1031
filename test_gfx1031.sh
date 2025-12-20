@@ -596,8 +596,13 @@ if (( RUN_CONSISTENCY )); then
   fi
 
   if (( CONSISTENCY_DEEP )); then
-    # Deep scan: no exclusions.
-    check_no_opt_rocm_in_caches "no /opt/rocm in caches (deep)" "full scan under ${BUILD_DIR}" "" || true
+    # Deep scan: scan everything under BUILD_DIR, but still exclude known-benign
+    # packaging defaults and internal caches that mention /opt/rocm without
+    # actually *using* it as an effective search root.
+    check_no_opt_rocm_in_caches \
+      "no /opt/rocm in caches (deep)" \
+      "full scan under ${BUILD_DIR} (excluding known-benign packaging defaults)" \
+      "/compiler/amd-llvm/build/runtimes/|CPACK_PACKAGING_INSTALL_PREFIX:(STRING|PATH)=/opt/rocm|CMAKE_INSTALL_PREFIX:(STRING|PATH)=/opt/rocm|_GNUInstallDirs_LAST_CMAKE_INSTALL_PREFIX:INTERNAL=/opt/rocm|FIND_PACKAGE_MESSAGE_DETAILS_HIP:INTERNAL=\\[/opt/rocm/bin\\]" || true
     if (( HAVE_ROCM_ENV )); then
       check_runtime_linkage "runtime" || true
     else

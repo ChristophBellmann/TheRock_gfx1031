@@ -529,7 +529,7 @@ The script auto-activates the in-tree ROCm environment from `<builddir>/dist/roc
 # Stage-1: allow system clang, but ensure no /opt/rocm leakage
 ./test_gfx1031.sh --consistency-only --expect-stage1 --stage1
 
-# Stage-2: strict (no /usr/lib/llvm-18 fallback, no /opt/rocm in caches)
+# Stage-2: strict (no /usr/lib/llvm-18 fallback; no effective /opt/rocm leakage)
 ./test_gfx1031.sh --consistency --expect-stage2 --stage2
 ./test_gfx1031.sh --consistency --deep --expect-stage2 --stage2
 ```

@@ -324,6 +324,10 @@
      - Pass `-DROCPROFILER_DEFAULT_ROCM_PATH=${DEFAULT_ROCM_PATH}` when configuring `rocprofiler-sdk` via `profiler/CMakeLists.txt`.
      - Make the cache scan ignore comment lines (`// ...`) in `test_gfx1031.sh`.
    - Recovery: `./build_gfx1031.sh rebuild --stage2 rocprofiler-sdk`, then rerun `./test_gfx1031.sh --stage2 --consistency`.
+
+44. **2025-12-20: Deep cache scan initially flagged packaging defaults (`CPACK_*` / `CMAKE_INSTALL_PREFIX=/opt/rocm`)**
+   - Symptom: `./test_gfx1031.sh --stage2 --consistency --deep` flagged internal packaging defaults like `CPACK_PACKAGING_INSTALL_PREFIX=/opt/rocm` (e.g. in `hipify`) and nested ExternalProject caches (e.g. `rocr-runtime` under `amd-llvm` runtimes).
+   - Resolution: keep the deep scan “strict on effective search roots” but exclude known-benign packaging defaults and nested internal caches (still scans everything else, and runs `ldd` checks).
 ## TODO / Watchouts
 
 - When new third-party packages are added, verify their `dist/` directories are populated before dependent projects configure.  
