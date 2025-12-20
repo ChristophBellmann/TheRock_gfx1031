@@ -217,8 +217,9 @@ if [[ "${STAGE}" == "2" ]]; then
   STAGE2_RANLIB="${STAGE1_LLVM_BIN}/llvm-ranlib"
   STAGE2_NM="${STAGE1_LLVM_BIN}/llvm-nm"
 else
-  STAGE2_C_COMPILER="clang"
-  STAGE2_CXX_COMPILER="clang++"
+  # Use absolute paths so cmake --regenerate-during-build doesn't depend on PATH.
+  STAGE2_C_COMPILER="$(command -v clang)"
+  STAGE2_CXX_COMPILER="$(command -v clang++)"
   STAGE2_LINKER=""
   STAGE2_AR=""
   STAGE2_RANLIB=""
@@ -264,8 +265,8 @@ cmake_args=(
   # older in-place configure.
   -DCMAKE_C_FLAGS=
   -DCMAKE_CXX_FLAGS=
-  -DCMAKE_C_COMPILER="${STAGE2_C_COMPILER}"
-  -DCMAKE_CXX_COMPILER="${STAGE2_CXX_COMPILER}"
+  "-DCMAKE_C_COMPILER:FILEPATH=${STAGE2_C_COMPILER}"
+  "-DCMAKE_CXX_COMPILER:FILEPATH=${STAGE2_CXX_COMPILER}"
   -DCMAKE_C_COMPILER_LAUNCHER=ccache
   -DCMAKE_CXX_COMPILER_LAUNCHER=ccache
 )
