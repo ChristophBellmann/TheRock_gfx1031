@@ -109,3 +109,4 @@ _(How I recorded changes in version control)_
   - Current state (running/blocked/complete) in 1 line.
   - 1–3 most relevant signals (latest progress + any error summary).
   - Exact next command(s) to run, if applicable.
+  - Avoid repeating commit hashes if the commit/push output is already visible in the session logs.
