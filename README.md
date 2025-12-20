@@ -87,22 +87,11 @@ the in-tree ROCm toolchain, use two build directories:
   `CMAKE_C_COMPILER/CMAKE_CXX_COMPILER/CMAKE_LINKER` to the Stage-1 in-tree
   toolchain so *even “forgotten” subprojects* won't fall back to system clang.
 
-Workflow:
-
-```bash
-# Stage-1: toolchain only (system clang, build-stage1)
-./build_gfx1031.sh configure --stage1
-./build_gfx1031.sh bootstrap --stage1
-./build_gfx1031.sh build --stage1 --detach
-
-# Stage-2: full build (TheRock toolchain, fresh build dir)
-./build_gfx1031.sh configure --stage2
-./build_gfx1031.sh bootstrap --stage2
-./build_gfx1031.sh build --stage2 --detach
-```
-
 Important: **Never** switch compilers inside the same build directory. Always
 use a fresh build dir for Stage-2.
+
+For the exact commands (including monitoring and tests), follow:
+**“Recommended workflow for new users (gfx1031)”** below.
 
 ### ✨ Recommended workflow for new users (gfx1031)
 
@@ -392,6 +381,9 @@ Notes:
   minimal local patch set if submodules are missing.
 - Use `--no-clean --no-check-clean` only if you *know* the build dir is still coherent.
 
+If you’re new here, prefer the Stage‑1/Stage‑2 flow from:
+**“Recommended workflow for new users (gfx1031)”**.
+
 ### Typical workflows
 
 - reconfigure + build (clang + ninja):
@@ -421,20 +413,13 @@ Notes:
 ./test_gfx1031.sh        # quick
 ./test_gfx1031.sh --full # längere Bench
 
-# MIOpen + composable_kernel checks (fast) + optional tiny smoke
+# MIOpen + composable_kernel checks + optional tiny smoke
 ./test_gfx1031.sh --miopen --stage2
 ./test_gfx1031.sh --miopen-smoke --stage2
 ```
 
-- Konsistenz-Checks (Toolchain/ROCm-Pfade):
-```bash
-# Stage-1 (toolchain only): checks caches/toolchain (does not require dist/rocm)
-./test_gfx1031.sh --consistency-only --expect-stage1 --stage1
-
-# Stage-2 (full dist): strict check (no fallback to /usr/lib/llvm-18 or /opt/rocm)
-./test_gfx1031.sh --consistency --expect-stage2 --stage2
-./test_gfx1031.sh --consistency --deep --expect-stage2 --stage2
-```
+For the full list of testing options (including consistency checks), see
+**“Notes on testing”** below.
 
 ### Bootstrap (Third-party/sysdeps)
 
@@ -506,11 +491,7 @@ pro Subprojekt in `build/logs/*_build.log`.
 
 - `THEROCK_MIOPEN_USE_COMPOSABLE_KERNEL` wird im Helper an `THEROCK_ENABLE_COMPOSABLE_KERNEL` gespiegelt.
 - gfx1031 wird von composable_kernel nicht direkt unterstützt; MIOpen schaltet dann intern CK ab (Warnung im Configure, kein harter Fehler).
-- Tests:
-  ```bash
-  ./test_gfx1031.sh --miopen --stage2
-  ./test_gfx1031.sh --miopen-smoke --stage2
-  ```
+- Tests: siehe **“Notes on testing”** (`--miopen`, `--miopen-smoke`).
 
 ### Notes on testing
 
@@ -579,7 +560,8 @@ After a successful build, you can run tools against the in-tree ROCm install
 under `<builddir>/dist/rocm` by setting:
 
 ```bash
-export ROCM_PATH="$PWD/build/dist/rocm"
+BUILD_DIR=build-stage2
+export ROCM_PATH="$PWD/$BUILD_DIR/dist/rocm"
 export PATH="$ROCM_PATH/bin:$ROCM_PATH/llvm/bin:$PATH"
 export LD_LIBRARY_PATH="$ROCM_PATH/lib:$ROCM_PATH/lib64:$ROCM_PATH/lib/rocm_sysdeps/lib:$ROCM_PATH/llvm/lib:${LD_LIBRARY_PATH:-}"
 ```
@@ -598,5 +580,5 @@ Tests of the integrity of the build are enabled by default and can be run
 with ctest:
 
 ```bash
-ctest --test-dir build
+ctest --test-dir build-stage2
 ```
