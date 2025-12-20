@@ -24,6 +24,7 @@ _(What I looked at to understand the repo/state before changing anything)_
 - Relevant files/areas:
 - Existing workflows/patterns to respect:
 - Risks to avoid:
+- If asked for “status” (e.g. build/run progress): identify what is currently running and report the latest observable progress signal(s) and any errors.
 
 ---
 
@@ -88,4 +89,3 @@ _(How I recorded changes in version control)_
 - Next steps:
 - Where to look for logs/errors:
 - Known pitfalls/watchouts:
-
