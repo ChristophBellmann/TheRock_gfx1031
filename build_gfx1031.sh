@@ -452,6 +452,8 @@ stage1_default_targets=(
   "hip-clr+dist"
 )
 
+BOOTSTRAP_OK_MARKER_NAME=".therock_bootstrap.ok"
+
 verify_bootstrap() {
   local -a expect_paths=(
     "${ROOT}/${BUILD_DIR}/base/rocm-cmake/dist/share/rocmcmakebuildtools/cmake"
@@ -475,6 +477,15 @@ verify_bootstrap() {
     fi
   done
   return "${missing}"
+}
+
+require_bootstrap_ok() {
+  local marker="${ROOT}/${BUILD_DIR}/${BOOTSTRAP_OK_MARKER_NAME}"
+  if [[ ! -f "${marker}" ]]; then
+    echo "Bootstrap not verified for BUILD_DIR='${BUILD_DIR}' (missing ${marker})." >&2
+    echo "Run: ./build_gfx1031.sh bootstrap --build-dir ${BUILD_DIR}" >&2
+    exit 2
+  fi
 }
 
 configure_top() {
@@ -619,6 +630,7 @@ case "${cmd}" in
     ;;
   bootstrap)
     echo "Bootstrapping ${#bootstrap_targets[@]} targets in ${BUILD_DIR}..." | tee -a "${LOG_FILE}"
+    rm -f "${ROOT}/${BUILD_DIR}/${BOOTSTRAP_OK_MARKER_NAME}" || true
     for t in "${bootstrap_targets[@]}"; do
       echo "==> ${t}" | tee -a "${LOG_FILE}"
       run_cmd_array ninja -C "${BUILD_DIR}" "${t}"
@@ -628,11 +640,17 @@ case "${cmd}" in
       echo "Bootstrap incomplete (missing artifacts). See ${LOG_FILE}." >&2
       exit 1
     fi
+    touch "${ROOT}/${BUILD_DIR}/${BOOTSTRAP_OK_MARKER_NAME}"
     echo "Bootstrap complete. Next: ./build_gfx1031.sh build --build-dir ${BUILD_DIR}" | tee -a "${LOG_FILE}"
     ;;
   build)
     if (( DETACH )) && [[ "${LOG_FILE}" == "${ROOT}/build.log" ]]; then
       LOG_FILE="${ROOT}/${BUILD_DIR}.log"
+    fi
+    # Enforce bootstrap for Stage-1 toolchain builds so we don't get "half-configured"
+    # failures from missing sysdeps/dist CMake config files.
+    if [[ "${STAGE}" == "1" && "${BUILD_DIR}" == "${STAGE1_BUILD_DIR}" ]]; then
+      require_bootstrap_ok
     fi
     if [[ ${#SUBPROJECTS[@]} -gt 0 ]]; then
       run_cmd_array ninja -C "${BUILD_DIR}" "${SUBPROJECTS[@]}"

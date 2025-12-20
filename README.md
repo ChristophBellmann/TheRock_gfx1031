@@ -398,6 +398,10 @@ Auflösungen während des eigentlichen Builds nicht an fehlenden `*Config.cmake`
 
 Der Bootstrap schreibt wie Configure/Build nach `build.log` (append).
 
+Hinweis: `build_gfx1031.sh build --stage1` verweigert den Start, wenn Bootstrap für
+`build-stage1/` noch nicht erfolgreich verifiziert wurde (Marker:
+`build-stage1/.therock_bootstrap.ok`).
+
 ### LD_LIBRARY_PATH hygiene (avoid /opt/rocm mixing)
 
 - `build_gfx1031.sh` setzt `LD_LIBRARY_PATH` **explizit** nur auf die in-tree sysdeps Pfade (und erbt standardmäßig nichts), um versehentliche ABI/Version-Mixes mit z. B. `/opt/rocm-*` zu vermeiden.
