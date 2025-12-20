@@ -75,7 +75,14 @@ unset(_therock_rocm_root)
 # (or -Werror=unknown-warning-option breakage) on other versions.
 if(CMAKE_CXX_COMPILER_ID STREQUAL "Clang")
   include(CheckCXXCompilerFlag)
+  # check_cxx_compiler_flag() treats "unknown warning option" as success by
+  # default (it is only a warning). Force it to be an error for this probe so
+  # we don't add a flag that will just spam warnings (or break with -Werror).
+  set(_therock_saved_required_flags "${CMAKE_REQUIRED_FLAGS}")
+  set(CMAKE_REQUIRED_FLAGS "${CMAKE_REQUIRED_FLAGS} -Werror -Wunknown-warning-option")
   check_cxx_compiler_flag("-Wno-enum-constexpr-conversion" THEROCK_AMDLLVM_HAS_WNO_ENUM_CONSTEXPR_CONVERSION)
+  set(CMAKE_REQUIRED_FLAGS "${_therock_saved_required_flags}")
+  unset(_therock_saved_required_flags)
   if(THEROCK_AMDLLVM_HAS_WNO_ENUM_CONSTEXPR_CONVERSION)
     add_compile_options(-Wno-enum-constexpr-conversion)
   endif()
