@@ -315,6 +315,15 @@
    - Failure (Stage-2, clang 22): `SPIRVToOCL20.cpp` failed with errors in `llvm/ADT/DenseMapInfo.h` about enum sentinel values not being constant expressions (`spv::Op` has no fixed underlying type).
    - Fix: avoid `DenseMap<spv::Op, ...>` by storing the opcode as an integer key (`DenseMap<unsigned, ...>`) and casting on lookup in `compiler/spirv-llvm-translator/lib/SPIRV/SPIRVToOCL20.cpp`.
    - Recovery: `./build_gfx1031.sh expunge --stage2 amd-llvm && ./build_gfx1031.sh configure-sub --stage2 amd-llvm` then resume `./build_gfx1031.sh build --stage2 --detach`.
+
+43. **2025-12-20: Stage-2 consistency check flagged `/opt/rocm` due to rocprofiler-sdk default + CMakeCache comments**
+   - Symptom: `./test_gfx1031.sh --stage2 --consistency` failed the “no /opt/rocm in caches” check, even though the build did not actually use `/opt/rocm`:
+     - `rocprofiler-sdk` cached `ROCPROFILER_DEFAULT_ROCM_PATH=/opt/rocm` (its upstream default).
+     - Some `CMakeCache.txt` help comments mention `/opt/rocm` as the upstream default install prefix (non-functional).
+   - Fix:
+     - Pass `-DROCPROFILER_DEFAULT_ROCM_PATH=${DEFAULT_ROCM_PATH}` when configuring `rocprofiler-sdk` via `profiler/CMakeLists.txt`.
+     - Make the cache scan ignore comment lines (`// ...`) in `test_gfx1031.sh`.
+   - Recovery: `./build_gfx1031.sh rebuild --stage2 rocprofiler-sdk`, then rerun `./test_gfx1031.sh --stage2 --consistency`.
 ## TODO / Watchouts
 
 - When new third-party packages are added, verify their `dist/` directories are populated before dependent projects configure.  
