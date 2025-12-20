@@ -20,9 +20,11 @@ __pycache__
 
 # Output directories.
 /build/
+/build-*/
 /install/
 /output-*/
 /out/
+.locks/
 
 # Personal build logs and artifacts
 build*.log

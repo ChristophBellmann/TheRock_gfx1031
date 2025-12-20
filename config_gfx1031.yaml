@@ -1,0 +1,53 @@
+# TheRock gfx1031 build configuration
+#
+# This file is intended to be edited. `build_gfx1031.sh configure` reads it and
+# maps it to environment variables / cmake -D flags.
+#
+# Notes:
+# - Stage-1 is the bootstrap toolchain build (system clang is OK).
+# - Stage-2 is the full build using the in-tree Stage-1 toolchain so nothing
+#   falls back to /usr/lib/llvm-18.
+#
+# You can override any value via environment variables or CLI flags.
+
+amdgpu_targets: gfx1031
+
+memory:
+  high: 28G
+  max: 31G
+
+build:
+  # 1 = system clang, 2 = use Stage-1 in-tree clang/lld
+  stage: 1
+  build_dir: build
+  stage1_build_dir: build-stage1
+  jobs: ""  # set e.g. "4" to pass -j 4 to ninja (optional)
+  preserve_ld_library_path: false
+
+features:
+  enable_compiler: true
+  enable_core_runtime: true
+  enable_hip_runtime: true
+  enable_hipify: true
+  enable_blas: true
+  enable_prim: true
+  enable_rand: true
+  enable_fft: true
+  enable_sparse: true
+  enable_solver: true
+  enable_hipblaslt: false
+  enable_hipsparselt: false
+  enable_miopen: true
+  enable_hipdnn: true
+  enable_composable_kernel: true
+  enable_rccl: true
+  enable_rocwmma: false
+  enable_profiler: true
+  enable_dc_tools: false
+  enable_build_testing: false
+  # Phase 1 default is OFF; build separately with GCC if desired.
+  enable_rocprofsys: false
+
+# Extra args appended to the top-level `cmake -B <build_dir> -GNinja .`
+extra_cmake_args: []
+

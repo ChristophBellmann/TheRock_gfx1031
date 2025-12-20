@@ -37,13 +37,15 @@ pip install -r requirements.txt
 python3 ./build_tools/fetch_sources.py
 ```
 
-### Clean configure helper (gfx1031)
+### Configuration (gfx1031)
 
-For a fresh, repeatable configure that checks the build directory is clean,
-use:
+Edit `config_gfx1031.yaml` to select which components to build (and default
+stage/build directories).
+
+For a fresh, repeatable configure that checks the build directory is clean, use:
 
 ```bash
-./configure_gfx1031.sh
+./build_gfx1031.sh configure
 ```
 
 It uses the recommended gfx1031 profile (LLM/Vision/Audio), enables ccache, and
@@ -65,7 +67,7 @@ If `hipcc/amdclang++` is not found yet, the script prints a **WARNING** (this is
 expected in a clean bootstrap: hipcc only exists after the toolchain build
 installs into `./install`).
 
-Default behavior is a **clean configure**: it removes `build/` before running
+Default behavior is a **clean configure**: it removes `BUILD_DIR/` before running
 CMake. Use `--no-clean` if you explicitly want to reconfigure in-place.
 
 ### Stage-1 / Stage-2 bootstrapping (recommended)
@@ -83,12 +85,12 @@ Workflow:
 
 ```bash
 # Stage-1: toolchain only (system clang, build-stage1)
-./configure_gfx1031.sh --stage1
+./build_gfx1031.sh configure --stage1
 ./build_gfx1031.sh bootstrap --stage1
 ./build_gfx1031.sh build --stage1 --detach
 
 # Stage-2: full build (TheRock toolchain, fresh build dir)
-./configure_gfx1031.sh --stage2
+./build_gfx1031.sh configure --stage2
 ./build_gfx1031.sh bootstrap --stage2
 ./build_gfx1031.sh build --stage2 --detach
 ```
@@ -191,7 +193,7 @@ builds a minimal set of `+dist` targets (sysdeps + host tools + host-blas) so
 Ja: für HIP-Projekte wird sichergestellt, dass **nicht GCC** und **nicht ein beliebiges system-weites ROCm** verwendet wird.
 
 - **Innerhalb des TheRock-Superbuilds:** HIP-lastige Subprojekte deklarieren explizit `COMPILER_TOOLCHAIN amd-hip` (siehe z. B. `math-libs/BLAS/CMakeLists.txt`). Dadurch wird die in-tree Toolchain aus `amd-llvm`/`hip-clr` verwendet (inkl. `--hip-path`/Device Libs) – unabhängig davon, ob ein system-weites `hipcc` existiert.
-- **Für CMake-HIP-Language Projekte (falls verwendet):** `configure_gfx1031.sh` setzt `CMAKE_HIP_COMPILER` **nur**, wenn `./install/bin/hipcc` existiert. Es wird **nicht** automatisch auf `/opt/rocm/bin/hipcc` zurückgefallen (vermeidet ABI/Version-Mix).
+- **Für CMake-HIP-Language Projekte (falls verwendet):** `build_gfx1031.sh configure` setzt `CMAKE_HIP_COMPILER` **nur**, wenn `./install/bin/hipcc` existiert. Es wird **nicht** automatisch auf `/opt/rocm/bin/hipcc` zurückgefallen (vermeidet ABI/Version-Mix).
 - **Für externe Builds (PyTorch/Whisper/etc):** setze `ROCM_PATH` auf den in-tree dist Prefix (z. B. `build-stage2/dist/rocm`) und prepend `PATH/LD_LIBRARY_PATH` entsprechend (siehe Abschnitt “Environment activation” weiter unten).
 
 ### Supported gfx103X GPUs in This Build
@@ -330,26 +332,27 @@ The following component flags for selected subsets are not used:
 For a fresh, repeatable build, use:
 
 ```bash
+./build_gfx1031.sh configure
+./build_gfx1031.sh bootstrap
 ./build_gfx1031.sh build
 ```
 
-This runs `ninja -C <builddir>` under systemd memory limits and appends to `build.log`.
-Configure is handled separately by `./configure_gfx1031.sh` to avoid accidentally
-switching compilers/flags inside an existing build directory.
+This runs `cmake -B <builddir> -GNinja .` and then `ninja -C <builddir>` under systemd
+memory limits and appends to `build.log`. Use `--no-clean` for an in-place reconfigure.
 
 ### Typical workflows
 
 - reconfigure + build (clang + ninja):
-  - edit configure_gfx1031.sh, choose which component to set/unset.
+  - edit `config_gfx1031.yaml`, choose which components to enable/disable.
   - then run:
 ```bash
-./configure_gfx1031.sh 
+./build_gfx1031.sh configure --no-clean --no-check-clean
 ./build_gfx1031.sh bootstrap
 ./build_gfx1031.sh build
 ```
 - Clean reconfigure + build (clang + ninja):
   ```bash
-  ./configure_gfx1031.sh
+  ./build_gfx1031.sh configure
   ./build_gfx1031.sh bootstrap
   ./build_gfx1031.sh build
   ```
@@ -365,15 +368,19 @@ switching compilers/flags inside an existing build directory.
   ```
 - Konsistenz-Checks (Toolchain/ROCm-Pfade):
   ```bash
-  ./test_gfx1031.sh --consistency --stage2
-  ./test_gfx1031.sh --consistency --deep --stage2
+  # Stage-1 (toolchain only): checks caches/toolchain (does not require dist/rocm)
+  ./test_gfx1031.sh --consistency-only --expect-stage1 --stage1
+
+  # Stage-2 (full dist): strict check (no fallback to /usr/lib/llvm-18 or /opt/rocm)
+  ./test_gfx1031.sh --consistency --expect-stage2 --stage2
+  ./test_gfx1031.sh --consistency --deep --expect-stage2 --stage2
   ```
 
 ### CCache defaults
 
 - Du brauchst ein aktuelles ccache (>= 4.11), damit Device-Code Caching mit `--offload-compress` zuverlässig funktioniert (große AMDGPU Artefakte).
 - `.local/bin/ccache` (4.11.1) wird automatisch vorangestellt, wenn vorhanden.
-- `configure_gfx1031.sh` **und** `build_gfx1031.sh` evaluiert `build_tools/setup_ccache.py` automatisch (setzt `CCACHE_CONFIGPATH` auf `./.ccache/ccache.conf`).
+- `build_gfx1031.sh configure` **und** `build_gfx1031.sh build` evaluieren `build_tools/setup_ccache.py` automatisch (setzt `CCACHE_CONFIGPATH` auf `./.ccache/ccache.conf`).
 - `setup_ccache.py` setzt dabei u. a.:
   - `sloppiness = include_file_ctime` (entspricht dem empfohlenen `export CCACHE_SLOPPINESS=include_file_ctime` für Hardlink-Farms)
   - ein sicheres `compiler_check` (wichtig bei Compiler-Bootstrapping, damit Cache-Einträge nicht “falsch” wiederverwendet werden)
@@ -398,7 +405,11 @@ Der Bootstrap schreibt wie Configure/Build nach `build.log` (append).
 
 ### Build monitoring (detached)
 
-Wenn der Build detached als `therock-gfx1031-build.service` läuft:
+Wenn der Build detached läuft, startet `build_gfx1031.sh` ihn als systemd user unit:
+
+- Default `BUILD_DIR=build`: `therock-gfx1031-build-build.service`
+- Stage-1: `therock-gfx1031-build-stage1-build.service`
+- Stage-2: `therock-gfx1031-build-stage2-build.service`
 
 ```bash
 ./monitor_gfx1031.sh --once
@@ -421,7 +432,7 @@ tail -f monitor_6h.log
 
 Stoppen:
 ```bash
-systemctl --user stop therock-gfx1031-build.service
+systemctl --user stop therock-gfx1031-build-build.service
 ```
 
 Wenn der Build detached läuft, kannst du den Status über `monitor_gfx1031.sh` prüfen und bei Fehlern in `build.log` nach `FAILED:`/`CMake Error` suchen.
@@ -436,7 +447,7 @@ pro Subprojekt in `build/logs/*_build.log`.
 
 ### Notes on testing
 
-- `configure_gfx1031.sh` default: `BUILD_TESTING=OFF` (kann per `ENABLE_BUILD_TESTING=true` im Script oder `-- -DBUILD_TESTING=ON` überschrieben werden). Hintergrund: gcc‑ICEs vermeiden; clang wird als Host-Compiler erzwungen.
+- default: `BUILD_TESTING=OFF` (in `config_gfx1031.yaml` oder via `ENABLE_BUILD_TESTING=true` env überschreibbar). Hintergrund: gcc‑ICEs vermeiden; clang wird als Host-Compiler erzwungen.
 
 ### Phase 1 vs Phase 2 (rocprofiler-systems)
 

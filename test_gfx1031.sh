@@ -119,35 +119,39 @@ if [[ -f "${ROOT}/.venv/bin/activate" ]] && [[ -z "${VIRTUAL_ENV:-}" ]]; then
   source "${ROOT}/.venv/bin/activate"
 fi
 
-ROCM_PATH_DEFAULT="${ROOT}/${BUILD_DIR}/dist/rocm"
-ROCM_PATH="${ROCM_PATH:-${ROCM_PATH_DEFAULT}}"
-if [[ ! -d "${ROCM_PATH}" ]]; then
-  echo "ROCM_PATH not found: ${ROCM_PATH}" >&2
-  echo "Build first (expected default: ${ROCM_PATH_DEFAULT})." >&2
-  exit 1
-fi
-
-export ROCM_PATH
-export HIP_PATH="${HIP_PATH:-$ROCM_PATH}"
-export HSA_PATH="${HSA_PATH:-$ROCM_PATH}"
-export PATH="$ROCM_PATH/bin:$ROCM_PATH/llvm/bin:${PATH:-}"
-export LD_LIBRARY_PATH="$ROCM_PATH/lib:$ROCM_PATH/lib64:$ROCM_PATH/lib/rocm_sysdeps/lib:$ROCM_PATH/llvm/lib:${LD_LIBRARY_PATH:-}"
-if [[ -z "${HIP_DEVICE_LIB_PATH:-}" ]]; then
-  if [[ -d "$ROCM_PATH/lib/llvm/amdgcn/bitcode" ]]; then
-    export HIP_DEVICE_LIB_PATH="$ROCM_PATH/lib/llvm/amdgcn/bitcode"
-  else
-    export HIP_DEVICE_LIB_PATH="$ROCM_PATH/amdgcn/bitcode"
-  fi
-fi
-
-echo "Activated in-tree ROCm: ${ROCM_PATH}" | tee -a "${LOG_FILE}"
-
 if [[ -f "${LOG_FILE}" ]]; then
   ts="$(date +%Y%m%d-%H%M%S)"
   mv "${LOG_FILE}" "${LOG_FILE}.bak-${ts}"
 fi
 
 touch "${LOG_FILE}"
+
+ROCM_PATH_DEFAULT="${ROOT}/${BUILD_DIR}/dist/rocm"
+ROCM_PATH="${ROCM_PATH:-${ROCM_PATH_DEFAULT}}"
+HAVE_ROCM_ENV=0
+if [[ -d "${ROCM_PATH}" ]]; then
+  HAVE_ROCM_ENV=1
+  export ROCM_PATH
+  export HIP_PATH="${HIP_PATH:-$ROCM_PATH}"
+  export HSA_PATH="${HSA_PATH:-$ROCM_PATH}"
+  export PATH="$ROCM_PATH/bin:$ROCM_PATH/llvm/bin:${PATH:-}"
+  export LD_LIBRARY_PATH="$ROCM_PATH/lib:$ROCM_PATH/lib64:$ROCM_PATH/lib/rocm_sysdeps/lib:$ROCM_PATH/llvm/lib:${LD_LIBRARY_PATH:-}"
+  if [[ -z "${HIP_DEVICE_LIB_PATH:-}" ]]; then
+    if [[ -d "$ROCM_PATH/lib/llvm/amdgcn/bitcode" ]]; then
+      export HIP_DEVICE_LIB_PATH="$ROCM_PATH/lib/llvm/amdgcn/bitcode"
+    else
+      export HIP_DEVICE_LIB_PATH="$ROCM_PATH/amdgcn/bitcode"
+    fi
+  fi
+  echo "Activated in-tree ROCm: ${ROCM_PATH}" | tee -a "${LOG_FILE}"
+else
+  if (( RUN_SANITY )) || (( RUN_BENCH )); then
+    echo "ROCM_PATH not found: ${ROCM_PATH}" | tee -a "${LOG_FILE}" >&2
+    echo "Build first (expected default: ${ROCM_PATH_DEFAULT})." | tee -a "${LOG_FILE}" >&2
+    exit 1
+  fi
+  echo "ROCM_PATH not found: ${ROCM_PATH} (OK for --consistency-only; skipping runtime/HIP checks)" | tee -a "${LOG_FILE}"
+fi
 
 RESULT_LABELS=()
 RESULT_STATUS=()
@@ -253,7 +257,7 @@ check_toolchain_paths() {
   local cache="${ROOT}/${BUILD_DIR}/CMakeCache.txt"
   if [[ -f "${cache}" ]]; then
     local cxx
-    cxx="$(rg -n "^CMAKE_CXX_COMPILER:FILEPATH=" "${cache}" | head -n 1 | cut -d= -f2- || true)"
+    cxx="$(rg -n "^CMAKE_CXX_COMPILER:[A-Z_]+=" "${cache}" | head -n 1 | cut -d= -f2- || true)"
     if [[ -n "${cxx}" ]]; then
       if [[ "${stage_expect}" == "stage2" ]]; then
         case "${cxx}" in
@@ -492,12 +496,20 @@ if (( RUN_CONSISTENCY )); then
     "scan CMakeCache.txt under ${BUILD_DIR}" \
     "/compiler/amd-llvm/build/runtimes/|CPACK_PACKAGING_INSTALL_PREFIX:(STRING|PATH)=/opt/rocm|CMAKE_INSTALL_PREFIX:(STRING|PATH)=/opt/rocm|_GNUInstallDirs_LAST_CMAKE_INSTALL_PREFIX:INTERNAL=/opt/rocm|FIND_PACKAGE_MESSAGE_DETAILS_HIP:INTERNAL=\\[/opt/rocm/bin\\]" || true
   check_toolchain_paths "${EXPECT_STAGE}" "toolchain" || true
-  check_hip_device_libs "hip" || true
+  if (( HAVE_ROCM_ENV )) && [[ "${EXPECT_STAGE}" == "stage2" ]]; then
+    check_hip_device_libs "hip" || true
+  else
+    add_result "hip device libs" "SKIP" "0s" "Stage-1 (or ROCM_PATH missing)"
+  fi
 
   if (( CONSISTENCY_DEEP )); then
     # Deep scan: no exclusions.
     check_no_opt_rocm_in_caches "no /opt/rocm in caches (deep)" "full scan under ${BUILD_DIR}" "" || true
-    check_runtime_linkage "runtime" || true
+    if (( HAVE_ROCM_ENV )); then
+      check_runtime_linkage "runtime" || true
+    else
+      add_result "runtime linkage" "SKIP" "0s" "ROCM_PATH missing"
+    fi
   else
     add_result "runtime linkage" "SKIP" "0s" "use --deep to run ldd checks"
   fi

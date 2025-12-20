@@ -23,7 +23,7 @@ Options:
   -h, --help         Show help
 
 Environment:
-  UNIT           systemd user unit (default: therock-gfx1031-build.service)
+  UNIT           systemd user unit (default: therock-gfx1031-${BUILD_DIR}-build.service)
   LOG_FILE       build log file (default: ./build.log)
   BUILD_DIR      build directory name (default: build; used to derive UNIT default)
 EOF

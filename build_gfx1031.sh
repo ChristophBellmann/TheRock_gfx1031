@@ -3,40 +3,50 @@ set -euo pipefail
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
-# Common defaults (override via env or flags)
+# Defaults (overridden by config YAML, env, or CLI flags)
+CONFIG_FILE="${CONFIG_FILE:-${ROOT}/config_gfx1031.yaml}"
 LOG_FILE="${LOG_FILE:-${ROOT}/build.log}"
-BUILD_DIR="${BUILD_DIR:-build}"
-STAGE="${STAGE:-1}"
-STAGE1_BUILD_DIR="${STAGE1_BUILD_DIR:-build-stage1}"
-MEM_HIGH="${MEM_HIGH:-28G}"
-MEM_MAX="${MEM_MAX:-31G}"
-PRESERVE_LD_LIBRARY_PATH="${PRESERVE_LD_LIBRARY_PATH:-0}"
-DETACH=0
+BUILD_DIR="${BUILD_DIR:-}"
+STAGE="${STAGE:-}"
+STAGE1_BUILD_DIR="${STAGE1_BUILD_DIR:-}"
+MEM_HIGH="${MEM_HIGH:-}"
+MEM_MAX="${MEM_MAX:-}"
+PRESERVE_LD_LIBRARY_PATH="${PRESERVE_LD_LIBRARY_PATH:-}"
 JOBS="${JOBS:-}"
+DETACH=0
 WAIT_LOCK=0
 
-# Default feature switches (override by exporting ENABLE_* or via configure_gfx1031.sh wrapper)
-ENABLE_COMPILER="${ENABLE_COMPILER:-true}"
-ENABLE_CORE_RUNTIME="${ENABLE_CORE_RUNTIME:-true}"
-ENABLE_HIP_RUNTIME="${ENABLE_HIP_RUNTIME:-true}"
-ENABLE_HIPIFY="${ENABLE_HIPIFY:-true}"
-ENABLE_BLAS="${ENABLE_BLAS:-true}"
-ENABLE_PRIM="${ENABLE_PRIM:-true}"
-ENABLE_RAND="${ENABLE_RAND:-true}"
-ENABLE_FFT="${ENABLE_FFT:-true}"
-ENABLE_SPARSE="${ENABLE_SPARSE:-true}"
-ENABLE_SOLVER="${ENABLE_SOLVER:-true}"
-ENABLE_HIPBLASLT="${ENABLE_HIPBLASLT:-false}"
-ENABLE_HIPSPARSELT="${ENABLE_HIPSPARSELT:-false}"
-ENABLE_MIOPEN="${ENABLE_MIOPEN:-true}"
-ENABLE_HIPDNN="${ENABLE_HIPDNN:-true}"
-ENABLE_COMPOSABLE_KERNEL="${ENABLE_COMPOSABLE_KERNEL:-true}"
-ENABLE_RCCL="${ENABLE_RCCL:-true}"
-ENABLE_ROCWMMA="${ENABLE_ROCWMMA:-false}"
-ENABLE_PROFILER="${ENABLE_PROFILER:-true}"
-ENABLE_DC_TOOLS="${ENABLE_DC_TOOLS:-false}"
-ENABLE_BUILD_TESTING="${ENABLE_BUILD_TESTING:-false}"
-ENABLE_ROCPROFSYS="${ENABLE_ROCPROFSYS:-false}"
+# Fallback defaults if config YAML doesn't set them.
+DEFAULT_THEROCK_AMDGPU_TARGETS="gfx1031"
+DEFAULT_BUILD_DIR="build"
+DEFAULT_STAGE="1"
+DEFAULT_STAGE1_BUILD_DIR="build-stage1"
+DEFAULT_MEM_HIGH="28G"
+DEFAULT_MEM_MAX="31G"
+DEFAULT_PRESERVE_LD_LIBRARY_PATH="0"
+
+# Feature defaults (config YAML should normally set these; env overrides always win).
+DEFAULT_ENABLE_COMPILER="true"
+DEFAULT_ENABLE_CORE_RUNTIME="true"
+DEFAULT_ENABLE_HIP_RUNTIME="true"
+DEFAULT_ENABLE_HIPIFY="true"
+DEFAULT_ENABLE_BLAS="true"
+DEFAULT_ENABLE_PRIM="true"
+DEFAULT_ENABLE_RAND="true"
+DEFAULT_ENABLE_FFT="true"
+DEFAULT_ENABLE_SPARSE="true"
+DEFAULT_ENABLE_SOLVER="true"
+DEFAULT_ENABLE_HIPBLASLT="false"
+DEFAULT_ENABLE_HIPSPARSELT="false"
+DEFAULT_ENABLE_MIOPEN="true"
+DEFAULT_ENABLE_HIPDNN="true"
+DEFAULT_ENABLE_COMPOSABLE_KERNEL="true"
+DEFAULT_ENABLE_RCCL="true"
+DEFAULT_ENABLE_ROCWMMA="false"
+DEFAULT_ENABLE_PROFILER="true"
+DEFAULT_ENABLE_DC_TOOLS="false"
+DEFAULT_ENABLE_BUILD_TESTING="false"
+DEFAULT_ENABLE_ROCPROFSYS="false"
 
 usage() {
   cat <<'EOF_USAGE'
@@ -46,12 +56,13 @@ Commands:
   configure         Top-level CMake configure (Stage-1/Stage-2 supported)
   configure-sub     (Re)configure specific subprojects only (<name>+configure)
   bootstrap         Build early sysdeps (+dist) and verify outputs
-  build             Build the full superbuild (ninja -C <builddir>)
+  build             Build (Stage-1 in build-stage1 defaults to toolchain; Stage-2 defaults to full graph; or pass ninja targets)
   rebuild           Expunge + rebuild specific subprojects
   expunge           Expunge specific subprojects (no rebuild)
   rocprofiler-gcc   Phase-2: build rocprofiler-systems with GCC in a separate build dir
 
 Shared options:
+  --config <file>          Config file (default: ./config_gfx1031.yaml)
   --stage1                Use BUILD_DIR=build-stage1 and STAGE=1
   --stage2                Use BUILD_DIR=build-stage2 and STAGE=2 (uses Stage-1 toolchain)
   --build-dir <dir>       Override build directory (default: build)
@@ -68,9 +79,9 @@ Configure options:
   -- <extra cmake args>   Extra args forwarded to top-level cmake
 
 Environment:
-  LOG_FILE, BUILD_DIR, STAGE, STAGE1_BUILD_DIR
+  CONFIG_FILE, LOG_FILE, BUILD_DIR, STAGE, STAGE1_BUILD_DIR
   MEM_HIGH / MEM_MAX, PRESERVE_LD_LIBRARY_PATH, JOBS
-  ENABLE_* (see configure_gfx1031.sh) and THEROCK_AMDGPU_TARGETS
+  ENABLE_* and THEROCK_AMDGPU_TARGETS (defaults from config YAML)
 EOF_USAGE
 }
 
@@ -173,6 +184,93 @@ run_cmd_array() {
   run_cmd "${escaped}"
 }
 
+load_config_yaml() {
+  local cfg="$1"
+  if [[ ! -f "${cfg}" ]]; then
+    echo "Config file not found: ${cfg}" >&2
+    exit 1
+  fi
+  python3 - "$cfg" <<'PY'
+import os, sys, shlex
+try:
+    import yaml
+except Exception as e:
+    print(f"ERROR: PyYAML not available: {e}", file=sys.stderr)
+    sys.exit(1)
+
+cfg_path = sys.argv[1]
+with open(cfg_path, "r", encoding="utf-8") as f:
+    data = yaml.safe_load(f) or {}
+
+def get(d, *path, default=None):
+    cur = d
+    for p in path:
+        if not isinstance(cur, dict) or p not in cur:
+            return default
+        cur = cur[p]
+    return cur
+
+def emit(name, value):
+    # Don't override if already set in env (user override)
+    if os.environ.get(name):
+        return
+    if value is None:
+        return
+    if isinstance(value, bool):
+        value = "true" if value else "false"
+    else:
+        value = str(value)
+    print(f'export {name}={shlex.quote(value)}')
+
+emit("THEROCK_AMDGPU_TARGETS", get(data, "amdgpu_targets"))
+
+emit("MEM_HIGH", get(data, "memory", "high"))
+emit("MEM_MAX", get(data, "memory", "max"))
+
+emit("STAGE", get(data, "build", "stage"))
+emit("BUILD_DIR", get(data, "build", "build_dir"))
+emit("STAGE1_BUILD_DIR", get(data, "build", "stage1_build_dir"))
+emit("JOBS", get(data, "build", "jobs"))
+emit("PRESERVE_LD_LIBRARY_PATH", get(data, "build", "preserve_ld_library_path"))
+
+features = get(data, "features", default={}) or {}
+mapping = {
+    "ENABLE_COMPILER": "enable_compiler",
+    "ENABLE_CORE_RUNTIME": "enable_core_runtime",
+    "ENABLE_HIP_RUNTIME": "enable_hip_runtime",
+    "ENABLE_HIPIFY": "enable_hipify",
+    "ENABLE_BLAS": "enable_blas",
+    "ENABLE_PRIM": "enable_prim",
+    "ENABLE_RAND": "enable_rand",
+    "ENABLE_FFT": "enable_fft",
+    "ENABLE_SPARSE": "enable_sparse",
+    "ENABLE_SOLVER": "enable_solver",
+    "ENABLE_HIPBLASLT": "enable_hipblaslt",
+    "ENABLE_HIPSPARSELT": "enable_hipsparselt",
+    "ENABLE_MIOPEN": "enable_miopen",
+    "ENABLE_HIPDNN": "enable_hipdnn",
+    "ENABLE_COMPOSABLE_KERNEL": "enable_composable_kernel",
+    "ENABLE_RCCL": "enable_rccl",
+    "ENABLE_ROCWMMA": "enable_rocwmma",
+    "ENABLE_PROFILER": "enable_profiler",
+    "ENABLE_DC_TOOLS": "enable_dc_tools",
+    "ENABLE_BUILD_TESTING": "enable_build_testing",
+    "ENABLE_ROCPROFSYS": "enable_rocprofsys",
+}
+for env_name, key in mapping.items():
+    emit(env_name, features.get(key))
+
+extra = get(data, "extra_cmake_args", default=[]) or []
+if os.environ.get("THEROCK_EXTRA_CMAKE_ARGS"):
+    sys.exit(0)
+if isinstance(extra, list) and extra:
+    # Join with ASCII unit separator to avoid shell quoting issues; bash splits later.
+    print(f'export THEROCK_EXTRA_CMAKE_ARGS={shlex.quote(chr(31).join(str(x) for x in extra))}')
+else:
+    print('export THEROCK_EXTRA_CMAKE_ARGS=""')
+PY
+}
+
 cmd="${1:-}"
 if [[ -z "${cmd}" || "${cmd}" == "-h" || "${cmd}" == "--help" ]]; then
   usage
@@ -186,8 +284,60 @@ CHECK_CLEAN=1
 EXTRA_CMAKE_ARGS=()
 SUBPROJECTS=()
 
+# First pass: allow --config anywhere.
+argv=("$@")
+for ((i=0; i<${#argv[@]}; i++)); do
+  if [[ "${argv[$i]}" == "--config" ]]; then
+    CONFIG_FILE="${argv[$((i+1))]:-}"
+    break
+  fi
+done
+
+require_cmd python3 "install python3 and python3-venv."
+ensure_venv
+
+# Load config defaults (from venv python) before processing CLI overrides.
+if [[ -n "${CONFIG_FILE}" ]]; then
+  eval "$(load_config_yaml "${CONFIG_FILE}")"
+fi
+
+# Apply post-YAML fallbacks (only if still unset).
+THEROCK_AMDGPU_TARGETS="${THEROCK_AMDGPU_TARGETS:-${DEFAULT_THEROCK_AMDGPU_TARGETS}}"
+BUILD_DIR="${BUILD_DIR:-${DEFAULT_BUILD_DIR}}"
+STAGE="${STAGE:-${DEFAULT_STAGE}}"
+STAGE1_BUILD_DIR="${STAGE1_BUILD_DIR:-${DEFAULT_STAGE1_BUILD_DIR}}"
+MEM_HIGH="${MEM_HIGH:-${DEFAULT_MEM_HIGH}}"
+MEM_MAX="${MEM_MAX:-${DEFAULT_MEM_MAX}}"
+PRESERVE_LD_LIBRARY_PATH="${PRESERVE_LD_LIBRARY_PATH:-${DEFAULT_PRESERVE_LD_LIBRARY_PATH}}"
+
+ENABLE_COMPILER="${ENABLE_COMPILER:-${DEFAULT_ENABLE_COMPILER}}"
+ENABLE_CORE_RUNTIME="${ENABLE_CORE_RUNTIME:-${DEFAULT_ENABLE_CORE_RUNTIME}}"
+ENABLE_HIP_RUNTIME="${ENABLE_HIP_RUNTIME:-${DEFAULT_ENABLE_HIP_RUNTIME}}"
+ENABLE_HIPIFY="${ENABLE_HIPIFY:-${DEFAULT_ENABLE_HIPIFY}}"
+ENABLE_BLAS="${ENABLE_BLAS:-${DEFAULT_ENABLE_BLAS}}"
+ENABLE_PRIM="${ENABLE_PRIM:-${DEFAULT_ENABLE_PRIM}}"
+ENABLE_RAND="${ENABLE_RAND:-${DEFAULT_ENABLE_RAND}}"
+ENABLE_FFT="${ENABLE_FFT:-${DEFAULT_ENABLE_FFT}}"
+ENABLE_SPARSE="${ENABLE_SPARSE:-${DEFAULT_ENABLE_SPARSE}}"
+ENABLE_SOLVER="${ENABLE_SOLVER:-${DEFAULT_ENABLE_SOLVER}}"
+ENABLE_HIPBLASLT="${ENABLE_HIPBLASLT:-${DEFAULT_ENABLE_HIPBLASLT}}"
+ENABLE_HIPSPARSELT="${ENABLE_HIPSPARSELT:-${DEFAULT_ENABLE_HIPSPARSELT}}"
+ENABLE_MIOPEN="${ENABLE_MIOPEN:-${DEFAULT_ENABLE_MIOPEN}}"
+ENABLE_HIPDNN="${ENABLE_HIPDNN:-${DEFAULT_ENABLE_HIPDNN}}"
+ENABLE_COMPOSABLE_KERNEL="${ENABLE_COMPOSABLE_KERNEL:-${DEFAULT_ENABLE_COMPOSABLE_KERNEL}}"
+ENABLE_RCCL="${ENABLE_RCCL:-${DEFAULT_ENABLE_RCCL}}"
+ENABLE_ROCWMMA="${ENABLE_ROCWMMA:-${DEFAULT_ENABLE_ROCWMMA}}"
+ENABLE_PROFILER="${ENABLE_PROFILER:-${DEFAULT_ENABLE_PROFILER}}"
+ENABLE_DC_TOOLS="${ENABLE_DC_TOOLS:-${DEFAULT_ENABLE_DC_TOOLS}}"
+ENABLE_BUILD_TESTING="${ENABLE_BUILD_TESTING:-${DEFAULT_ENABLE_BUILD_TESTING}}"
+ENABLE_ROCPROFSYS="${ENABLE_ROCPROFSYS:-${DEFAULT_ENABLE_ROCPROFSYS}}"
+
 while [[ $# -gt 0 ]]; do
   case "$1" in
+    --config)
+      CONFIG_FILE="${2:-}"
+      shift 2
+      ;;
     --stage1)
       BUILD_DIR="build-stage1"
       STAGE=1
@@ -251,9 +401,9 @@ while [[ $# -gt 0 ]]; do
 done
 
 # Per-builddir lock (prevents concurrent runs touching the same BUILD_DIR).
-LOCK_FILE="${ROOT}/${BUILD_DIR}/.therock_build.lock"
+mkdir -p "${ROOT}/.locks"
+LOCK_FILE="${ROOT}/.locks/therock_${BUILD_DIR}.lock"
 LOCK_FD=200
-mkdir -p "${ROOT}/${BUILD_DIR}"
 exec {LOCK_FD}>"${LOCK_FILE}"
 if (( WAIT_LOCK )); then
   flock "${LOCK_FD}"
@@ -265,9 +415,7 @@ else
   fi
 fi
 
-# Setup prerequisites (venv + ccache) for all commands.
-require_cmd python3 "install python3 and python3-venv."
-ensure_venv
+# Setup prerequisites (ccache) for all commands.
 setup_ccache
 require_cmd ninja "install it before building."
 require_cmd cmake "install CMake (system /usr/bin/cmake recommended)."
@@ -297,6 +445,11 @@ bootstrap_targets=(
   "therock-nlohmann-json+dist"
   "therock-eigen+dist"
   "therock-FunctionalPlus+dist"
+)
+
+stage1_default_targets=(
+  "amd-llvm+dist"
+  "hip-clr+dist"
 )
 
 verify_bootstrap() {
@@ -402,7 +555,6 @@ configure_top() {
     "-DHIP_DIR=${build_path}/core/clr/dist"
     "-DHIP_PATH=${build_path}/core/clr/dist"
     "-DTHEROCK_ENABLE_ALL=OFF"
-    "-DSPDLOG_FMT_EXTERNAL=OFF"
     "-DTHEROCK_ENABLE_COMPILER=$(bool_on_off "${ENABLE_COMPILER}")"
     "-DTHEROCK_ENABLE_CORE_RUNTIME=$(bool_on_off "${ENABLE_CORE_RUNTIME}")"
     "-DTHEROCK_ENABLE_HIP_RUNTIME=$(bool_on_off "${ENABLE_HIP_RUNTIME}")"
@@ -437,6 +589,11 @@ configure_top() {
   if [[ -x "${ranlib}" ]]; then cmake_args+=("-DCMAKE_RANLIB:FILEPATH=${ranlib}"); fi
   if [[ -x "${nm}" ]]; then cmake_args+=("-DCMAKE_NM:FILEPATH=${nm}"); fi
   if [[ -n "${hip_compiler}" ]]; then cmake_args+=("-DCMAKE_HIP_COMPILER:FILEPATH=${hip_compiler}"); fi
+  # Extra args from config (unit separator split) + CLI.
+  if [[ -n "${THEROCK_EXTRA_CMAKE_ARGS:-}" ]]; then
+    IFS=$'\x1f' read -r -a _cfg_extra <<<"${THEROCK_EXTRA_CMAKE_ARGS}"
+    cmake_args+=("${_cfg_extra[@]}")
+  fi
   cmake_args+=("${EXTRA_CMAKE_ARGS[@]}")
 
   systemd-run --user --scope -p "MemoryHigh=${MEM_HIGH}" -p "MemoryMax=${MEM_MAX}" \
@@ -477,7 +634,13 @@ case "${cmd}" in
     if (( DETACH )) && [[ "${LOG_FILE}" == "${ROOT}/build.log" ]]; then
       LOG_FILE="${ROOT}/${BUILD_DIR}.log"
     fi
-    run_cmd_array ninja -C "${BUILD_DIR}"
+    if [[ ${#SUBPROJECTS[@]} -gt 0 ]]; then
+      run_cmd_array ninja -C "${BUILD_DIR}" "${SUBPROJECTS[@]}"
+    elif [[ "${STAGE}" == "1" && "${BUILD_DIR}" == "${STAGE1_BUILD_DIR}" ]]; then
+      run_cmd_array ninja -C "${BUILD_DIR}" "${stage1_default_targets[@]}"
+    else
+      run_cmd_array ninja -C "${BUILD_DIR}"
+    fi
     ;;
   expunge)
     if [[ ${#SUBPROJECTS[@]} -eq 0 ]]; then
@@ -522,4 +685,3 @@ case "${cmd}" in
     exit 2
     ;;
 esac
-
