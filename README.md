@@ -1,4 +1,4 @@
-> AI-assisted work follows `AI_WORKFLOW.md`; a concrete example is documented in `AI_WORKFLOW_THEROCK_GFX1031.md`.
+> AI-assisted work follows `AI_WORKFLOW.md`; a concrete workflow for this repo is documented in `AI_WORKFLOW_THEROCK_GFX1031.md`.
 
 # TheRock - Custom gfx103X Build
 
