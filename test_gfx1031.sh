@@ -312,7 +312,13 @@ check_no_opt_rocm_in_caches() {
   local tmp
   tmp="$(mktemp)"
   set +e
-  find "${ROOT}/${BUILD_DIR}" -name CMakeCache.txt -print0 2>/dev/null | xargs -0 rg -nH "/opt/rocm" 2>/dev/null >"${tmp}"
+  # Ignore CMakeCache comment lines (which can mention "/opt/rocm" as the
+  # upstream default in help text, even when the actual cache variables are
+  # correctly pointing at in-tree prefixes).
+  find "${ROOT}/${BUILD_DIR}" -name CMakeCache.txt -print0 2>/dev/null \
+    | xargs -0 rg -nH "/opt/rocm" 2>/dev/null \
+    | rg -v ":[0-9]+://" 2>/dev/null \
+    >"${tmp}"
   local rc=$?
   set -e
   if [[ -n "${filter}" && -s "${tmp}" ]]; then
