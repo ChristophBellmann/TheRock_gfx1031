@@ -105,6 +105,16 @@ if(THEROCK_BUILD_TESTING)
   message(STATUS "Enabling building tests")
 endif()
 
+# Benchmarks are separate from tests: we want to be able to build binaries like
+# rocblas-bench/hipblas-bench without enabling all tests.
+# Default behavior: if not explicitly set, follow THEROCK_BUILD_TESTING.
+if(CMAKE_PROJECT_NAME STREQUAL PROJECT_NAME AND NOT DEFINED THEROCK_BUILD_BENCHMARKS)
+  set(THEROCK_BUILD_BENCHMARKS ${THEROCK_BUILD_TESTING})
+endif()
+if(THEROCK_BUILD_BENCHMARKS)
+  message(STATUS "Enabling building benchmarks")
+endif()
+
 ################################################################################
 # Notices
 ################################################################################

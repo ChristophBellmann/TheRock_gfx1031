@@ -23,6 +23,9 @@ build:
   stage1_build_dir: build-stage1
   jobs: ""  # set e.g. "4" to pass -j 4 to ninja (optional)
   preserve_ld_library_path: false
+  # Build optional benchmark binaries (e.g. rocblas-bench, hipblas-bench) without
+  # turning on full BUILD_TESTING.
+  benchmarks: false
   # If sources/submodules are missing (fresh clone), auto-run fetch_sources.py.
   auto_fetch_sources: true
 

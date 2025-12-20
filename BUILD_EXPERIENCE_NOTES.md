@@ -328,6 +328,15 @@
 44. **2025-12-20: Deep cache scan initially flagged packaging defaults (`CPACK_*` / `CMAKE_INSTALL_PREFIX=/opt/rocm`)**
    - Symptom: `./test_gfx1031.sh --stage2 --consistency --deep` flagged internal packaging defaults like `CPACK_PACKAGING_INSTALL_PREFIX=/opt/rocm` (e.g. in `hipify`) and nested ExternalProject caches (e.g. `rocr-runtime` under `amd-llvm` runtimes).
    - Resolution: keep the deep scan “strict on effective search roots” but exclude known-benign packaging defaults and nested internal caches (still scans everything else, and runs `ldd` checks).
+
+45. **2025-12-20: Build benchmark tools (rocblas-bench/hipblas-bench) without enabling full BUILD_TESTING**
+   - Goal: run micro-benchmarks via `./test_gfx1031.sh --bench --stage2` without turning on the full test stack.
+   - Change:
+     - Added `THEROCK_BUILD_BENCHMARKS` (defaults to `THEROCK_BUILD_TESTING` if unset).
+     - `build_gfx1031.sh configure` sets `-DTHEROCK_BUILD_BENCHMARKS=ON` when `config_gfx1031.yaml: build.benchmarks: true` (or `ENABLE_BENCHMARKS=true`).
+     - BLAS subprojects (rocBLAS/hipBLAS/rocSPARSE/hipSPARSE etc.) now use `THEROCK_BUILD_BENCHMARKS` for `BUILD_CLIENTS_BENCHMARKS` while keeping `BUILD_CLIENTS_TESTS` tied to `THEROCK_BUILD_TESTING`.
+   - Workflow:
+     - Set `build.benchmarks: true`, then `./build_gfx1031.sh configure --stage2 --no-clean --no-check-clean && ./build_gfx1031.sh rebuild --stage2 rocBLAS hipBLAS`.
 ## TODO / Watchouts
 
 - When new third-party packages are added, verify their `dist/` directories are populated before dependent projects configure.  

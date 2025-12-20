@@ -62,7 +62,7 @@ ensures a consistent Python/ccache/compiler environment (see below).
 Compared to calling `cmake -B build -GNinja .` directly, the helper script mainly
 adds **repeatability** and **guard rails**:
 
-- Applies the repo's **gfx1031 build profile** (`THEROCK_ENABLE_*`, `BUILD_TESTING`, `THEROCK_ENABLE_ROCPROFSYS=OFF`, `THEROCK_ENABLE_COMPOSABLE_KERNEL=ON`, targets/dist bundle).
+ - Applies the repo's **gfx1031 build profile** (`THEROCK_ENABLE_*`, `BUILD_TESTING`, optional `THEROCK_BUILD_BENCHMARKS`, `THEROCK_ENABLE_ROCPROFSYS=OFF`, `THEROCK_ENABLE_COMPOSABLE_KERNEL=ON`, targets/dist bundle).
 - Enforces **clang/clang++** as host compiler (avoid GCC/clang mixing and GCC ICE issues).
 - Ensures a working **Python venv** (`.venv`) so build tools run consistently.
 - Enables/configures **ccache** via `build_tools/setup_ccache.py`.
@@ -515,7 +515,7 @@ The script auto-activates the in-tree ROCm environment from `<builddir>/dist/roc
 # Stage-2: sanity only (default; no benchmarks unless you opt-in)
 ./test_gfx1031.sh --stage2
 
-# Enable benchmarks (requires the bench binaries to exist in PATH)
+# Enable benchmarks (requires the bench binaries to exist in PATH; build them via `config_gfx1031.yaml: build.benchmarks: true`)
 ./test_gfx1031.sh --bench --stage2
 ./test_gfx1031.sh --bench --full --stage2
 
@@ -553,6 +553,18 @@ The script auto-activates the in-tree ROCm environment from `<builddir>/dist/roc
 
 - `BENCH_SIZE`, `BENCH_ITERS` to control benchmark sizes/iters
 - `TEST_LOG` to override output log path (default: `test_gfx1031.log`)
+
+**Building the bench binaries (rocblas-bench / hipblas-bench):**
+
+```bash
+# 1) Edit config_gfx1031.yaml:
+#    build:
+#      benchmarks: true
+#
+# 2) Reconfigure + rebuild only what’s needed:
+./build_gfx1031.sh configure --stage2 --no-clean --no-check-clean
+./build_gfx1031.sh rebuild --stage2 rocBLAS hipBLAS
+```
 
 ### Phase 1 vs Phase 2 (rocprofiler-systems)
 

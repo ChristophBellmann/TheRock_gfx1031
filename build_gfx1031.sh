@@ -55,6 +55,7 @@ DEFAULT_ENABLE_PROFILER="true"
 DEFAULT_ENABLE_DC_TOOLS="false"
 DEFAULT_ENABLE_BUILD_TESTING="false"
 DEFAULT_ENABLE_ROCPROFSYS="false"
+DEFAULT_ENABLE_BENCHMARKS="false"
 
 usage() {
   cat <<'EOF_USAGE'
@@ -89,7 +90,7 @@ Configure options:
 Environment:
   CONFIG_FILE, LOG_FILE, BUILD_DIR, STAGE, STAGE1_BUILD_DIR
   MEM_HIGH / MEM_MAX, PRESERVE_LD_LIBRARY_PATH, JOBS
-  ENABLE_* and THEROCK_AMDGPU_TARGETS (defaults from config YAML)
+  ENABLE_* / ENABLE_BENCHMARKS and THEROCK_AMDGPU_TARGETS (defaults from config YAML)
 EOF_USAGE
 }
 
@@ -241,6 +242,7 @@ emit("STAGE1_BUILD_DIR", get(data, "build", "stage1_build_dir"))
 emit("JOBS", get(data, "build", "jobs"))
 emit("PRESERVE_LD_LIBRARY_PATH", get(data, "build", "preserve_ld_library_path"))
 emit("AUTO_FETCH_SOURCES", get(data, "build", "auto_fetch_sources"))
+emit("ENABLE_BENCHMARKS", get(data, "build", "benchmarks"))
 
 emit("AUTO_APPLY_PATCHES", get(data, "patches", "auto_apply"))
 emit("PATCH_TAG", get(data, "patches", "tag"))
@@ -353,6 +355,7 @@ ENABLE_PROFILER="${ENABLE_PROFILER:-${DEFAULT_ENABLE_PROFILER}}"
 ENABLE_DC_TOOLS="${ENABLE_DC_TOOLS:-${DEFAULT_ENABLE_DC_TOOLS}}"
 ENABLE_BUILD_TESTING="${ENABLE_BUILD_TESTING:-${DEFAULT_ENABLE_BUILD_TESTING}}"
 ENABLE_ROCPROFSYS="${ENABLE_ROCPROFSYS:-${DEFAULT_ENABLE_ROCPROFSYS}}"
+ENABLE_BENCHMARKS="${ENABLE_BENCHMARKS:-${DEFAULT_ENABLE_BENCHMARKS}}"
 
 while [[ $# -gt 0 ]]; do
   case "$1" in
@@ -668,6 +671,7 @@ configure_top() {
     "-DTHEROCK_ENABLE_ROCPROFSYS=$(bool_on_off "${ENABLE_ROCPROFSYS}")"
     "-DTHEROCK_ENABLE_DC_TOOLS=$(bool_on_off "${ENABLE_DC_TOOLS}")"
     "-DBUILD_TESTING=$(bool_on_off "${ENABLE_BUILD_TESTING}")"
+    "-DTHEROCK_BUILD_BENCHMARKS=$(bool_on_off "${ENABLE_BENCHMARKS}")"
     "-DTHEROCK_MIOPEN_USE_COMPOSABLE_KERNEL=$(bool_on_off "${ENABLE_COMPOSABLE_KERNEL}")"
     "-DCMAKE_C_FLAGS="
     "-DCMAKE_CXX_FLAGS="

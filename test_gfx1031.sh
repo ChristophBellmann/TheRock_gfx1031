@@ -631,13 +631,13 @@ if (( RUN_MIOPEN )); then
   run_miopen_checks "miopen" || true
 fi
 
-if (( RUN_BENCH )); then
+  if (( RUN_BENCH )); then
   if command -v rocblas-bench >/dev/null 2>&1; then
     run_bench "rocBLAS GEMM f32" "${BENCH_EXPECTED}" \
       rocblas-bench -f gemm -r f32_r -m "${BENCH_SIZE}" -n "${BENCH_SIZE}" -k "${BENCH_SIZE}" \
       --alpha 1 --beta 0 --iters "${BENCH_ITERS}"
   else
-    add_result "rocBLAS GEMM f32" "SKIP" "0s" "rocblas-bench not in PATH"
+    add_result "rocBLAS GEMM f32" "SKIP" "0s" "rocblas-bench not in PATH (enable build.benchmarks=true, then rebuild rocBLAS)"
   fi
 
   if command -v hipblas-bench >/dev/null 2>&1; then
@@ -645,7 +645,7 @@ if (( RUN_BENCH )); then
       hipblas-bench -f gemm -r f32_r -m "${BENCH_SIZE}" -n "${BENCH_SIZE}" -k "${BENCH_SIZE}" \
       --alpha 1 --beta 0 --iters "${BENCH_ITERS}"
   else
-    add_result "hipBLAS GEMM f32" "SKIP" "0s" "hipblas-bench not in PATH"
+    add_result "hipBLAS GEMM f32" "SKIP" "0s" "hipblas-bench not in PATH (enable build.benchmarks=true, then rebuild hipBLAS)"
   fi
 fi
 
