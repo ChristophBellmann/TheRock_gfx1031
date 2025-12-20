@@ -30,6 +30,12 @@ include = [
 exclude = [
   "lib/libhipblas_fortran.so",
 ]
+[components.run."math-libs/BLAS/hipBLAS/stage"]
+optional = true
+include = [
+  "bin/hipblas-bench*",
+  "bin/hipblas_v2-bench*",
+]
 [components.test."math-libs/BLAS/hipBLAS/stage"]
 include = [
   "bin/hipblas_*.yaml",
@@ -94,6 +100,12 @@ include = [
   "bin/rocblas/library/**",
   "lib/rocblas/library/**",
 ]
+[components.run."math-libs/BLAS/rocBLAS/stage"]
+optional = true
+include = [
+  "bin/rocblas-bench*",
+  "bin/rocblas-gemm-tune*",
+]
 [components.test."math-libs/BLAS/rocBLAS/stage"]
 include = [
   # Clients benchmarks
@@ -117,6 +129,11 @@ optional = true
 optional = true
 [components.lib."math-libs/BLAS/rocSOLVER/stage"]
 optional = true
+[components.run."math-libs/BLAS/rocSOLVER/stage"]
+optional = true
+include = [
+  "bin/rocsolver-bench*",
+]
 [components.test."math-libs/BLAS/rocSOLVER/stage"]
 include = [
   "bin/rocsolver-bench*",
@@ -137,6 +154,11 @@ exclude = [
   "lib/libhipsolver_fortran.so*",
 ]
 optional = true
+[components.run."math-libs/BLAS/hipSOLVER/stage"]
+optional = true
+include = [
+  "bin/hipsolver-bench*",
+]
 [components.test."math-libs/BLAS/hipSOLVER/stage"]
 include = [
   "bin/hipsolver-bench*",
@@ -163,6 +185,7 @@ include = [
 optional = true
 include = [
   "bin/rocsparse_mtx2csr",
+  "bin/rocsparse-bench*",
   "lib/rocsparse/rocsparseio-convert",
   "bin/rocsparseio-convert.exe",
 ]
@@ -193,6 +216,7 @@ optional = true
 optional = true
 include = [
   "bin/hipsparse_mtx2csr",
+  "bin/hipsparse-bench*",
 ]
 [components.test."math-libs/BLAS/hipSPARSE/stage"]
 include = [

@@ -566,6 +566,9 @@ The script auto-activates the in-tree ROCm environment from `<builddir>/dist/roc
 ./build_gfx1031.sh rebuild --stage2 rocBLAS hipBLAS
 ```
 
+Notes:
+- The bench binaries link a **host reference BLAS** from `host-blas` (OpenBLAS in `lib/host-math/lib`). Running via `./test_gfx1031.sh` is recommended because it auto-sets `LD_LIBRARY_PATH` appropriately.
+
 ### Phase 1 vs Phase 2 (rocprofiler-systems)
 
 - **Phase 1 (default in helpers):** ROCm stack stabil bauen, `THEROCK_ENABLE_ROCPROFSYS=OFF`.

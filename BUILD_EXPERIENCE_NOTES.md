@@ -337,6 +337,14 @@
      - BLAS subprojects (rocBLAS/hipBLAS/rocSPARSE/hipSPARSE etc.) now use `THEROCK_BUILD_BENCHMARKS` for `BUILD_CLIENTS_BENCHMARKS` while keeping `BUILD_CLIENTS_TESTS` tied to `THEROCK_BUILD_TESTING`.
    - Workflow:
      - Set `build.benchmarks: true`, then `./build_gfx1031.sh configure --stage2 --no-clean --no-check-clean && ./build_gfx1031.sh rebuild --stage2 rocBLAS hipBLAS`.
+
+46. **2025-12-20: Bench binaries required host OpenBLAS runtime in `lib/host-math/lib`**
+   - Symptom: `rocblas-bench`/`hipblas-bench` existed in `dist/rocm/bin` but failed at runtime with:
+     - `error while loading shared libraries: librocm-openblas.so.0: cannot open shared object file`.
+   - Root cause: host-blas lives under `dist/rocm/lib/host-math/lib` and some packaging flows did not preserve the SONAME symlink (`librocm-openblas.so.0`).
+   - Fix:
+     - `third-party/host-blas/CMakeLists.txt` installs compatibility copies (`librocm-openblas.so.0` + `librocm-openblas.so`) alongside the versioned file.
+     - `test_gfx1031.sh` adds `.../lib/host-math/lib` to `LD_LIBRARY_PATH` and has a local fallback (temp symlink) so benchmarks run even if the dist is missing the SONAME link.
 ## TODO / Watchouts
 
 - When new third-party packages are added, verify their `dist/` directories are populated before dependent projects configure.  

@@ -128,3 +128,23 @@ configure_file(
   @ONLY
 )
 install(FILES "${CMAKE_CURRENT_BINARY_DIR}/cblas-config.cmake" DESTINATION ${CMAKE_INSTALL_LIBDIR}/cmake/OpenBLAS)
+
+# Some downstream tools (e.g. rocblas-bench) link against librocm-openblas.so.0
+# but our artifact packaging may not preserve symlinks. To keep the in-tree
+# dist runnable without relying on system OpenBLAS, install real compatibility
+# copies for the SONAME and unversioned names.
+if(NOT WIN32)
+  install(CODE [[
+    set(_libdir "$ENV{DESTDIR}${CMAKE_INSTALL_PREFIX}/${CMAKE_INSTALL_LIBDIR}")
+    file(GLOB _candidates "${_libdir}/librocm-openblas.so.*")
+    # Prefer a fully versioned file (e.g. .so.0.3) if present.
+    list(FILTER _candidates INCLUDE REGEX "librocm-openblas\\.so\\.[0-9]+\\.[0-9]+")
+    if(_candidates)
+      list(SORT _candidates)
+      list(REVERSE _candidates)
+      list(GET _candidates 0 _real)
+      file(COPY_FILE "${_real}" "${_libdir}/librocm-openblas.so.0" ONLY_IF_DIFFERENT)
+      file(COPY_FILE "${_real}" "${_libdir}/librocm-openblas.so" ONLY_IF_DIFFERENT)
+    endif()
+  ]] COMPONENT run)
+endif()

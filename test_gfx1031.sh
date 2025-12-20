@@ -155,7 +155,17 @@ if [[ -d "${ROCM_PATH}" ]]; then
   export HIP_PATH="${HIP_PATH:-$ROCM_PATH}"
   export HSA_PATH="${HSA_PATH:-$ROCM_PATH}"
   export PATH="$ROCM_PATH/bin:$ROCM_PATH/llvm/bin:${PATH:-}"
-  export LD_LIBRARY_PATH="$ROCM_PATH/lib:$ROCM_PATH/lib64:$ROCM_PATH/lib/rocm_sysdeps/lib:$ROCM_PATH/llvm/lib:${LD_LIBRARY_PATH:-}"
+  # Include host BLAS in-tree prefix for benchmarks (lib/host-math/lib).
+  export LD_LIBRARY_PATH="$ROCM_PATH/lib:$ROCM_PATH/lib64:$ROCM_PATH/lib/host-math/lib:$ROCM_PATH/lib/rocm_sysdeps/lib:$ROCM_PATH/llvm/lib:${LD_LIBRARY_PATH:-}"
+  # Some packaging flows may drop OpenBLAS SONAME symlinks. For benchmark runs,
+  # provide a local fallback without mutating the in-tree dist.
+  _host_blas_lib="$ROCM_PATH/lib/host-math/lib"
+  if [[ -d "${_host_blas_lib}" ]] && [[ ! -e "${_host_blas_lib}/librocm-openblas.so.0" ]] && [[ -e "${_host_blas_lib}/librocm-openblas.so.0.3" ]]; then
+    _tmp_blas="$(mktemp -d)"
+    ln -s "${_host_blas_lib}/librocm-openblas.so.0.3" "${_tmp_blas}/librocm-openblas.so.0"
+    ln -s "${_host_blas_lib}/librocm-openblas.so.0.3" "${_tmp_blas}/librocm-openblas.so"
+    export LD_LIBRARY_PATH="${_tmp_blas}:${LD_LIBRARY_PATH}"
+  fi
   if [[ -z "${HIP_DEVICE_LIB_PATH:-}" ]]; then
     if [[ -d "$ROCM_PATH/lib/llvm/amdgcn/bitcode" ]]; then
       export HIP_DEVICE_LIB_PATH="$ROCM_PATH/lib/llvm/amdgcn/bitcode"
@@ -478,6 +488,27 @@ check_runtime_linkage() {
 extract_gflops() {
   local file="$1"
   local gflops
+  # rocblas-bench / hipblas-bench CSV format:
+  # header contains rocblas-Gflops or hipblas-Gflops and data row is comma-separated.
+  gflops=$(awk -F',' '
+    BEGIN { col=0 }
+    /(^|,)rocblas-Gflops(,|$)/ || /(^|,)hipblas-Gflops(,|$)/ {
+      for(i=1;i<=NF;i++) {
+        if($i ~ /rocblas-Gflops/ || $i ~ /hipblas-Gflops/) { col=i; break }
+      }
+      next
+    }
+    col>0 && ($0 ~ /^[[:space:]]*[NTC],[NTC],/ || $0 ~ /^[[:space:]]*[a-zA-Z0-9_]+,[NTC],[NTC],/) {
+      v=$col
+      gsub(/^[[:space:]]+|[[:space:]]+$/, "", v)
+      if(v ~ /^[0-9]+(\.[0-9]+)?$/) val=v
+    }
+    END { if(val!="") print val }
+  ' "$file" 2>/dev/null)
+  if [[ -n "${gflops}" ]]; then
+    echo "${gflops}"
+    return 0
+  fi
   gflops=$(grep -Eo '([0-9]+(\.[0-9]+)?)\s*(Gflop/s|GFLOP/s|GFLOPS|gflops)' "$file" | tail -n1 | awk '{print $1}')
   if [[ -n "${gflops}" ]]; then
     echo "${gflops}"

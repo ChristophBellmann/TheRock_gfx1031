@@ -169,11 +169,17 @@ endif()
 ##############################################################################
 
 set(rocBLAS_optional_runtime_deps)
+set(rocBLAS_optional_build_deps)
 if(NOT WIN32)
   # rocBLAS is hard-coded to not expect rocm-smi.
   list(APPEND rocBLAS_optional_runtime_deps rocm_smi_lib)
 elseif(THEROCK_BUILD_TESTING)
   list(APPEND rocBLAS_optional_runtime_deps therock-host-blas)
+endif()
+if(THEROCK_BUILD_TESTING OR THEROCK_BUILD_BENCHMARKS)
+  # Clients benchmarks use a reference BLAS implementation (via find_package(BLAS)).
+  # Provide the in-tree OpenBLAS so we don't fall back to system libs.
+  list(APPEND rocBLAS_optional_build_deps therock-host-blas)
 endif()
 
 therock_cmake_subproject_declare(rocBLAS
@@ -202,6 +208,7 @@ therock_cmake_subproject_declare(rocBLAS
   BUILD_DEPS
     hipBLAS-common
     rocm-cmake
+    ${rocBLAS_optional_build_deps}
     therock-googletest
     therock-msgpack-cxx
   RUNTIME_DEPS
@@ -346,8 +353,13 @@ if(THEROCK_ENABLE_SOLVER)
   ##############################################################################
 
   set(rocSOLVER_optional_deps)
-  if(THEROCK_BUILD_TESTING)
+  if(THEROCK_BUILD_TESTING OR THEROCK_BUILD_BENCHMARKS)
     list(APPEND rocSOLVER_optional_deps therock-host-blas)
+  endif()
+  set(rocSOLVER_optional_build_deps)
+  if(THEROCK_BUILD_TESTING OR THEROCK_BUILD_BENCHMARKS)
+    # Clients benchmarks/tests require a reference LAPACK/BLAS implementation.
+    list(APPEND rocSOLVER_optional_build_deps therock-host-blas)
   endif()
 
   therock_cmake_subproject_declare(rocSOLVER
@@ -366,6 +378,7 @@ if(THEROCK_ENABLE_SOLVER)
       BUILD_DEPS
         rocm-cmake
         rocPRIM
+        ${rocSOLVER_optional_build_deps}
         therock-fmt
         therock-googletest
       RUNTIME_DEPS
@@ -386,8 +399,12 @@ if(THEROCK_ENABLE_SOLVER)
   ##############################################################################
 
   set(hipSOLVER_optional_deps)
-  if(THEROCK_BUILD_TESTING)
+  if(THEROCK_BUILD_TESTING OR THEROCK_BUILD_BENCHMARKS)
     list(APPEND hipSOLVER_optional_deps therock-host-blas)
+  endif()
+  set(hipSOLVER_optional_build_deps)
+  if(THEROCK_BUILD_TESTING OR THEROCK_BUILD_BENCHMARKS)
+    list(APPEND hipSOLVER_optional_build_deps therock-host-blas)
   endif()
 
   if(WIN32)
@@ -416,6 +433,7 @@ if(THEROCK_ENABLE_SOLVER)
         amd-hip
       BUILD_DEPS
         rocm-cmake
+        ${hipSOLVER_optional_build_deps}
         therock-googletest
       RUNTIME_DEPS
         hip-clr
@@ -442,8 +460,10 @@ set(hipBLAS_optional_deps)
 if(THEROCK_ENABLE_SOLVER)
   list(APPEND hipBLAS_optional_deps rocSOLVER)
 endif()
+set(hipBLAS_optional_build_deps)
 if(THEROCK_BUILD_TESTING OR THEROCK_BUILD_BENCHMARKS)
-  list(APPEND hipBLAS_optional_deps therock-host-blas)
+  # Benchmarks rely on a reference BLAS (and TheRock exposes it via host-blas).
+  list(APPEND hipBLAS_optional_build_deps therock-host-blas)
 endif()
 
 therock_cmake_subproject_declare(hipBLAS
@@ -464,6 +484,7 @@ therock_cmake_subproject_declare(hipBLAS
   BUILD_DEPS
     hipBLAS-common
     rocm-cmake
+    ${hipBLAS_optional_build_deps}
     therock-googletest
   RUNTIME_DEPS
     hip-clr
