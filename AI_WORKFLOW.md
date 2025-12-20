@@ -17,6 +17,10 @@
   - Destructive actions, system-wide changes, or irreversible steps.
   - Decisions with multiple reasonable “policy” outcomes.
   - Anything that changes external state beyond the repo/workspace.
+- Default autonomy (when intent is clear):
+  - Work end-to-end: implement → validate → sync docs/notes → record changes.
+  - Keep user-facing docs consistent with actual behavior.
+  - If the user requested it, stage/commit/push as part of the same flow.
 
 ---
 
