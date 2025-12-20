@@ -166,12 +166,20 @@ therock_add_feature(SPARSE
   REQUIRES BLAS PRIM
 )
 
+# NOTE: hipBLASLt is an optional "Lt" matmul/GEMM stack. It can add significant
+# build time and disk footprint, and it is not required for the default gfx1031
+# build profile used in this fork. Keep it as a feature flag so other GPUs /
+# configurations can enable it when supported.
 therock_add_feature(HIPBLASLT
   GROUP MATH_LIBS
   DESCRIPTION "Enables hipBLASLt within BLAS"
   REQUIRES BLAS PRIM
 )
 
+# NOTE: hipSPARSELt is an optional sparse-matmul stack. Like hipBLASLt it can be
+# heavy, and it is disabled by default in the gfx1031 profile (see
+# config_gfx1031.yaml). Keep this feature for configurations where it is
+# supported and useful.
 therock_add_feature(HIPSPARSELT
   GROUP MATH_LIBS
   DESCRIPTION "Enables hipSPARSELt within BLAS"
