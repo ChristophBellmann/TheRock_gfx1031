@@ -402,46 +402,39 @@ Notes:
 ./build_gfx1031.sh bootstrap
 ./build_gfx1031.sh build
 ```
+
 - Clean reconfigure + build (clang + ninja):
-  ```bash
-  ./build_gfx1031.sh configure
-  ./build_gfx1031.sh bootstrap
-  ./build_gfx1031.sh build
-  ```
+```bash
+./build_gfx1031.sh configure
+./build_gfx1031.sh bootstrap
+./build_gfx1031.sh build
+```
+
 - Teil-Rebuild einzelner Targets (expunge + Log-Rotation):
-  ```bash
-  ./build_gfx1031.sh rebuild hipBLAS rocBLAS
-  ./build_gfx1031.sh rebuild hipSPARSE
-  ```
+```bash
+./build_gfx1031.sh rebuild hipBLAS rocBLAS
+./build_gfx1031.sh rebuild hipSPARSE
+```
+
 - Nach dem Build: Sanity / Benchmarks / Komponenten-Smokes:
-  ```bash
-  ./test_gfx1031.sh        # quick
-  ./test_gfx1031.sh --full # längere Bench
+```bash
+./test_gfx1031.sh        # quick
+./test_gfx1031.sh --full # längere Bench
 
-  # MIOpen + composable_kernel checks (fast) + optional tiny smoke
-  ./test_gfx1031.sh --miopen --stage2
-  ./test_gfx1031.sh --miopen-smoke --stage2
-  ```
+# MIOpen + composable_kernel checks (fast) + optional tiny smoke
+./test_gfx1031.sh --miopen --stage2
+./test_gfx1031.sh --miopen-smoke --stage2
+```
+
 - Konsistenz-Checks (Toolchain/ROCm-Pfade):
-  ```bash
-  # Stage-1 (toolchain only): checks caches/toolchain (does not require dist/rocm)
-  ./test_gfx1031.sh --consistency-only --expect-stage1 --stage1
+```bash
+# Stage-1 (toolchain only): checks caches/toolchain (does not require dist/rocm)
+./test_gfx1031.sh --consistency-only --expect-stage1 --stage1
 
-  # Stage-2 (full dist): strict check (no fallback to /usr/lib/llvm-18 or /opt/rocm)
-  ./test_gfx1031.sh --consistency --expect-stage2 --stage2
-  ./test_gfx1031.sh --consistency --deep --expect-stage2 --stage2
-  ```
-
-### CCache defaults
-
-- Du brauchst ein aktuelles ccache (>= 4.11), damit Device-Code Caching mit `--offload-compress` zuverlässig funktioniert (große AMDGPU Artefakte).
-- `.local/bin/ccache` (4.11.1) wird automatisch vorangestellt, wenn vorhanden.
-- `build_gfx1031.sh configure` **und** `build_gfx1031.sh build` evaluieren `build_tools/setup_ccache.py` automatisch (setzt `CCACHE_CONFIGPATH` auf `./.ccache/ccache.conf`).
-- `setup_ccache.py` setzt dabei u. a.:
-  - `sloppiness = include_file_ctime` (entspricht dem empfohlenen `export CCACHE_SLOPPINESS=include_file_ctime` für Hardlink-Farms)
-  - ein sicheres `compiler_check` (wichtig bei Compiler-Bootstrapping, damit Cache-Einträge nicht “falsch” wiederverwendet werden)
-- In CMake wird ccache als Launcher gesetzt: `-DCMAKE_C_COMPILER_LAUNCHER=ccache` und `-DCMAKE_CXX_COMPILER_LAUNCHER=ccache`.
-- Für manuelle Nutzung in neuen Shells: `eval "$(./build_tools/setup_ccache.py)"`.
+# Stage-2 (full dist): strict check (no fallback to /usr/lib/llvm-18 or /opt/rocm)
+./test_gfx1031.sh --consistency --expect-stage2 --stage2
+./test_gfx1031.sh --consistency --deep --expect-stage2 --stage2
+```
 
 ### Bootstrap (Third-party/sysdeps)
 
@@ -458,10 +451,20 @@ Hinweis: `build_gfx1031.sh build --stage1` verweigert den Start, wenn Bootstrap 
 `build-stage1/` noch nicht erfolgreich verifiziert wurde (Marker:
 `build-stage1/.therock_bootstrap.ok`).
 
-### LD_LIBRARY_PATH hygiene (avoid /opt/rocm mixing)
+### Repeatable rebuild (with RAM limits)
 
-- `build_gfx1031.sh` setzt `LD_LIBRARY_PATH` **explizit** nur auf die in-tree sysdeps Pfade (und erbt standardmäßig nichts), um versehentliche ABI/Version-Mixes mit z. B. `/opt/rocm-*` zu vermeiden.
-- Falls du bewusst etwas erben willst: `PRESERVE_LD_LIBRARY_PATH=1 ./build_gfx1031.sh ...`.
+Use the helper script for consistent, logged rebuilds with the same memory
+limits used in this branch:
+
+```bash
+./build_gfx1031.sh rebuild <targets...>
+```
+
+Defaults use `MemoryHigh=28G` and `MemoryMax=31G`. Override if needed:
+
+```bash
+MEM_HIGH=28G MEM_MAX=31G ./build_gfx1031.sh rebuild <targets...>
+```
 
 ### Build monitoring (detached)
 
@@ -476,10 +479,9 @@ Wenn der Build detached läuft, startet `build_gfx1031.sh` ihn als systemd user 
 ./monitor_gfx1031.sh --interval 30
 ```
 
-### 6h monitor (5min interval)
+### monitor (5min interval, 6h dauer)
 
 Für lange Builds kann ein 6‑Stunden Monitor als eigener systemd‑User‑Service gestartet werden.
-Das ist bewusst “detached”, weil eine interaktive Session nicht 6 Stunden “wach” bleiben kann.
 Der Monitor pollt alle 5 Minuten und schreibt nach `monitor_6h.log`:
 
 ```bash
@@ -512,7 +514,56 @@ pro Subprojekt in `build/logs/*_build.log`.
 
 ### Notes on testing
 
-- default: `BUILD_TESTING=OFF` (in `config_gfx1031.yaml` oder via `ENABLE_BUILD_TESTING=true` env überschreibbar). Hintergrund: gcc‑ICEs vermeiden; clang wird als Host-Compiler erzwungen.
+This repo provides a single entrypoint for post-build validation and quick perf
+sanity: `./test_gfx1031.sh`. It auto-activates the in-tree ROCm environment from
+`<builddir>/dist/rocm` (so you don’t accidentally pick up `/opt/rocm-*`).
+
+**Common usage:**
+
+```bash
+# Stage-2: quick sanity + light GEMM benchmarks (default)
+./test_gfx1031.sh --stage2
+
+# Longer benchmarks
+./test_gfx1031.sh --full --stage2
+
+# Sanity only (no perf benchmarks)
+./test_gfx1031.sh --no-bench --stage2
+
+# Benchmarks only
+./test_gfx1031.sh --bench-only --stage2
+```
+
+**Build/toolchain consistency checks (recommended after reconfigure / rebuild):**
+
+```bash
+# Stage-1: allow system clang, but ensure no /opt/rocm leakage
+./test_gfx1031.sh --consistency-only --expect-stage1 --stage1
+
+# Stage-2: strict (no /usr/lib/llvm-18 fallback, no /opt/rocm in caches)
+./test_gfx1031.sh --consistency --expect-stage2 --stage2
+./test_gfx1031.sh --consistency --deep --expect-stage2 --stage2
+```
+
+**MIOpen / composable_kernel checks:**
+
+```bash
+./test_gfx1031.sh --miopen --stage2
+./test_gfx1031.sh --miopen-smoke --stage2
+```
+
+**CLI options (overview):**
+
+- Modes: `--quick` (default), `--full`
+- Bench control: `--no-bench`, `--bench-only`
+- Consistency: `--consistency`, `--consistency-only`, `--deep`, `--expect-stage1`, `--expect-stage2`
+- Components: `--miopen`, `--miopen-smoke`
+- Build dir: `--stage1`, `--stage2`, `--build-dir <dir>`
+
+**Environment overrides (advanced):**
+
+- `BENCH_SIZE`, `BENCH_ITERS` to control benchmark sizes/iters
+- `TEST_LOG` to override output log path (default: `test_gfx1031.log`)
 
 ### Phase 1 vs Phase 2 (rocprofiler-systems)
 
@@ -536,24 +587,11 @@ export LD_LIBRARY_PATH="$ROCM_PATH/lib:$ROCM_PATH/lib64:$ROCM_PATH/lib/rocm_sysd
 Notes:
 - `./test_gfx1031.sh` performs this activation automatically (based on `BUILD_DIR`), and is the simplest way to run sanity/benchmarks.
 
-### Repeatable rebuild (with RAM limits)
-
-Use the helper script for consistent, logged rebuilds with the same memory
-limits used in this branch:
-
-```bash
-./build_gfx1031.sh rebuild <targets...>
-```
-
-Defaults use `MemoryHigh=28G` and `MemoryMax=31G`. Override if needed:
-
-```bash
-MEM_HIGH=28G MEM_MAX=31G ./build_gfx1031.sh rebuild <targets...>
-```
-
-### Running tests ?
+### Running functionality tests of the finished build ?ToDo?
 
 Project-wide testing can be controlled with the standard CMake `-DBUILD_TESTING=ON|OFF` flag.
+- default: `BUILD_TESTING=OFF` (in `config_gfx1031.yaml` oder via `ENABLE_BUILD_TESTING=true` env überschreibbar).
+
 This gates both setup of build tests and compilation of installed testing artifacts. 
 
 Tests of the integrity of the build are enabled by default and can be run
