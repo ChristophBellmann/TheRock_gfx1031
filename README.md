@@ -1,3 +1,5 @@
+> AI-assisted work follows `AI_WORKFLOW.md`; a concrete example is documented in `AI_WORKFLOW_THEROCK_GFX1031.md`.
+
 # TheRock - Custom gfx103X Build
 
 [![pre-commit](https://img.shields.io/badge/pre--commit-enabled-brightgreen?logo=pre-commit)](https://github.com/pre-commit/pre-commit)
