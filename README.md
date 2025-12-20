@@ -35,13 +35,13 @@ python3 -m venv .venv && source .venv/bin/activate
 pip install --upgrade pip
 pip install -r requirements.txt
 
-# Fetch sources
+# (Optional) Fetch sources explicitly (submodules + optional patch application)
 python3 ./build_tools/fetch_sources.py
-
-Note: `./build_gfx1031.sh configure` will also auto-run `fetch_sources.py` and
-apply the minimal local patch set if it detects a fresh clone with missing
-submodules (configurable in `config_gfx1031.yaml`).
 ```
+
+Note: `./build_gfx1031.sh configure` will also auto-run `fetch_sources.py` (and
+apply the minimal local patch set) if it detects a fresh clone with missing
+submodules. This is configurable in `config_gfx1031.yaml`.
 
 ### Configuration (gfx1031)
 
@@ -103,6 +103,46 @@ Workflow:
 
 Important: **Never** switch compilers inside the same build directory. Always
 use a fresh build dir for Stage-2.
+
+### ✨ Recommended workflow for new users (gfx1031)
+
+This is the “happy path” that is intended to work on a fresh clone without
+extra manual steps (sources + minimal patches are auto-prepared when needed).
+
+**Stage‑1 (toolchain, system clang → in-tree clang/lld):**
+
+```bash
+./build_gfx1031.sh configure --stage1
+./build_gfx1031.sh bootstrap --stage1
+./build_gfx1031.sh build --stage1 --detach
+```
+
+Monitor Stage‑1:
+
+```bash
+BUILD_DIR=build-stage1 LOG_FILE=build-stage1.log UNIT=therock-gfx1031-build-stage1-build.service ./monitor_gfx1031.sh --once
+```
+
+**Stage‑2 (full build, uses Stage‑1 toolchain):**
+
+```bash
+./build_gfx1031.sh configure --stage2
+./build_gfx1031.sh bootstrap --stage2
+./build_gfx1031.sh build --stage2 --detach
+```
+
+Monitor Stage‑2:
+
+```bash
+BUILD_DIR=build-stage2 LOG_FILE=build-stage2.log UNIT=therock-gfx1031-build-stage2-build.service ./monitor_gfx1031.sh --once
+```
+
+After Stage‑2 completes:
+
+```bash
+./test_gfx1031.sh --quick --stage2
+./test_gfx1031.sh --consistency --expect-stage2 --stage2
+```
 
 ### What `cmake -B build -GNinja .` actually does (ASCII overview)
 
