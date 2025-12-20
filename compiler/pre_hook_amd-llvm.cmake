@@ -70,8 +70,16 @@ set(HIP_DIR "${_therock_rocm_root}" CACHE PATH "" FORCE)
 set(HIP_PATH "${_therock_rocm_root}" CACHE PATH "" FORCE)
 unset(_therock_rocm_root)
 
-# Work around clang diagnostic in spirv-llvm-translator (seen with clang-18).
-add_compile_options($<$<CXX_COMPILER_ID:Clang>:-Wno-enum-constexpr-conversion>)
+# Work around clang diagnostic in spirv-llvm-translator (seen with some clang
+# versions). Only add the flag if the compiler recognizes it to avoid noise
+# (or -Werror=unknown-warning-option breakage) on other versions.
+if(CMAKE_CXX_COMPILER_ID STREQUAL "Clang")
+  include(CheckCXXCompilerFlag)
+  check_cxx_compiler_flag("-Wno-enum-constexpr-conversion" THEROCK_AMDLLVM_HAS_WNO_ENUM_CONSTEXPR_CONVERSION)
+  if(THEROCK_AMDLLVM_HAS_WNO_ENUM_CONSTEXPR_CONVERSION)
+    add_compile_options(-Wno-enum-constexpr-conversion)
+  endif()
+endif()
 
 # Packaging.
 set(PACKAGE_VENDOR "AMD" CACHE STRING "Vendor" FORCE)
