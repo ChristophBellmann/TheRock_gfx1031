@@ -97,3 +97,7 @@ _(How I recorded changes in version control)_
 - Next steps:
 - Where to look for logs/errors:
 - Known pitfalls/watchouts:
+- Preferred status output style (concise):
+  - Current state (running/blocked/complete) in 1 line.
+  - 1–3 most relevant signals (latest progress + any error summary).
+  - Exact next command(s) to run, if applicable.
