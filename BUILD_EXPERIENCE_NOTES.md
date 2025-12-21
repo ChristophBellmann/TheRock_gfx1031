@@ -345,6 +345,13 @@
    - Fix:
      - `third-party/host-blas/CMakeLists.txt` installs compatibility copies (`librocm-openblas.so.0` + `librocm-openblas.so`) alongside the versioned file.
      - `test_gfx1031.sh` adds `.../lib/host-math/lib` to `LD_LIBRARY_PATH` and has a local fallback (temp symlink) so benchmarks run even if the dist is missing the SONAME link.
+
+47. **2025-12-20: Bench enablement required additional build deps + dist refresh**
+   - Symptom: enabling benchmark clients for rocBLAS/rocSOLVER/hipSOLVER initially failed to link because the client code expects a reference BLAS/LAPACK implementation (CBLAS/LAPACK symbols).
+   - Fix:
+     - Add `therock-host-blas` as a `BUILD_DEPS` when `THEROCK_BUILD_BENCHMARKS` is on (rocBLAS, rocSOLVER, hipSOLVER, hipBLAS).
+     - Ensure bench binaries are packaged into `dist/rocm/bin` by running `dist-rocm` after rebuilding the affected subprojects.
+   - Result: `./test_gfx1031.sh --stage2 --bench` runs `rocblas-bench` + `hipblas-bench` successfully (GFLOPS/TFLOPS parsed from CSV output).
 ## TODO / Watchouts
 
 - When new third-party packages are added, verify their `dist/` directories are populated before dependent projects configure.  

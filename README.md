@@ -564,10 +564,12 @@ The script auto-activates the in-tree ROCm environment from `<builddir>/dist/roc
 # 2) Reconfigure + rebuild only what’s needed:
 ./build_gfx1031.sh configure --stage2 --no-clean --no-check-clean
 ./build_gfx1031.sh rebuild --stage2 rocBLAS hipBLAS
+./build_gfx1031.sh build --stage2 dist-rocm
 ```
 
 Notes:
 - The bench binaries link a **host reference BLAS** from `host-blas` (OpenBLAS in `lib/host-math/lib`). Running via `./test_gfx1031.sh` is recommended because it auto-sets `LD_LIBRARY_PATH` appropriately.
+ - `dist-rocm` updates `<builddir>/dist/rocm/bin` so the bench binaries are in `PATH` for `./test_gfx1031.sh`.
 
 ### Phase 1 vs Phase 2 (rocprofiler-systems)
 
@@ -586,7 +588,7 @@ under `<builddir>/dist/rocm` by setting:
 BUILD_DIR=build-stage2
 export ROCM_PATH="$PWD/$BUILD_DIR/dist/rocm"
 export PATH="$ROCM_PATH/bin:$ROCM_PATH/llvm/bin:$PATH"
-export LD_LIBRARY_PATH="$ROCM_PATH/lib:$ROCM_PATH/lib64:$ROCM_PATH/lib/rocm_sysdeps/lib:$ROCM_PATH/llvm/lib:${LD_LIBRARY_PATH:-}"
+export LD_LIBRARY_PATH="$ROCM_PATH/lib:$ROCM_PATH/lib64:$ROCM_PATH/lib/host-math/lib:$ROCM_PATH/lib/rocm_sysdeps/lib:$ROCM_PATH/llvm/lib:${LD_LIBRARY_PATH:-}"
 ```
 
 Notes:
