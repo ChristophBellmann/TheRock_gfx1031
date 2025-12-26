@@ -18,10 +18,10 @@ This branch (`hashcat/rocm-7.11-gfx103X`) is specifically optimized for Christop
 - **ROCm 7.11** custom build from TheRock main
 - **Native gfx103X support** (gfx1030, gfx1031, gfx1032, gfx1035, gfx1036)
 - **AI/LLM workload optimization** including: 
-  - llama.cpp server integration with ROCm backend ?ToDo?
-  - Ollama with ROCm support ?ToDo?
-  - Open Interpreter configuration and best practices ?ToDo?
-  - Automated Python package update tooling ?ToDo?
+  - TODO: llama.cpp server integration with ROCm backend
+  - TODO: Ollama with ROCm support
+  - TODO: Open Interpreter configuration and best practices
+  - TODO: Automated Python package update tooling
 - **Real-world testing** on Mint with AMD RX 6700 XT
 
 ### Quick Start for This Build
@@ -547,7 +547,7 @@ Notes:
 - `./test_gfx1031.sh` performs this activation automatically (based on `BUILD_DIR`), and is the simplest way to run sanity/benchmarks.
 - If you don’t pass `--stage1/--stage2/--build-dir`, the script tests all detected in-tree dist roots for sanity/consistency (prefers `build-stage2`, then `build`, then `build-stage1`). For `--bench/--bench-only`, it defaults to Stage‑2 if available.
 
-### Running functionality tests of the finished build ?ToDo?
+### Optional: Upstream test suites (ctest / gtest clients)
 
 Project-wide testing can be controlled with the standard CMake `-DBUILD_TESTING=ON|OFF` flag.
 - default: `BUILD_TESTING=OFF` (in `config_gfx1031.yaml` oder via `ENABLE_BUILD_TESTING=true` env überschreibbar).
@@ -560,3 +560,5 @@ with ctest:
 ```bash
 ctest --test-dir build-stage2
 ```
+
+Note: gtest-style client test binaries such as `rocsolver-test` are not built/installed by default in this branch configuration (we optimize for a usable ROCm stack + benchmarks). If you enable full testing, you can run client tests via their `--gtest_filter` options (see upstream component docs).
