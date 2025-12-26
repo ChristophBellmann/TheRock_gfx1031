@@ -7,8 +7,8 @@ import yaml
 
 
 def _validation_root() -> Path:
-    # .../validation/src/validation_suite/core/config.py -> validation/
-    return Path(__file__).resolve().parents[3]
+    # .../validation/src/core/config.py -> validation/
+    return Path(__file__).resolve().parents[2]
 
 
 def _deep_merge(a: dict[str, Any], b: dict[str, Any]) -> dict[str, Any]:

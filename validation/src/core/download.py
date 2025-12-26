@@ -5,7 +5,7 @@ import urllib.request
 from dataclasses import dataclass
 from pathlib import Path
 
-from validation_suite.core.context import Context
+from core.context import Context
 
 
 @dataclass(frozen=True)

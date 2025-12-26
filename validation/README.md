@@ -98,11 +98,11 @@ validation/
 ├─ .env.example
 ├─ config/
 ├─ scripts/                # user entrypoints (auto-venv bootstrap)
-├─ src/validation_suite/   # implementation package
+├─ src/                    # implementation (cli/core/steps/assets/data)
 └─ workspace/              # runtime artifacts (gitignored)
 ```
 
 ## Legal / third-party
 
 Third-party projects used by optional checks are referenced in:
-`validation/src/validation_suite/assets/notices/THIRD_PARTY_NOTICES.md`.
+`validation/src/assets/notices/THIRD_PARTY_NOTICES.md`.

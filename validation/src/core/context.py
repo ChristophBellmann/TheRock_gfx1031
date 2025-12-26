@@ -19,7 +19,7 @@ class Context:
 
     @staticmethod
     def from_repo(cfg: dict[str, Any], enable_logs: bool) -> "Context":
-        validation_root = Path(__file__).resolve().parents[3]
+        validation_root = Path(__file__).resolve().parents[2]
         repo_root = validation_root.parent
         workspace_root = validation_root / "workspace"
 
@@ -67,4 +67,3 @@ class Context:
     def env_base(self) -> dict[str, str]:
         env = os.environ.copy()
         return env
-

@@ -4,11 +4,11 @@ import argparse
 import os
 import sys
 
-from validation_suite.cli.prompts import confirm
-from validation_suite.core.config import load_config
-from validation_suite.core.context import Context
-from validation_suite.core.reporting.summary import print_summary
-from validation_suite.steps.plan import build_plan, run_plan
+from cli.prompts import confirm
+from core.config import load_config
+from core.context import Context
+from core.reporting.summary import print_summary
+from steps.plan import build_plan, run_plan
 
 
 def _cmd_validate(argv: list[str]) -> int:
@@ -60,7 +60,7 @@ def _cmd_cache_gc(argv: list[str]) -> int:
     ap = argparse.ArgumentParser(prog="cache-gc", description="Remove validation workspace caches.")
     ap.add_argument("--all", action="store_true", help="Also delete downloaded artifacts (not just temp runs).")
     args = ap.parse_args(argv)
-    from validation_suite.core.artifacts import cache_gc  # lazy
+    from core.artifacts import cache_gc  # lazy
 
     ctx = Context.from_repo(cfg=load_config(profile="quick"), enable_logs=False)
     cache_gc(ctx, delete_downloads=bool(args.all))
@@ -71,7 +71,7 @@ def _cmd_report(argv: list[str]) -> int:
     ap = argparse.ArgumentParser(prog="report", description="Print last validation report location.")
     ap.add_argument("--open", action="store_true", help="Attempt to open the HTML report in a browser.")
     args = ap.parse_args(argv)
-    from validation_suite.core.artifacts import open_last_report  # lazy
+    from core.artifacts import open_last_report  # lazy
 
     ctx = Context.from_repo(cfg=load_config(profile="quick"), enable_logs=False)
     return open_last_report(ctx, open_browser=bool(args.open))

@@ -22,7 +22,7 @@ validation/
 │  │  ├─ full.yaml                        # volle Workloads
 │  │  ├─ quick.yaml                       # ROCm sanity + HIP smoke (ohne große downloads)
 │  │  └─ airgapped.yaml                   # alias/future-proof
-│  └─ therock/
+│  └─ layout/
 │     ├─ gfx_targets.yaml                 # z.B. gfx1031, default-arch detection rules
 │     ├─ install_layouts.yaml             # wo findet man dist/ oder install prefix
 │     └─ env_exports.yaml                 # LD_LIBRARY_PATH, PATH, ROCM_PATH etc. Templates
@@ -35,18 +35,17 @@ validation/
 │  └─ report_open.py
 │
 ├─ src/
-│  └─ validation_suite/                  # bewusst generisch (Repo-Kontext ist klar)
-│     ├─ __init__.py
+│  ├─ __init__.py
 │
-│     ├─ cli/
+│  ├─ cli/
 │     │  ├─ __init__.py
 │     │  ├─ main.py                       # validate/doctor/cache/report
 │     │  └─ prompts.py                    # Y/n gating + non-interactive flags
 │
-│     ├─ core/
+│  ├─ core/
 │     │  ├─ __init__.py
 │     │  ├─ context.py                    # repo_root, validation_root, run_id, paths
-│     │  ├─ therock_tree.py               # erkennt build-stage*, dist/, install prefix
+│     │  ├─ tree.py                      # erkennt build-stage*, dist/, install prefix
 │     │  ├─ rocm_env.py                   # “explizit laden”: env vars aus dist/ ableiten
 │     │  ├─ runner.py                     # subprocess wrapper
 │     │  ├─ download.py                   # fetch + verify + size policy
@@ -61,7 +60,7 @@ validation/
 │     │     ├─ html_report.py
 │     │     └─ summary.py
 │
-│     ├─ steps/
+│  ├─ steps/
 │     │  ├─ __init__.py
 │     │  ├─ plan.py                       # aus profile+defaults Schritte bauen
 │     │
@@ -136,22 +135,21 @@ validation/
 │  ├─ unit/
 │  └─ integration/
 │
-└─ validation_suite/                      # falls schon existiert: nur EINES von beiden behalten
-   └─ (entweder dies ODER src/validation_suite)
+└─ (kein zusätzliches package-dir nötig; Code liegt direkt in `src/`)
 
 Wichtiger Hinweis (weil du es schon im Tree hast)
 
-Du hast aktuell beides: validation/src und validation/validation_suite. Das ist ein typischer Drift. Entscheide dich für eine dieser Varianten:
+Du hast aktuell beides: `validation/src` und ein zusätzliches package-dir. Das ist ein typischer Drift. Entscheide dich für eine dieser Varianten:
 
-Empfohlen: validation/src/validation_suite/… (sauber, packagable, testbar)
+Empfohlen: `validation/src/…` (sauber, packagable, testbar)
 
-Oder: validation/validation_suite/… (flacher, aber weniger standardkonform)
+Oder: flach unter `validation/…` (weniger standardkonform)
 
 Wenn du schon Code hast: verschieben statt neu erfinden, aber Ziel ist nur ein Paketpfad.
 
 Wie das zu deinem Build-Kontext passt
 
-core/therock_tree.py und core/rocm_env.py sind die “fehlenden” Teile:
+core/tree.py und core/rocm_env.py sind die “fehlenden” Teile:
 Sie sorgen dafür, dass die Validierung gegen dein gebautes dist/ läuft (und nicht gegen System-ROCm).
 
 doctor ist explizit no-download, genau wie du wolltest: erst “echte Tests” mit dem vorhandenen Build/Install-Layout.

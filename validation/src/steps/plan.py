@@ -11,13 +11,13 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Callable
 
-from validation_suite.core.artifacts import write_report_json
-from validation_suite.core.context import Context
-from validation_suite.core.download import DownloadPolicy, download
-from validation_suite.core.rocm_env import activated_env, which
-from validation_suite.core.therock_tree import detect_build_dirs, rocm_dist_for_build
-from validation_suite.core.reporting.models import StepResult
-from validation_suite.core.runner import fmt_duration, run_cmd
+from core.artifacts import write_report_json
+from core.context import Context
+from core.download import DownloadPolicy, download
+from core.rocm_env import activated_env, which
+from core.tree import detect_build_dirs, rocm_dist_for_build
+from core.reporting.models import StepResult
+from core.runner import fmt_duration, run_cmd
 
 
 @dataclass(frozen=True)
