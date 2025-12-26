@@ -1,0 +1,16 @@
+# Run only the llama.cpp workload (plus minimal ROCm sanity).
+run:
+  profile: llama_cpp
+  ask_before_downloads: true
+  downloads_enabled: true
+
+steps:
+  rocm_sanity: true
+  rocm_bench_smoke: false
+  miopen_smoke: false
+  llama_cpp_docker: true
+  ollama: false
+  open_interpreter: false
+  whisper: false
+  mfem_hip: false
+

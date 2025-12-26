@@ -154,11 +154,17 @@ def _docker_run_ollama(
     tpull = int(cfg.get("timeouts_s", {}).get("ollama_pull", 1800))
     trun = int(cfg.get("timeouts_s", {}).get("ollama_run", 600))
     num_predict = int(cfg.get("workloads", {}).get("ollama", {}).get("num_predict", 128) or 128)
+    min_bench_s = float(cfg.get("workloads", {}).get("ollama", {}).get("min_bench_s", 5.0) or 5.0)
 
     port = _find_free_port()
     name = f"rocm_validation_ollama_{os.getpid()}_{port}"
     models_dir = ctx.cache_dir() / "ollama" / "models"
     models_dir.mkdir(parents=True, exist_ok=True)
+
+    # Some prebuilt ROCm binaries (including ggml HIP code objects) are built for gfx1030,
+    # which can crash on gfx1031 unless we spoof the gfx version.
+    arch = str(cfg.get("rocm", {}).get("amd_gpu_arch", "")).strip()
+    hsa_override = "10.3.0" if arch == "gfx1031" else ""
 
     rpi = run_cmd(ctx.repo_root, env, ["docker", "pull", image], 1800, log)
     if rpi.rc != 0:
@@ -182,6 +188,7 @@ def _docker_run_ollama(
             "OLLAMA_LLM_LIBRARY=rocm",
             "-e",
             "OLLAMA_LIBRARY_PATH=/usr/lib/ollama",
+            *([] if not hsa_override else ["-e", f"HSA_OVERRIDE_GFX_VERSION={hsa_override}"]),
             *([] if log is None else ["-e", "OLLAMA_DEBUG=1"]),
             "-v",
             f"{models_dir}:/root/.ollama/models",
@@ -207,22 +214,62 @@ def _docker_run_ollama(
             return StepResult(build_dir, "Ollama (docker ROCm) bench", "FAIL", fmt_duration(rpi.dur_ms + rr.dur_ms + rp.dur_ms), f"ollama pull rc={rp.rc}")
 
         gen_url = f"{base}/api/generate"
+        # Warm-up to ensure model is loaded and the subsequent benchmark run reflects steady-state.
+        warm_payload = {"model": model, "prompt": "Hello", "stream": False, "options": {"num_predict": 8, "temperature": 0}}
+        _ = _post_json(gen_url, warm_payload, timeout_s=min(120, trun))
+
         payload = {"model": model, "prompt": prompt, "stream": False, "options": {"num_predict": num_predict, "temperature": 0}}
 
-        def run_generate(sampler: PowerSampler | None):
-            t1 = time.monotonic()
-            resp = _post_json(gen_url, payload, timeout_s=trun)
-            wall_s = time.monotonic() - t1
-            return resp, wall_s, sampler
-
-        resp, wall_s, sampler = with_power_sampler(cfg, build_dir=build_dir, fn=run_generate)
-        m = _parse_generate_metrics(resp)
-
+        # Measure TTFT with a short streaming run (not included in benchmark sampler window).
         ttft_ms = _measure_ttft_ms(
             gen_url,
             {"model": model, "prompt": prompt, "stream": True, "options": {"num_predict": min(16, num_predict), "temperature": 0}},
             timeout_s=min(60, trun),
         )
+
+        def run_bench(sampler: PowerSampler | None):
+            t1 = time.monotonic()
+            eval_s_total = 0.0
+            eval_tok_total = 0
+            prompt_eval_s_total = 0.0
+            prompt_tok_total = 0
+            load_s_total = 0.0
+            runs = 0
+
+            # Keep a sustained load for (at least) min_bench_s wall time so power sampling is meaningful.
+            while (time.monotonic() - t1) < min_bench_s and runs < 50:
+                resp_i = _post_json(gen_url, payload, timeout_s=trun)
+                mi = _parse_generate_metrics(resp_i)
+                runs += 1
+                # Sum API durations when present (used for reporting); wall time is measured independently above.
+                load_s_total += float(mi.load_s or 0.0)
+                prompt_eval_s_total += float(mi.prompt_eval_s or 0.0)
+                prompt_tok_total += int(mi.prompt_tokens or 0)
+                eval_s_total += float(mi.eval_s or 0.0)
+                eval_tok_total += int(mi.eval_tokens or 0)
+
+            wall_real = time.monotonic() - t1
+            return (
+                {
+                    "runs": runs,
+                    "wall_s": wall_real,
+                    "load_s": load_s_total,
+                    "prompt_eval_s": prompt_eval_s_total,
+                    "prompt_tokens": prompt_tok_total,
+                    "eval_s": eval_s_total,
+                    "eval_tokens": eval_tok_total,
+                },
+                sampler,
+            )
+
+        bench, sampler = with_power_sampler(cfg, build_dir=build_dir, fn=run_bench)
+        wall_s = float(bench["wall_s"])
+        eval_s = float(bench["eval_s"])
+        eval_tokens = int(bench["eval_tokens"])
+        prompt_eval_s = float(bench["prompt_eval_s"])
+        prompt_tokens = int(bench["prompt_tokens"])
+        load_s = float(bench["load_s"])
+        runs = int(bench["runs"])
 
         # Inspect container logs for backend + VRAM hints.
         rlog_now = run_cmd(ctx.repo_root, env, ["docker", "logs", name], 20, None)
@@ -238,11 +285,11 @@ def _docker_run_ollama(
                 vram = ln.split("runner.vram=", 1)[-1].strip().split()[0].strip('"')
                 break
 
-        tokps = m.tok_per_s
-        ptokps = m.prompt_tok_per_s
+        tokps = (float(eval_tokens) / float(eval_s)) if eval_s > 0 else None
+        ptokps = (float(prompt_tokens) / float(prompt_eval_s)) if prompt_eval_s > 0 else None
         avg_tok_ms = (1000.0 / tokps) if tokps and tokps > 0 else None
 
-        metric = f"backend={backend} model={model} out={num_predict}"
+        metric = f"backend={backend} model={model} out={num_predict} runs={runs}"
         if tokps is not None:
             metric += f" tok/s={tokps:.2f}"
         if ptokps is not None:
@@ -251,12 +298,7 @@ def _docker_run_ollama(
             metric += f" ttft={ttft_ms:.0f}ms"
         if avg_tok_ms is not None:
             metric += f" avg_tok={avg_tok_ms:.1f}ms"
-        if m.load_s is not None:
-            metric += f" load={m.load_s:.2f}s"
-        if m.prompt_eval_s is not None:
-            metric += f" prompt_eval={m.prompt_eval_s:.2f}s"
-        if m.eval_s is not None:
-            metric += f" eval={m.eval_s:.2f}s"
+        metric += f" load={load_s:.2f}s prompt_eval={prompt_eval_s:.2f}s eval={eval_s:.2f}s"
         if vram:
             metric += f" vram={vram}"
         metric += f" wall={wall_s:.2f}s prompt={prompt_name}"

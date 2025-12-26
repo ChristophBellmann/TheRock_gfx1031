@@ -18,6 +18,8 @@ workloads:
   llama_cpp:
     docker_image: ""   # optional override; empty => auto-detect from AMD docs
     prompt_file: "validation/src/assets/samples/prompts/tiny_prompt.txt"
+    num_predict: 512
+    min_bench_s: 5.0
     # Optional functional test (disabled unless you provide a model):
     # model_url: "https://..."   # optional
     # model_sha256: "..."        # optional
@@ -29,14 +31,17 @@ workloads:
     # Optional functional test (disabled unless set):
     # model: "tinyllama"
     model: "llama3.2:3b-instruct-q4_0"  # enables `ollama pull` + `ollama run` smoke (≈1.9GB model)
-    num_predict: 128
+    num_predict: 512
+    min_bench_s: 5.0
     use_docker: "auto"     # auto|true|false; auto prefers docker ROCm when host binary lacks ROCm backend
     docker_image: "ollama/ollama:rocm"
   mfem:
     git: "https://github.com/mfem/mfem.git"
     ref: "master"
+    min_bench_s: 5.0
   whisper:
     audio_file: "validation/src/assets/samples/audio/Take2_Audio1-1.wav"
+    min_bench_s: 5.0
 
 steps:
   rocm_sanity: true

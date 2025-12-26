@@ -1,0 +1,16 @@
+# Run only the Whisper workload (plus minimal ROCm sanity).
+run:
+  profile: whisper
+  ask_before_downloads: true
+  downloads_enabled: true
+
+steps:
+  rocm_sanity: true
+  rocm_bench_smoke: false
+  miopen_smoke: false
+  llama_cpp_docker: false
+  ollama: false
+  open_interpreter: false
+  whisper: true
+  mfem_hip: false
+

@@ -63,6 +63,13 @@ One-shot self-contained validation + diagnosis:
 python3 validation/scripts/ollama_doctor.py --yes
 ```
 
+One-shot self-contained workload validators (GPU required):
+```bash
+python3 validation/scripts/llama_cpp_validate.py
+python3 validation/scripts/whisper_validate.py
+python3 validation/scripts/mfem_validate.py
+```
+
 If Ollama falls back to CPU, the suite marks the step as `FAIL` and the per-step log contains the docker logs
 showing why (e.g. `entering low vram mode` / `total vram=0 B`).
 
@@ -95,6 +102,10 @@ reports per-test energy deltas (`dW`) relative to that baseline.
 - **Workloads are best-effort:** workload steps may `SKIP` if prerequisites aren’t present
   (e.g. `docker` missing for llama.cpp, or Python packages missing for Whisper).
   The goal is to keep the suite reproducible and avoid surprise multi-GB installs.
+- **GPU is mandatory for workloads:** if a workload runs but cannot prove GPU acceleration (CPU fallback),
+  it is treated as `FAIL` (with hints in the metric and optional logs).
+- **gfx1031 note:** some prebuilt ROCm docker images ship HIP code objects for `gfx1030` but not `gfx1031`.
+  For such images, the suite uses `HSA_OVERRIDE_GFX_VERSION=10.3.0` automatically when `rocm.amd_gpu_arch=gfx1031`.
 - **All runtime artifacts live in `validation/workspace/`** and are gitignored.
 
 ## Build dirs (Stage-1 vs Stage-2)
@@ -142,6 +153,10 @@ python3 validation/scripts/report_open.py --open
   - `validation/config/profiles/full.yaml` (default; everything enabled, downloads gated)
   - `validation/config/profiles/quick.yaml` (ROCm-only smoke)
   - `validation/config/profiles/airgapped.yaml` (same as quick; future-proof name)
+  - `validation/config/profiles/ollama.yaml` (Ollama-only)
+  - `validation/config/profiles/llama_cpp.yaml` (llama.cpp-only)
+  - `validation/config/profiles/whisper.yaml` (Whisper-only)
+  - `validation/config/profiles/mfem.yaml` (MFEM-only)
 - Workload inputs (URLs/refs): `validation/config/defaults.yaml` under `workloads:`
 - Layout/env hints:
   - `validation/config/layout/gfx_targets.yaml`
