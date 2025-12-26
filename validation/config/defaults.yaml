@@ -3,6 +3,7 @@ run:
   profile: full
   ask_before_downloads: true
   downloads_enabled: true
+  power_monitor: false      # enable sysfs power sampling (E in Ws) for sustained-load tests
   max_download_gb: 8
   max_single_download_gb: 4
   build_dirs: []           # empty => auto-detect (build-stage2/build/build-stage1)
@@ -34,4 +35,3 @@ timeouts_s:
   open_interpreter: 900
   whisper: 1800
   mfem_hip: 3600
-

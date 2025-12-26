@@ -12,11 +12,12 @@ from steps.plan import build_plan, run_plan
 
 
 def _cmd_validate(argv: list[str]) -> int:
-    ap = argparse.ArgumentParser(prog="validate", description="Repo-local ROCm validation suite (TheRock).")
+    ap = argparse.ArgumentParser(prog="validate", description="Repo-local ROCm validation suite.")
     ap.add_argument("--profile", default=None, help="Config profile (full/quick/airgapped). Default: full.")
     ap.add_argument("--build-dirs", default=None, help="Comma-separated build dirs to validate (default: auto).")
     ap.add_argument("--no-downloads", action="store_true", help="Disable network downloads (third-party steps will SKIP).")
     ap.add_argument("--yes", action="store_true", help="Assume 'yes' for prompts (non-interactive).")
+    ap.add_argument("--power", action="store_true", help="Sample GPU power/utilization via sysfs during sustained-load tests.")
     ap.add_argument("--log", action="store_true", help="Write logs to validation/workspace/runs/<id>/logs/ (default: off).")
     args = ap.parse_args(argv)
 
@@ -26,6 +27,8 @@ def _cmd_validate(argv: list[str]) -> int:
     if args.no_downloads or os.environ.get("ROCM_VALIDATION_NO_DOWNLOADS", "") == "1":
         cfg["run"]["downloads_enabled"] = False
         cfg["run"]["ask_before_downloads"] = False
+    if args.power or os.environ.get("ROCM_VALIDATION_POWER", "") == "1":
+        cfg["run"]["power_monitor"] = True
 
     ctx = Context.from_repo(cfg=cfg, enable_logs=bool(args.log))
     plan = build_plan(cfg)

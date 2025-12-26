@@ -15,6 +15,7 @@ from typing import Any, Callable
 from core.artifacts import write_report_json
 from core.context import Context
 from core.download import DownloadPolicy, download
+from core.power import PowerSampler, discover_sensors, format_power_metrics, write_csv
 from core.rocm_env import activated_env, which
 from core.tree import detect_build_dirs, rocm_dist_for_build
 from core.reporting.models import StepResult
@@ -49,6 +50,33 @@ def _dl_policy(cfg: dict[str, Any]) -> DownloadPolicy:
         max_total_bytes=int(max_total_gb * 1024 * 1024 * 1024),
         max_single_bytes=int(max_single_gb * 1024 * 1024 * 1024),
     )
+
+
+def _power_enabled(cfg: dict[str, Any]) -> bool:
+    return bool(cfg.get("run", {}).get("power_monitor", False))
+
+
+def _power_csv_path(ctx: Context, build_dir: str, key: str) -> Path | None:
+    if ctx.logs_dir is None:
+        return None
+    return ctx.logs_dir / f"{build_dir}.{key}.power.csv"
+
+
+def _with_power_sampler(ctx: Context, cfg: dict[str, Any], build_dir: str, key: str, fn):
+    if not _power_enabled(cfg):
+        return fn(None)
+    sensors = discover_sensors()
+    if sensors is None:
+        return fn(None)
+    sampler = PowerSampler(sensors=sensors, interval_s=0.5)
+    sampler.start()
+    try:
+        return fn(sampler)
+    finally:
+        sampler.stop()
+        csvp = _power_csv_path(ctx, build_dir, key)
+        if csvp is not None:
+            write_csv(csvp, sampler.samples())
 
 
 def _repeat_cmd_for_load(
@@ -158,9 +186,18 @@ int main() {
         r1 = run_cmd(ctx.repo_root, env, [hipcc, f"--offload-arch={arch}", str(src), "-O2", "-o", str(exe)], t, log)
         if r1.rc != 0:
             return StepResult(build_dir, "hipcc compile+run", "FAIL", fmt_duration(r1.dur_ms), f"compile rc={r1.rc}")
-        r2 = run_cmd(ctx.repo_root, env, [str(exe)], 60, log)
+        def run_kernel(sampler: PowerSampler | None):
+            r2 = run_cmd(ctx.repo_root, env, [str(exe)], 120, log)
+            return r2, sampler
+
+        r2, sampler = _with_power_sampler(ctx, cfg, build_dir, "hipcc_compile_run", run_kernel)
         ok = (r2.rc == 0) and ("OK" in (r2.out + r2.err))
-        return StepResult(build_dir, "hipcc compile+run", "OK" if ok else "FAIL", fmt_duration(r1.dur_ms + r2.dur_ms), "" if ok else f"run rc={r2.rc}")
+        metric = "" if ok else f"run rc={r2.rc}"
+        if ok and sampler is not None:
+            pm = format_power_metrics(sampler)
+            if pm:
+                metric = (metric + " " + pm).strip()
+        return StepResult(build_dir, "hipcc compile+run", "OK" if ok else "FAIL", fmt_duration(r1.dur_ms + r2.dur_ms), metric)
 
 
 def _extract_gflops(text: str) -> float | None:
@@ -199,13 +236,21 @@ def _step_rocblas(ctx: Context, cfg: dict[str, Any], build_dir: str, rocm_dist: 
         "--iters",
         "10",
     ]
-    r, total_ms, runs = _repeat_cmd_for_load(ctx, env, cmd, min_wall_s=5.0, max_wall_s=8.0, per_run_timeout_s=t, log=log)
+    def run_load(sampler: PowerSampler | None):
+        r, total_ms, runs = _repeat_cmd_for_load(ctx, env, cmd, min_wall_s=5.0, max_wall_s=8.0, per_run_timeout_s=t, log=log)
+        return r, total_ms, runs, sampler
+
+    r, total_ms, runs, sampler = _with_power_sampler(ctx, cfg, build_dir, "rocblas_gemm_f32", run_load)
     if r.rc != 0:
         return StepResult(build_dir, "rocBLAS GEMM f32", "FAIL", fmt_duration(total_ms), f"rc={r.rc}")
     gflops = _extract_gflops(r.out + "\n" + r.err)
     metric = f"runs={runs}"
     if gflops is not None:
         metric += f" TFLOPS={gflops/1000.0:.3f} (GFLOPS={gflops:.1f})"
+    if sampler is not None:
+        pm = format_power_metrics(sampler)
+        if pm:
+            metric += f" {pm}"
     return StepResult(build_dir, "rocBLAS GEMM f32", "OK", fmt_duration(total_ms), metric)
 
 
@@ -214,10 +259,19 @@ def _step_rocfft(ctx: Context, cfg: dict[str, Any], build_dir: str, rocm_dist: P
     if not which("rocfft-bench", env):
         return StepResult(build_dir, "rocFFT 1024", "SKIP", "0ms", "rocfft-bench not in PATH")
     cmd = ["rocfft-bench", "--length", "1024", "--precision", "single", "-t", "0", "-N", "2"]
-    r, total_ms, runs = _repeat_cmd_for_load(ctx, env, cmd, min_wall_s=5.0, max_wall_s=8.0, per_run_timeout_s=t, log=log)
+    def run_load(sampler: PowerSampler | None):
+        r, total_ms, runs = _repeat_cmd_for_load(ctx, env, cmd, min_wall_s=5.0, max_wall_s=8.0, per_run_timeout_s=t, log=log)
+        return r, total_ms, runs, sampler
+
+    r, total_ms, runs, sampler = _with_power_sampler(ctx, cfg, build_dir, "rocfft_1024", run_load)
     if r.rc != 0:
         return StepResult(build_dir, "rocFFT 1024", "FAIL", fmt_duration(total_ms), f"rc={r.rc}")
-    return StepResult(build_dir, "rocFFT 1024", "OK", fmt_duration(total_ms), f"runs={runs}")
+    metric = f"runs={runs}"
+    if sampler is not None:
+        pm = format_power_metrics(sampler)
+        if pm:
+            metric += f" {pm}"
+    return StepResult(build_dir, "rocFFT 1024", "OK", fmt_duration(total_ms), metric)
 
 
 def _step_rocrand(ctx: Context, cfg: dict[str, Any], build_dir: str, rocm_dist: Path, env: dict[str, str], log: Path | None) -> StepResult:
@@ -237,10 +291,19 @@ def _step_rocrand(ctx: Context, cfg: dict[str, Any], build_dir: str, rocm_dist: 
         "--format",
         "csv",
     ]
-    r, total_ms, runs = _repeat_cmd_for_load(ctx, env, cmd, min_wall_s=5.0, max_wall_s=8.0, per_run_timeout_s=t, log=log)
+    def run_load(sampler: PowerSampler | None):
+        r, total_ms, runs = _repeat_cmd_for_load(ctx, env, cmd, min_wall_s=5.0, max_wall_s=8.0, per_run_timeout_s=t, log=log)
+        return r, total_ms, runs, sampler
+
+    r, total_ms, runs, sampler = _with_power_sampler(ctx, cfg, build_dir, "rocrand_generate", run_load)
     if r.rc != 0:
         return StepResult(build_dir, "rocRAND generate", "FAIL", fmt_duration(total_ms), f"rc={r.rc}")
-    return StepResult(build_dir, "rocRAND generate", "OK", fmt_duration(total_ms), f"runs={runs} size=16777216")
+    metric = f"runs={runs} size=16777216"
+    if sampler is not None:
+        pm = format_power_metrics(sampler)
+        if pm:
+            metric += f" {pm}"
+    return StepResult(build_dir, "rocRAND generate", "OK", fmt_duration(total_ms), metric)
 
 
 def _step_miopen_driver(ctx: Context, cfg: dict[str, Any], build_dir: str, rocm_dist: Path, env: dict[str, str], log: Path | None) -> StepResult:
@@ -298,10 +361,20 @@ def _step_miopen_smoke(ctx: Context, cfg: dict[str, Any], build_dir: str, rocm_d
     # `--iter` is not always reliably reflected in wall time (backend-specific), so we
     # also repeat the command until we reach sustained load.
     cmd = cmd_for(20)
-    r, total_ms, runs = _repeat_cmd_for_load(ctx, env, cmd, min_wall_s=5.0, max_wall_s=10.0, per_run_timeout_s=t, log=log)
+
+    def run_load(sampler: PowerSampler | None):
+        r, total_ms, runs = _repeat_cmd_for_load(ctx, env, cmd, min_wall_s=5.0, max_wall_s=10.0, per_run_timeout_s=t, log=log)
+        return r, total_ms, runs, sampler
+
+    r, total_ms, runs, sampler = _with_power_sampler(ctx, cfg, build_dir, "miopen_smoke", run_load)
     if r.rc != 0:
         return StepResult(build_dir, "MIOpen smoke", "FAIL", fmt_duration(total_ms), f"rc={r.rc}")
-    return StepResult(build_dir, "MIOpen smoke", "OK", fmt_duration(total_ms), f"driver={Path(drv).name} runs={runs} iters=20")
+    metric = f"driver={Path(drv).name} runs={runs} iters=20"
+    if sampler is not None:
+        pm = format_power_metrics(sampler)
+        if pm:
+            metric += f" {pm}"
+    return StepResult(build_dir, "MIOpen smoke", "OK", fmt_duration(total_ms), metric)
 
 
 def _pip_install(ctx: Context, env: dict[str, str], pkgs: list[str], log: Path | None, timeout_s: int) -> StepResult | None:

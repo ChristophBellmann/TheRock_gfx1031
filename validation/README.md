@@ -30,12 +30,20 @@ Write per-step logs + a JSON report:
 python3 validation/scripts/validate.py --log
 ```
 
+Add optional GPU power/util sampling during sustained-load tests:
+```bash
+python3 validation/scripts/validate.py --profile quick --power --log
+```
+
 ## How it works
 
 - **Explicit in-tree activation:** each step runs with `ROCM_PATH`, `PATH`, and `LD_LIBRARY_PATH`
   set to `<builddir>/dist/rocm` so it doesn’t accidentally use system ROCm.
 - **Sustained-load checks:** core ROCm tests are parameterized to run for ~5 seconds each, so it’s
   easier to observe GPU/CPU utilization and confirm hardware acceleration before running workloads.
+- **Optional power/energy sampling:** with `--power`, sustained-load tests sample AMDGPU sysfs
+  power (`power1_average`, µW) and integrate to an approximate energy in **Ws**. With `--log`,
+  per-test samples are written as `*.power.csv` under the run’s `logs/` directory.
 - **Repo-local Python environment:** the scripts auto-create a venv under
   `validation/workspace/envs/py/` and install only minimal dependencies (see `validation/requirements-lock.txt`).
 - **Downloads are gated:** third-party checks are enabled by default in `full` and guarded by
