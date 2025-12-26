@@ -1,3 +1,4 @@
+
 > AI-assisted work follows `AI_WORKFLOW.md`; a concrete workflow for this repo is documented in `AI_WORKFLOW_THEROCK_GFX1031.md`.
 
 # TheRock - Custom gfx103X Build
@@ -274,12 +275,15 @@ sudo apt update
 sudo apt install gfortran git ninja-build cmake g++ pkg-config xxd patchelf automake libtool python3-venv python3-dev libegl1-mesa-dev texinfo bison flex
 ```
 
-### Profile: LLM + Vision + Audio (Ollama / Mistral / Qwen / PyTorch / Whisper)
+### High Performance Computing Profile: LLM + Picture Analysis/ Vision + Audio + FEM Solver
 
-Target workloads: general language models, vision/video LLMs, and audio models
-with best performance on gfx1031. This profile keeps the HIP toolchain and the
-core math/ML stack needed by PyTorch and LLM runtimes, while dropping unrelated
-features.
+Ollama / Mistral / Qwen / PyTorch / Whisper / MFEM / PETSc
+
+Target workloads: general language models, vision/video LLMs and audio models, FEM Slover.
+MFEM: Wie formuliere und diskretisiere ich Strauin/ Stress effizient?
+PETSc: Wie löse ich das resultierende Gleichungssytem?
+
+Make use of the HIP toolchain and the core math/ML stack needed by PyTorch and LLM runtimes.
 
 > [!NOTE]
 > Building components with MPI support, currently requires MPI to be pre-installed 
