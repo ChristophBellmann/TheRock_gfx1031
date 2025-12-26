@@ -24,6 +24,11 @@ This branch (`hashcat/rocm-7.11-gfx103X`) is specifically optimized for Christop
   - TODO: Automated Python package update tooling
 - **Real-world testing** on Mint with AMD RX 6700 XT
 
+### Usability validation (Python, in-tree, no /opt/rocm)
+
+For a small, repository-local “proof that the built stack is usable” *before* installing anything system-wide, see:
+`validation/README.md` and `validation/run_validation.py`.
+
 ### Quick Start for This Build
 
 ```bash
