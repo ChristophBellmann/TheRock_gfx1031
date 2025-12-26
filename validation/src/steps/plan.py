@@ -79,6 +79,17 @@ def _with_power_sampler(ctx: Context, cfg: dict[str, Any], build_dir: str, key: 
             write_csv(csvp, sampler.samples())
 
 
+def _append_power(metric: str, sampler: PowerSampler | None, *, baseline_avg_w: float | None) -> str:
+    if sampler is None:
+        return metric
+    pm = format_power_metrics(sampler, baseline_avg_w=baseline_avg_w)
+    if not pm:
+        return metric
+    if metric:
+        return f"{metric} | {pm}"
+    return pm
+
+
 def _baseline_cache(cfg: dict[str, Any]) -> dict[str, Any]:
     rt = cfg.setdefault("_runtime", {})
     return rt.setdefault("power_baseline", {})
@@ -217,10 +228,8 @@ int main() {
         r2, sampler = _with_power_sampler(ctx, cfg, build_dir, "hipcc_compile_run", run_kernel)
         ok = (r2.rc == 0) and ("OK" in (r2.out + r2.err))
         metric = "" if ok else f"run rc={r2.rc}"
-        if ok and sampler is not None:
-            pm = format_power_metrics(sampler, baseline_avg_w=_get_baseline_avg_w(cfg, build_dir))
-            if pm:
-                metric = (metric + " " + pm).strip()
+        if ok:
+            metric = _append_power(metric, sampler, baseline_avg_w=_get_baseline_avg_w(cfg, build_dir))
         return StepResult(build_dir, "hipcc compile+run", "OK" if ok else "FAIL", fmt_duration(r1.dur_ms + r2.dur_ms), metric)
 
 
@@ -275,10 +284,7 @@ def _step_rocblas(ctx: Context, cfg: dict[str, Any], build_dir: str, rocm_dist: 
     metric = f"m=n=k={m} iters={iters}"
     if gflops is not None:
         metric += f" TFLOPS={gflops/1000.0:.3f} (GFLOPS={gflops:.1f})"
-    if sampler is not None:
-        pm = format_power_metrics(sampler, baseline_avg_w=_get_baseline_avg_w(cfg, build_dir))
-        if pm:
-            metric += f" {pm}"
+    metric = _append_power(metric, sampler, baseline_avg_w=_get_baseline_avg_w(cfg, build_dir))
     return StepResult(build_dir, "rocBLAS GEMM f32", "OK", fmt_duration(r.dur_ms), metric)
 
 
@@ -300,10 +306,7 @@ def _step_rocfft(ctx: Context, cfg: dict[str, Any], build_dir: str, rocm_dist: P
     if r.rc != 0:
         return StepResult(build_dir, "rocFFT", "FAIL", fmt_duration(r.dur_ms), f"rc={r.rc}")
     metric = f"len={length} batch={batch} ntrial={ntrial}"
-    if sampler is not None:
-        pm = format_power_metrics(sampler, baseline_avg_w=_get_baseline_avg_w(cfg, build_dir))
-        if pm:
-            metric += f" {pm}"
+    metric = _append_power(metric, sampler, baseline_avg_w=_get_baseline_avg_w(cfg, build_dir))
     return StepResult(build_dir, "rocFFT", "OK", fmt_duration(r.dur_ms), metric)
 
 
@@ -336,10 +339,7 @@ def _step_rocrand(ctx: Context, cfg: dict[str, Any], build_dir: str, rocm_dist: 
     if r.rc != 0:
         return StepResult(build_dir, "rocRAND generate", "FAIL", fmt_duration(r.dur_ms), f"rc={r.rc}")
     metric = f"size={size} trials={trials}"
-    if sampler is not None:
-        pm = format_power_metrics(sampler, baseline_avg_w=_get_baseline_avg_w(cfg, build_dir))
-        if pm:
-            metric += f" {pm}"
+    metric = _append_power(metric, sampler, baseline_avg_w=_get_baseline_avg_w(cfg, build_dir))
     return StepResult(build_dir, "rocRAND generate", "OK", fmt_duration(r.dur_ms), metric)
 
 
@@ -407,10 +407,7 @@ def _step_miopen_smoke(ctx: Context, cfg: dict[str, Any], build_dir: str, rocm_d
     if r.rc != 0:
         return StepResult(build_dir, "MIOpen smoke", "FAIL", fmt_duration(r.dur_ms), f"rc={r.rc}")
     metric = f"driver={Path(drv).name} iters={iters}"
-    if sampler is not None:
-        pm = format_power_metrics(sampler, baseline_avg_w=_get_baseline_avg_w(cfg, build_dir))
-        if pm:
-            metric += f" {pm}"
+    metric = _append_power(metric, sampler, baseline_avg_w=_get_baseline_avg_w(cfg, build_dir))
     return StepResult(build_dir, "MIOpen smoke", "OK", fmt_duration(r.dur_ms), metric)
 
 

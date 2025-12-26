@@ -135,23 +135,32 @@ class PowerSampler:
 def format_power_metrics(s: PowerSampler, *, baseline_avg_w: float | None = None) -> str:
     e = s.energy_ws()
     avg = s.avg_power_w()
-    peak = s.peak_power_w()
+    maxw = s.peak_power_w()
     gpu = s.avg_gpu_busy()
     mem = s.avg_mem_busy()
-    parts: list[str] = []
-    if e is not None:
-        parts.append(f"E={e:.0f}Ws")
-    if avg is not None:
-        parts.append(f"avgW={avg:.1f}")
-        if baseline_avg_w is not None:
-            parts.append(f"dW={avg - baseline_avg_w:+.1f}")
-    if peak is not None:
-        parts.append(f"peakW={peak:.1f}")
-    if gpu is not None:
-        parts.append(f"gpu%={gpu:.0f}")
-    if mem is not None:
-        parts.append(f"mem%={mem:.0f}")
-    return " ".join(parts)
+
+    def fmt_ws(v: float | None) -> str:
+        return f"{v:4.0f}Ws" if v is not None else "  n/a"
+
+    def fmt_w(v: float | None) -> str:
+        return f"{v:6.1f}W" if v is not None else "   n/a"
+
+    def fmt_dw(v: float | None) -> str:
+        return f"{v:+6.1f}W" if v is not None else "   n/a"
+
+    def fmt_pct(v: float | None) -> str:
+        return f"{v:3.0f}" if v is not None else "n/a"
+
+    dw = (avg - baseline_avg_w) if (avg is not None and baseline_avg_w is not None) else None
+    # Keep a stable column order for scanability.
+    return (
+        f"E={fmt_ws(e)} "
+        f"avgW={fmt_w(avg)} "
+        f"dW={fmt_dw(dw)} "
+        f"maxW={fmt_w(maxw)} "
+        f"gpu%={fmt_pct(gpu)} "
+        f"mem%={fmt_pct(mem)}"
+    )
 
 
 def write_csv(path: Path, samples: list[Sample]) -> None:
