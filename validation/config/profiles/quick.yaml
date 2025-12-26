@@ -1,0 +1,13 @@
+# Quick smoke tests: no third-party downloads/builds.
+run:
+  profile: quick
+  ask_before_downloads: false
+  downloads_enabled: false
+
+steps:
+  llama_cpp_docker: false
+  ollama: false
+  open_interpreter: false
+  whisper: false
+  mfem_hip: false
+

@@ -1,90 +1,103 @@
-# Validation (in-tree ROCm usability & integrations)
+# Validation (ROCm usability & app-style checks)
 
-This directory contains a repository-local **validation suite** whose purpose is:
+This directory contains a **repo-local validation suite** that validates the in-tree ROCm
+artifact(s) under `<builddir>/dist/rocm` without requiring a system install (no `/opt/rocm`).
 
-1) **Usability proof (in-tree ROCm)**  
-   Show that the built stack under `<builddir>/dist/rocm` is runnable and fast enough
-   *without* installing anything into the system (no `/opt/rocm` dependency).
+It has two goals:
+1) **ROCm usability proof**: `rocminfo`, HIP compile+run, and a few small library smokes/benches.
+2) **Representative apps (optional, download/build)**: smoke checks for typical workloads:
+   llama.cpp (docker), Ollama, Whisper, Open Interpreter, MFEM (HIP build).
 
-2) **Practical integration checks (optional downloads/builds)**  
-   Validate representative “real apps” for the intended use-cases:
-   - llama.cpp (ROCm docker image)
-   - Ollama
-   - Whisper
-   - Open Interpreter
-   - MFEM (HIP build) for meshing/solving-style workloads
+## Quick start
 
-The validation runner is implemented as a small Python program with a stable,
-numbered test list and a human-friendly report.
-
-## How it works (high level)
-
-- **Explicit in-tree activation:** every check runs with `ROCM_PATH`, `PATH`, and
-  `LD_LIBRARY_PATH` set to `<builddir>/dist/rocm` so we don’t accidentally pick up
-  system ROCm.
-- **Stable test IDs:** checks are numbered so results can be referenced in notes/issues.
-- **Downloads are gated:** third-party checks are *enabled by default* but guarded by
-  a **Y/n prompt** on the first run. Use `--yes` for non-interactive automation.
-- **Cache/build dirs:** anything downloaded/built by validation lives under `validation/_cache`
-  and is not committed to git.
-
-## Usage
-
-Minimal (runs all core ROCm usability checks; prompts for third-party)
+ROCm-only smoke (no downloads):
 ```bash
-python3 validation/run_validation.py
+python3 validation/scripts/validate.py --profile quick
 ```
 
-Non-interactive (assume “yes” to the third-party prompt)
+Full validation (default profile, prompts once before downloads/builds):
 ```bash
-python3 validation/run_validation.py --yes
+python3 validation/scripts/validate.py
 ```
 
-Disable third-party downloads/builds entirely (ROCm-only validation)
+Non-interactive full validation (assume “yes” to the prompt):
 ```bash
-python3 validation/run_validation.py --no-downloads
+python3 validation/scripts/validate.py --yes
 ```
 
-Select checks by number
+Write per-step logs + a JSON report:
 ```bash
-python3 validation/run_validation.py --select 1,2,3
-python3 validation/run_validation.py --select 0   # all checks
+python3 validation/scripts/validate.py --log
 ```
 
-Write a detailed log
+## How it works
+
+- **Explicit in-tree activation:** each step runs with `ROCM_PATH`, `PATH`, and `LD_LIBRARY_PATH`
+  set to `<builddir>/dist/rocm` so it doesn’t accidentally use system ROCm.
+- **Repo-local Python environment:** the scripts auto-create a venv under
+  `validation/workspace/envs/py/` and install only minimal dependencies (see `validation/requirements-lock.txt`).
+- **Downloads are gated:** third-party checks are enabled by default in `full` and guarded by
+  a single **Y/n prompt** on startup (use `--yes` to skip prompting).
+- **All runtime artifacts live in `validation/workspace/`** and are gitignored.
+
+## Build dirs (Stage-1 vs Stage-2)
+
+If you don’t specify anything, validation auto-detects and runs against every present build dir
+in this order: `build-stage2`, `build`, `build-stage1`.
+
+This is why results can differ per build dir:
+- **Stage-2** typically contains `hipcc`, benches (e.g. `rocblas-bench`), and is the main target.
+- **Stage-1** may be a bootstrap toolchain stage and can legitimately `SKIP` GPU runtime steps.
+
+To force one build dir:
 ```bash
-python3 validation/run_validation.py --log validation.log
+python3 validation/scripts/validate.py --build-dirs build-stage2
 ```
 
-Select the build directory (defaults to the first existing: `build-stage2`, `build`, `build-stage1`)
+## Doctor / cache / reports
+
+System + in-tree sanity (no downloads):
 ```bash
-python3 validation/run_validation.py --build-dir build-stage2
+python3 validation/scripts/doctor.py
 ```
 
-## What I’m planning to validate (roadmap)
+Delete old run artifacts (and optionally downloads/build caches):
+```bash
+python3 validation/scripts/cache_gc.py
+python3 validation/scripts/cache_gc.py --all
+```
 
-The third-party checks are intentionally structured so they can evolve into
-“scientific”/repeatable experiments:
+Print the latest report path (and optionally open a browser for HTML reports if present):
+```bash
+python3 validation/scripts/report_open.py
+python3 validation/scripts/report_open.py --open
+```
 
-- **Repeatable inputs** (fixed seeds where possible)
-- **Clear success criteria** (e.g. “loads model”, “produces output”, “runs on HIP/ROCm”)
-- **Measured outputs** (time/throughput, basic correctness signals)
-- **Small-by-default artifacts** (try to keep downloads within a “few GB”, and
-  make anything larger explicit/optional)
+## Configuration
 
-## Files & structure
+- Defaults: `validation/config/defaults.yaml`
+- Profiles:
+  - `validation/config/profiles/full.yaml` (default; everything enabled, downloads gated)
+  - `validation/config/profiles/quick.yaml` (ROCm-only smoke)
+  - `validation/config/profiles/airgapped.yaml` (same as quick; future-proof name)
 
-- `validation/run_validation.py` — entrypoint wrapper for running the suite
-- `validation/therock_validation/` — implementation package
-  - `cli.py` — argument parsing + orchestration
-  - `env.py` — in-tree ROCm activation
-  - `checks/` — individual check implementations (numbered)
-  - `third_party.py` — helper utilities for downloads/venv/caches
-- `validation/_cache/` — downloads/clones (gitignored)
-- `validation/_build/` — local builds (gitignored)
-- `validation/_logs/` — logs (gitignored)
+## Layout
 
-## Notes
+```
+validation/
+├─ README.md
+├─ AI_WORKFLOW_VALIDATION.md
+├─ pyproject.toml
+├─ requirements-lock.txt
+├─ .gitignore
+├─ .env.example
+├─ config/
+├─ scripts/                # user entrypoints (auto-venv bootstrap)
+├─ src/rocm_validation/    # implementation package
+└─ workspace/              # runtime artifacts (gitignored)
+```
 
-- On Linux, `hipinfo` is typically not shipped by TheRock (it’s a windows-only artifact).
-  Use `rocminfo` + the toolchain consistency checks in `./test_gfx1031.sh` for HIP sanity.
+## Legal / third-party
+
+Third-party projects used by optional checks are referenced in:
+`validation/src/rocm_validation/assets/notices/THIRD_PARTY_NOTICES.md`.

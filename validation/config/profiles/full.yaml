@@ -1,0 +1,4 @@
+# Full validation (default): inherits defaults.
+run:
+  profile: full
+

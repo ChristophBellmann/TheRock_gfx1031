@@ -1,0 +1,7 @@
+{
+  "ollama": { "channel": "latest" },
+  "open_interpreter": { "pypi": "open-interpreter", "version": "latest" },
+  "whisper": { "pypi": "openai-whisper", "version": "latest" },
+  "mfem": { "git": "https://github.com/mfem/mfem.git", "ref": "master" }
+}
+

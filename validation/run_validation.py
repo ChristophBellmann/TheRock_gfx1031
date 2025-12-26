@@ -4,14 +4,21 @@ from __future__ import annotations
 import sys
 from pathlib import Path
 
-# Allow running this file directly: ensure repo root is on sys.path so the
-# `validation.therock_validation` package can be imported.
-REPO_ROOT = Path(__file__).resolve().parents[1]
-if str(REPO_ROOT) not in sys.path:
-    sys.path.insert(0, str(REPO_ROOT))
+"""
+Backward-compatible entrypoint.
 
-from validation.therock_validation.cli import main  # noqa: E402
+Prefer running `validation/scripts/validate.py`, which bootstraps a repo-local venv
+and uses the `validation/src/rocm_validation` package.
+"""
+
+REPO_ROOT = Path(__file__).resolve().parents[1]
+VALIDATION_ROOT = Path(__file__).resolve().parent
+SRC = VALIDATION_ROOT / "src"
+if str(SRC) not in sys.path:
+    sys.path.insert(0, str(SRC))
+
+from rocm_validation.cli.main import main  # noqa: E402
 
 
 if __name__ == "__main__":
-    raise SystemExit(main())
+    raise SystemExit(main(["validate"] + sys.argv[1:]))

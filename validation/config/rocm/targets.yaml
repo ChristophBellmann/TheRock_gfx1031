@@ -1,0 +1,5 @@
+targets:
+  gfx1031:
+    label: "RDNA2 (e.g. RX 6700 XT)"
+    hip_offload_arch: "gfx1031"
+

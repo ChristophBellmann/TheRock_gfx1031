@@ -1,0 +1,13 @@
+# Airgapped mode: never downloads. Uses only in-tree ROCm artifacts.
+run:
+  profile: airgapped
+  ask_before_downloads: false
+  downloads_enabled: false
+
+steps:
+  llama_cpp_docker: false
+  ollama: false
+  open_interpreter: false
+  whisper: false
+  mfem_hip: false
+

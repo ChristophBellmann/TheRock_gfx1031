@@ -1,0 +1,19 @@
+[project]
+name = "rocm-validation"
+version = "0.1.0"
+description = "Repo-local validation suite for in-tree ROCm builds (TheRock)."
+requires-python = ">=3.11"
+dependencies = [
+  "PyYAML>=6.0",
+]
+
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools]
+package-dir = {"" = "src"}
+
+[tool.setuptools.packages.find]
+where = ["src"]
+

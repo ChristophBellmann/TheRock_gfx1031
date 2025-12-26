@@ -1,0 +1,37 @@
+# Default config: "everything enabled" (heavy steps will download/build after one Y/n prompt).
+run:
+  profile: full
+  ask_before_downloads: true
+  downloads_enabled: true
+  max_download_gb: 8
+  max_single_download_gb: 4
+  build_dirs: []           # empty => auto-detect (build-stage2/build/build-stage1)
+
+rocm:
+  amd_gpu_arch: gfx1031
+  prefer_in_tree_rocm: true
+
+steps:
+  rocm_sanity: true
+  rocm_bench_smoke: true
+  miopen_smoke: true
+  llama_cpp_docker: true
+  ollama: true
+  open_interpreter: true
+  whisper: true
+  mfem_hip: true
+
+timeouts_s:
+  rocminfo: 10
+  hipcc_compile_run: 120
+  rocblas_bench: 60
+  rocfft_bench: 30
+  rocrand_bench: 30
+  miopen_driver: 10
+  miopen_smoke: 240
+  llama_cpp_docker: 900
+  ollama: 120
+  open_interpreter: 900
+  whisper: 1800
+  mfem_hip: 3600
+

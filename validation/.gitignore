@@ -1,0 +1,12 @@
+# Runtime-only artifacts (do not commit)
+/workspace/
+/.venv/
+/.python-version
+/.ruff_cache/
+/.mypy_cache/
+
+# Legacy cache dir (kept for backwards compatibility, not committed)
+/_cache/
+__pycache__/
+*.pyc
+
