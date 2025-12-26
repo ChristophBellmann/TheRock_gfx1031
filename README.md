@@ -573,6 +573,29 @@ Recommended helper:
 Notes:
 - The container run passes through `/dev/kfd` and `/dev/dri` and adds the `video`/`render` groups.
 - `./test_gfx1031.sh` automatically **skips** activating the repo `.venv` when it detects a container (to avoid ABI mismatches). Override with `THEROCK_FORCE_VENV=1` or disable explicitly with `TEST_SKIP_VENV=1`.
+- Your in-tree `dist/rocm` is linked against your host userland (glibc/libstdc++). If the container base is too old, you can get errors like `GLIBC_2.38 not found`.
+  In that case, use a newer ROCm dev image (e.g. Ubuntu 24.04): `./run_rocm_container.sh --image rocm/dev-ubuntu-24.04:latest ...`.
+
+### Optional: compare performance (host vs container)
+
+If you want a quick sanity check that performance is comparable between your host userland and a clean ROCm dev container,
+run:
+
+```bash
+# Default: bench-lite (rocBLAS + hipBLAS GEMM), Stage-2.
+./compare_perf_gfx1031.sh
+
+# Full bench set (can take longer):
+./compare_perf_gfx1031.sh --bench
+
+# Override docker image (useful for glibc compatibility):
+./compare_perf_gfx1031.sh --image rocm/dev-ubuntu-24.04:latest
+```
+
+This writes logs under `./perf_compare/<timestamp>/` and prints a side-by-side TFLOPS comparison.
+
+Notes:
+- The container run installs a minimal runtime dep (`libgfortran5`) because some bench clients link it dynamically. Disable via `./compare_perf_gfx1031.sh --no-install-deps`.
 
 ### Optional: Upstream test suites (ctest / gtest clients)
 

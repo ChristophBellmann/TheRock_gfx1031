@@ -3,10 +3,16 @@ set -euo pipefail
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
-IMAGE="${IMAGE:-rocm/dev-ubuntu-22.04:latest}"
+IMAGE="${IMAGE:-rocm/dev-ubuntu-24.04:latest}"
 BUILD_DIR="${BUILD_DIR:-build-stage2}"
 RUN_BENCH=0
+BENCH_LITE=0
+MODE="quick"
 DROP_SHELL=1
+NO_TTY=0
+LOG_ENABLED=0
+LOG_FILE=""
+INSTALL_DEPS=0
 
 usage() {
   cat <<'EOF'
@@ -19,12 +25,18 @@ Options:
   --stage2           Use BUILD_DIR=build-stage2 (default)
   --stage1           Use BUILD_DIR=build-stage1
   --build-dir <dir>  Override build dir (e.g. build, build-stage2)
+  --image <image>    Docker image (default: rocm/dev-ubuntu-24.04:latest)
   --bench            Run ./test_gfx1031.sh --bench
+  --bench-lite       Run ./test_gfx1031.sh --bench-lite
+  --full             Use longer benchmark sizes (passes --full)
+  --log [file]       Enable logging (default: run_rocm_container.<builddir>.log)
+  --install-deps     Install minimal runtime deps inside the container (e.g. libgfortran5 for bench clients)
   --no-shell         Exit after running tests (default: drop into bash)
+  --no-tty           Do not allocate a pseudo-TTY (useful for piping/capture)
   -h, --help         Show this help
 
 Env overrides:
-  IMAGE              Docker image (default: rocm/dev-ubuntu-22.04:latest)
+  IMAGE              Docker image (default: rocm/dev-ubuntu-24.04:latest)
   BUILD_DIR          Build dir (default: build-stage2)
 EOF
 }
@@ -43,12 +55,42 @@ while [[ $# -gt 0 ]]; do
       BUILD_DIR="${2:-}"
       shift 2
       ;;
+    --image)
+      IMAGE="${2:-}"
+      shift 2
+      ;;
     --bench)
       RUN_BENCH=1
       shift
       ;;
+    --bench-lite)
+      RUN_BENCH=1
+      BENCH_LITE=1
+      shift
+      ;;
+    --full)
+      MODE="full"
+      shift
+      ;;
+    --log)
+      LOG_ENABLED=1
+      if [[ -n "${2:-}" && "${2:-}" != --* ]]; then
+        LOG_FILE="$2"
+        shift 2
+      else
+        shift
+      fi
+      ;;
+    --install-deps)
+      INSTALL_DEPS=1
+      shift
+      ;;
     --no-shell)
       DROP_SHELL=0
+      shift
+      ;;
+    --no-tty)
+      NO_TTY=1
       shift
       ;;
     -h|--help)
@@ -70,10 +112,43 @@ fi
 
 cmd=(./test_gfx1031.sh --no-bench)
 if (( RUN_BENCH )); then
-  cmd=(./test_gfx1031.sh --bench)
+  if (( BENCH_LITE )); then
+    cmd=(./test_gfx1031.sh --bench-lite)
+  else
+    cmd=(./test_gfx1031.sh --bench)
+  fi
+  if [[ "${MODE}" == "full" ]]; then
+    cmd+=(--full)
+  fi
 fi
 
-docker run --rm -it \
+if (( LOG_ENABLED )); then
+  if [[ -z "${LOG_FILE}" ]]; then
+    LOG_FILE="${ROOT}/run_rocm_container.${BUILD_DIR}.log"
+  fi
+  # If the log file lives under the repo root, remap to the container's mount point.
+  LOG_FILE_CONTAINER="${LOG_FILE}"
+  if [[ "${LOG_FILE_CONTAINER}" == "${ROOT}"* ]]; then
+    rel="${LOG_FILE_CONTAINER#${ROOT}/}"
+    LOG_FILE_CONTAINER="/work/${rel}"
+  fi
+  cmd+=(--log "${LOG_FILE_CONTAINER}")
+fi
+
+cmd_str=""
+printf -v cmd_str "%q " "${cmd[@]}"
+
+log_dir=""
+if (( LOG_ENABLED )); then
+  log_dir="$(dirname "${LOG_FILE_CONTAINER}")"
+fi
+
+docker_it=()
+if (( ! NO_TTY )) && [[ -t 0 ]] && [[ -t 1 ]]; then
+  docker_it=(-it)
+fi
+
+docker run --rm "${docker_it[@]}" \
   --device=/dev/kfd --device=/dev/dri \
   --group-add video --group-add render \
   --security-opt seccomp=unconfined \
@@ -82,6 +157,16 @@ docker run --rm -it \
   "${IMAGE}" \
   bash -lc "
     set -euo pipefail
+    if (( ${INSTALL_DEPS} )); then
+      if command -v apt-get >/dev/null 2>&1; then
+        export DEBIAN_FRONTEND=noninteractive
+        apt-get update -y >/dev/null
+        # Bench clients often depend on libgfortran at runtime.
+        apt-get install -y --no-install-recommends libgfortran5 >/dev/null
+      else
+        echo 'NOTE: --install-deps requested but apt-get is not available in this image' >&2
+      fi
+    fi
     echo '== GPU check (container) =='
     if command -v rocminfo >/dev/null 2>&1; then rocminfo | head -n 60 || true; else echo 'rocminfo not found in image'; fi
     echo
@@ -92,10 +177,13 @@ docker run --rm -it \
     export LD_LIBRARY_PATH=\"\$ROCM_PATH/lib:\$ROCM_PATH/lib64:\$ROCM_PATH/lib/host-math/lib:\$ROCM_PATH/lib/rocm_sysdeps/lib:\$ROCM_PATH/llvm/lib:\${LD_LIBRARY_PATH:-}\"
     export TEST_SKIP_VENV=1
     echo \"ROCM_PATH=\$ROCM_PATH\"
+    if (( ${LOG_ENABLED} )); then
+      mkdir -p \"${log_dir}\"
+    fi
     echo
     echo '== Repo sanity =='
     rc=0
-    ${cmd[*]} --build-dir \"\$BUILD_DIR\" || rc=\$?
+    ${cmd_str} --build-dir \"\$BUILD_DIR\" || rc=\$?
     echo
     echo \"test_gfx1031 rc=\$rc\"
     if [[ '${DROP_SHELL}' == '1' ]]; then
@@ -105,4 +193,3 @@ docker run --rm -it \
     fi
     exit \$rc
   "
-
