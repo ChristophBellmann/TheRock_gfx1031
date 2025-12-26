@@ -19,6 +19,11 @@ def _cmd_validate(argv: list[str]) -> int:
     ap.add_argument("--no-downloads", action="store_true", help="Disable network downloads (third-party steps will SKIP).")
     ap.add_argument("--yes", action="store_true", help="Assume 'yes' for prompts (non-interactive).")
     ap.add_argument("--power", action="store_true", help="Sample GPU power/utilization via sysfs during sustained-load tests.")
+    ap.add_argument(
+        "--summary-multiline",
+        action="store_true",
+        help="Print metrics under each step (more verbose, easier to read). Default: one line per test.",
+    )
     ap.add_argument("--log", action="store_true", help="Write logs to validation/workspace/runs/<id>/logs/ (default: off).")
     args = ap.parse_args(argv)
 
@@ -32,6 +37,8 @@ def _cmd_validate(argv: list[str]) -> int:
         cfg["run"]["ask_before_downloads"] = False
     if args.power or os.environ.get("ROCM_VALIDATION_POWER", "") == "1":
         cfg["run"]["power_monitor"] = True
+    if args.summary_multiline:
+        cfg["run"]["summary_multiline"] = True
 
     ctx = Context.from_repo(cfg=cfg, enable_logs=bool(args.log))
     plan = build_plan(cfg)
@@ -52,9 +59,16 @@ def _cmd_validate(argv: list[str]) -> int:
 
 def _cmd_doctor(argv: list[str]) -> int:
     ap = argparse.ArgumentParser(prog="doctor", description="System and in-tree ROCm sanity checks.")
+    ap.add_argument(
+        "--summary-multiline",
+        action="store_true",
+        help="Print metrics under each step (more verbose, easier to read). Default: one line per test.",
+    )
     ap.add_argument("--log", action="store_true", help="Write logs under validation/workspace (default: off).")
     args = ap.parse_args(argv)
     cfg = load_config(profile="quick")
+    if args.summary_multiline:
+        cfg["run"]["summary_multiline"] = True
     ctx = Context.from_repo(cfg=cfg, enable_logs=bool(args.log))
     plan = build_plan(cfg, doctor_only=True)
     results = run_plan(ctx, cfg, plan)

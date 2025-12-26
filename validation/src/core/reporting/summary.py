@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import sys
 import re
+import shutil
 
 from core.context import Context
 from core.reporting.models import StepResult
@@ -86,23 +87,64 @@ def _print_power_block(ansi: Ansi, power: str) -> None:
         print(f"    {k:<{key_w}} {v:>{val_w}}")
 
 
+def _ellipsize(s: str, max_len: int) -> str:
+    if max_len <= 0:
+        return ""
+    if len(s) <= max_len:
+        return s
+    if max_len == 1:
+        return "…"
+    return s[: max_len - 1] + "…"
+
+
 def print_summary(ctx: Context, results: list[StepResult]) -> None:
     ansi = Ansi(enabled=bool(getattr(sys.stdout, "isatty", lambda: False)()))
+    multiline = bool(ctx.cfg.get("run", {}).get("summary_multiline", False))
     print("")
     print(f"{ansi.bold}==== validation summary ===={ansi.reset}")
     cur = None
+
+    term_cols = int(shutil.get_terminal_size(fallback=(160, 20)).columns)
+    # Use the max power-blob length to keep a stable column where power starts.
+    max_power_len = 0
+    for r in results:
+        _, power = _split_metric(r.metric)
+        if power:
+            max_power_len = max(max_power_len, len(power))
+
+    # Visible prefix length (excluding ANSI sequences).
+    prefix_plain = f"- {'':<32} {'':<4} ({'':>7}) "
+    prefix_len = len(prefix_plain)
+    power_sep_len = 3 if max_power_len > 0 else 0  # " | "
+    params_width = max(0, term_cols - prefix_len - power_sep_len - max_power_len)
     for r in results:
         if r.build_dir != cur:
             cur = r.build_dir
             print(f"{ansi.dim}-- build dir:{ansi.reset} {cur}")
-        line = f"- {ansi.label(r.name):<32} {ansi.status(r.status):<4} {ansi.dim}({r.duration:>7}){ansi.reset}"
-        print(line)
 
         params, power = _split_metric(r.metric)
-        if params:
-            print(f"  {ansi.dim}params:{ansi.reset} {params}")
-        if power:
-            _print_power_block(ansi, power)
+
+        if multiline:
+            line = f"- {ansi.label(r.name):<32} {ansi.status(r.status):<4} {ansi.dim}({r.duration:>7}){ansi.reset}"
+            print(line)
+            if params:
+                print(f"  {ansi.dim}params:{ansi.reset} {params}")
+            if power:
+                _print_power_block(ansi, power)
+            continue
+
+        # One-line-per-test "table": pad/ellipsize params so power columns align.
+        line = f"- {ansi.label(r.name):<32} {ansi.status(r.status):<4} {ansi.dim}({r.duration:>7}){ansi.reset}"
+        if power and max_power_len > 0:
+            p = _ellipsize(params or "", params_width).ljust(params_width)
+            print(f"{line} {p} | {power}")
+        elif params:
+            # No power: keep line within terminal width (best-effort).
+            avail = max(0, term_cols - prefix_len)
+            p = _ellipsize(params, avail)
+            print(f"{line} {p}")
+        else:
+            print(line)
     if ctx.logs_dir is not None:
         print(f"{ansi.dim}Logs:{ansi.reset} {ctx.logs_dir}")
     else:

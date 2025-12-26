@@ -15,6 +15,11 @@ Default (no args): quick suite with **power metrics** (no downloads, no logs):
 python3 validation/scripts/validate.py
 ```
 
+More readable summary output (prints params/power under each test):
+```bash
+python3 validation/scripts/validate.py --summary-multiline
+```
+
 Explicit ROCm-only smoke (no downloads):
 ```bash
 python3 validation/scripts/validate.py --profile quick
