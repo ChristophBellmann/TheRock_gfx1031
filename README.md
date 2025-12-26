@@ -552,6 +552,28 @@ Notes:
 - `./test_gfx1031.sh` performs this activation automatically (based on `BUILD_DIR`), and is the simplest way to run sanity/benchmarks.
 - If you don’t pass `--stage1/--stage2/--build-dir`, the script tests all detected in-tree dist roots for sanity/consistency (prefers `build-stage2`, then `build`, then `build-stage1`). For `--bench/--bench-only`, it defaults to Stage‑2 if available.
 
+### Optional: run sanity inside an ROCm dev container
+
+If you want to validate that **your in-tree Stage‑2 dist** works in a clean userland (and that it is not accidentally
+depending on host `/opt/rocm`), you can mount the repo into an ROCm dev image and run `./test_gfx1031.sh` there.
+
+Recommended helper:
+
+```bash
+# Sanity inside container + drop into an interactive shell afterwards:
+./run_rocm_container.sh --stage2
+
+# Benchmarks (if built) inside container:
+./run_rocm_container.sh --stage2 --bench
+
+# Exit after tests (no shell):
+./run_rocm_container.sh --stage2 --no-shell
+```
+
+Notes:
+- The container run passes through `/dev/kfd` and `/dev/dri` and adds the `video`/`render` groups.
+- `./test_gfx1031.sh` automatically **skips** activating the repo `.venv` when it detects a container (to avoid ABI mismatches). Override with `THEROCK_FORCE_VENV=1` or disable explicitly with `TEST_SKIP_VENV=1`.
+
 ### Optional: Upstream test suites (ctest / gtest clients)
 
 Project-wide testing can be controlled with the standard CMake `-DBUILD_TESTING=ON|OFF` flag.

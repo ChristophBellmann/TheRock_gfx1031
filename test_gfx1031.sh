@@ -287,7 +287,27 @@ else
   LOG_FILE="/dev/null"
 fi
 
-if [[ -f "${ROOT}/.venv/bin/activate" ]] && [[ -z "${VIRTUAL_ENV:-}" ]]; then
+IN_CONTAINER=0
+if [[ -f "/.dockerenv" ]]; then
+  IN_CONTAINER=1
+else
+  if [[ -r "/proc/1/cgroup" ]] && grep -qE '(docker|containerd|kubepods)' /proc/1/cgroup 2>/dev/null; then
+    IN_CONTAINER=1
+  fi
+fi
+
+# Some workflows mount the repo into a container to validate Stage-2 dist artifacts.
+# In that case, a host-created venv can be incompatible with the container userland.
+# Default: skip venv activation in containers unless explicitly forced.
+SKIP_VENV=0
+if [[ "${TEST_SKIP_VENV:-}" == "1" ]] || [[ "${SKIP_VENV:-}" == "1" ]]; then
+  SKIP_VENV=1
+fi
+if (( IN_CONTAINER )) && [[ -z "${THEROCK_FORCE_VENV:-}" ]]; then
+  SKIP_VENV=1
+fi
+
+if (( ! SKIP_VENV )) && [[ -f "${ROOT}/.venv/bin/activate" ]] && [[ -z "${VIRTUAL_ENV:-}" ]]; then
   # Activate venv for helper tools if present.
   # shellcheck disable=SC1091
   source "${ROOT}/.venv/bin/activate"
