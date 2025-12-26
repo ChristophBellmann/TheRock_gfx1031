@@ -10,7 +10,7 @@ RUN_SANITY=1
 RUN_BENCH=0
 RUN_MIOPEN=0
 RUN_MIOPEN_SMOKE=0
-BUILD_DIR="${BUILD_DIR:-build}"
+BUILD_DIR="${BUILD_DIR:-}"
 RUN_CONSISTENCY=0
 CONSISTENCY_DEEP=0
 EXPECT_STAGE="" # "", "stage1", "stage2"
@@ -46,9 +46,33 @@ Environment overrides:
   BENCH_SIZE       override GEMM size (default 2048 quick, 4096 full)
   BENCH_ITERS      override iterations (default 10 quick, 20 full)
   TEST_LOG         override log file (default test_gfx1031.log)
-  BUILD_DIR        build directory name (default build)
+  BUILD_DIR        build directory name (auto: prefer build-stage2, then build, then build-stage1)
   STAGE1_BUILD_DIR Stage-1 build dir for Stage-2 expectations (default: build-stage1)
 EOF_USAGE
+}
+
+choose_default_build_dir() {
+  # If user set BUILD_DIR explicitly (env or --build-dir), keep it.
+  if [[ -n "${BUILD_DIR:-}" ]]; then
+    return 0
+  fi
+  # Prefer Stage-2 if present (most useful for users).
+  if [[ -d "${ROOT}/build-stage2/dist/rocm" ]]; then
+    BUILD_DIR="build-stage2"
+    return 0
+  fi
+  # Fall back to a default in-tree build dir.
+  if [[ -d "${ROOT}/build/dist/rocm" ]]; then
+    BUILD_DIR="build"
+    return 0
+  fi
+  # Finally Stage-1 toolchain dist (toolchain-only; limited runtime tools).
+  if [[ -d "${ROOT}/build-stage1/dist/rocm" ]]; then
+    BUILD_DIR="build-stage1"
+    return 0
+  fi
+  # As a last resort, keep the traditional "build" name so error messages are stable.
+  BUILD_DIR="build"
 }
 
 while [[ $# -gt 0 ]]; do
@@ -128,6 +152,8 @@ while [[ $# -gt 0 ]]; do
       ;;
   esac
 done
+
+choose_default_build_dir
 
 if [[ -n "${TEST_LOG:-}" ]]; then
   LOG_FILE="${TEST_LOG}"

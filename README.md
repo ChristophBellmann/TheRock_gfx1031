@@ -573,7 +573,7 @@ The script auto-activates the in-tree ROCm environment from `<builddir>/dist/roc
 
 Notes:
 - The bench binaries link a **host reference BLAS** from `host-blas` (OpenBLAS in `lib/host-math/lib`). Running via `./test_gfx1031.sh` is recommended because it auto-sets `LD_LIBRARY_PATH` appropriately.
- - `dist-rocm` updates `<builddir>/dist/rocm/bin` so the bench binaries are in `PATH` for `./test_gfx1031.sh`.
+- `dist-rocm` updates `<builddir>/dist/rocm/bin` so the bench binaries are in `PATH` for `./test_gfx1031.sh`.
 
 ### Phase 1 vs Phase 2 (rocprofiler-systems)
 
@@ -597,6 +597,7 @@ export LD_LIBRARY_PATH="$ROCM_PATH/lib:$ROCM_PATH/lib64:$ROCM_PATH/lib/host-math
 
 Notes:
 - `./test_gfx1031.sh` performs this activation automatically (based on `BUILD_DIR`), and is the simplest way to run sanity/benchmarks.
+- If you don’t pass `--stage1/--stage2`, the script auto-picks a build dir (prefers `build-stage2`, then `build`, then `build-stage1`).
 
 ### Running functionality tests of the finished build ?ToDo?
 
