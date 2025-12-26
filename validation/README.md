@@ -80,7 +80,7 @@ python3 validation/scripts/report_open.py --open
   - `validation/config/profiles/full.yaml` (default; everything enabled, downloads gated)
   - `validation/config/profiles/quick.yaml` (ROCm-only smoke)
   - `validation/config/profiles/airgapped.yaml` (same as quick; future-proof name)
-- TheRock layout/env hints:
+- Layout/env hints:
   - `validation/config/layout/gfx_targets.yaml`
   - `validation/config/layout/install_layouts.yaml`
   - `validation/config/layout/env_exports.yaml`

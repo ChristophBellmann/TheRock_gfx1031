@@ -35,7 +35,7 @@ but is scoped specifically to **validation** (in-tree ROCm, plus optional thirdâ
     - opt-in via Y/n prompt
     - cached
     - reproducible (fixed inputs, stable versions where feasible)
-- Do **not** refactor unrelated build scripts or change TheRock build behavior from validation work.
+- Do **not** refactor unrelated build scripts or change build behavior outside validation work.
 
 ---
 

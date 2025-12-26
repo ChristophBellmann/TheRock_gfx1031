@@ -1,6 +1,6 @@
-validation/ liegt bereits im TheRock-Repo und ist Teil des Build-Workflows (post-build “echte Workloads”), nicht ein separates Standalone-Projekt. Dann muss die Struktur zwei Dinge sauber trennen:
+validation/ liegt im Repo und ist Teil des Build-Workflows (post-build “echte Workloads”), nicht ein separates Standalone-Projekt. Dann muss die Struktur zwei Dinge sauber trennen:
 
-Integration ins TheRock-Tree (Pfad-Discovery: wo liegt dist/, welche ROCm-Env soll getestet werden, gfx1031 etc.)
+Integration ins Repo-Tree (Pfad-Discovery: wo liegt dist/, welche ROCm-Env soll getestet werden, gfx1031 etc.)
 
 Validierungs-Workloads (llama.cpp via Docker, ollama, whisper, open-interpreter, MFEM meshing/solving)
 
@@ -67,7 +67,7 @@ validation/
 │     │  ├─ doctor/
 │     │  │  ├─ __init__.py
 │     │  │  ├─ system.py                  # rocm-smi, amdsmi, hipcc, kernel modules
-│     │  │  ├─ tree.py                    # prüft TheRock Struktur (dist vorhanden etc.)
+│     │  │  ├─ tree.py                    # prüft Repo-Struktur (dist vorhanden etc.)
 │     │  │  └─ env.py                     # prüft ob ROCm env korrekt “ladbar” ist
 │     │
 │     │  ├─ rocm_sanity/

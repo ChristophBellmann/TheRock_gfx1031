@@ -1,7 +1,7 @@
 [project]
 name = "validation"
 version = "0.1.0"
-description = "Repo-local validation suite for in-tree ROCm builds (TheRock)."
+description = "Repo-local validation suite for in-tree ROCm builds."
 requires-python = ">=3.11"
 dependencies = [
   "PyYAML>=6.0",
