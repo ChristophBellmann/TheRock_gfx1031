@@ -9,7 +9,6 @@ from typing import Any
 from core.context import Context
 from core.reporting.models import StepResult
 from core.runner import run_cmd, fmt_duration
-from steps.shared import downloads_enabled
 
 
 def step_whisper(ctx: Context, cfg: dict[str, Any], build_dir: str, rocm_dist: Path, env: dict[str, str], log: Path | None) -> StepResult:
@@ -18,11 +17,9 @@ def step_whisper(ctx: Context, cfg: dict[str, Any], build_dir: str, rocm_dist: P
 
     Notes:
     - We *do not* auto-install PyTorch/Whisper here (wheels can be huge and platform-specific).
-    - If torch/whisper are available in the validation venv, we run a tiny transcription.
+    - If torch/whisper are available in the validation venv, we run a tiny transcription on a
+      bundled sample audio clip when present.
     """
-    if not downloads_enabled(cfg):
-        return StepResult(build_dir, "Whisper (python) smoke", "SKIP", "0ms", "downloads disabled")
-
     t = int(cfg.get("timeouts_s", {}).get("whisper", 1800))
     script = r"""
 import os, wave, struct, math, time, sys
@@ -37,19 +34,24 @@ print("torch", getattr(torch, "__version__", ""))
 print("torch.cuda.is_available", torch.cuda.is_available())
 print("torch.version.hip", getattr(getattr(torch, "version", None), "hip", None))
 
-sr=16000
-dur=1.0
-freq=440.0
-n=int(sr*dur)
-fname=os.path.join("validation","workspace","cache","downloads","whisper_test.wav")
-os.makedirs(os.path.dirname(fname), exist_ok=True)
-with wave.open(fname, "w") as w:
-    w.setnchannels(1)
-    w.setsampwidth(2)
-    w.setframerate(sr)
-    for i in range(n):
-        v=int(0.2*32767*math.sin(2*math.pi*freq*i/sr))
-        w.writeframes(struct.pack("<h", v))
+repo_sample=os.path.join("validation","src","assets","samples","audio","Take2_Audio1-1.wav")
+if os.path.isfile(repo_sample):
+    fname=repo_sample
+else:
+    # Fallback: generate a tiny 1s tone if the repo sample is not present.
+    sr=16000
+    dur=1.0
+    freq=440.0
+    n=int(sr*dur)
+    fname=os.path.join("validation","workspace","cache","downloads","whisper_test.wav")
+    os.makedirs(os.path.dirname(fname), exist_ok=True)
+    with wave.open(fname, "w") as w:
+        w.setnchannels(1)
+        w.setsampwidth(2)
+        w.setframerate(sr)
+        for i in range(n):
+            v=int(0.2*32767*math.sin(2*math.pi*freq*i/sr))
+            w.writeframes(struct.pack("<h", v))
 
 model=whisper.load_model("tiny.en")
 t0=time.time()
@@ -66,7 +68,7 @@ print("text_len", len(result.get("text","")))
         return StepResult(build_dir, "Whisper (python) smoke", "FAIL", fmt_duration(r.dur_ms), f"rc={r.rc}")
 
     out = r.out + "\n" + r.err
-    metric = "ran tiny.en transcribe"
+    metric = "ran tiny.en transcribe (sample audio)"
     if "torch.version.hip None" in out and "torch.cuda.is_available False" in out:
         metric += " (CPU torch; ROCm not detected)"
     return StepResult(build_dir, "Whisper (python) smoke", "OK", fmt_duration(r.dur_ms), metric)
