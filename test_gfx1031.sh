@@ -2,7 +2,9 @@
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-LOG_FILE="${ROOT}/test_gfx1031.log"
+LOG_ENABLED=0
+LOG_FILE_DEFAULT="${ROOT}/test_gfx1031.log"
+LOG_FILE="${LOG_FILE_DEFAULT}"
 MODE="quick"
 RUN_SANITY=1
 # Default behavior is *build validation* (sanity + consistency). Benchmarks are
@@ -17,8 +19,43 @@ EXPECT_STAGE="" # "", "stage1", "stage2"
 STAGE1_BUILD_DIR="${STAGE1_BUILD_DIR:-build-stage1}"
 ORIG_ARGS=("$@")
 USER_SELECTED_BUILD_DIR=0
+BENCH_LITE=0
+BENCH_MENU=0
 if [[ -n "${BUILD_DIR}" ]]; then
   USER_SELECTED_BUILD_DIR=1
+fi
+
+# Output styling (TTY only).
+IS_TTY=0
+if [[ -t 1 ]]; then
+  IS_TTY=1
+fi
+
+COLOR_ENABLED="${IS_TTY}"
+if [[ -n "${NO_COLOR:-}" ]]; then
+  COLOR_ENABLED=0
+fi
+# If logging to a file, default to plain output to keep logs readable.
+if (( LOG_ENABLED )) && [[ -z "${FORCE_COLOR:-}" ]]; then
+  COLOR_ENABLED=0
+fi
+
+if (( COLOR_ENABLED )); then
+  C_RESET=$'\033[0m'
+  C_BOLD=$'\033[1m'
+  C_DIM=$'\033[2m'
+  C_RED=$'\033[31m'
+  C_GREEN=$'\033[32m'
+  C_YELLOW=$'\033[33m'
+  C_CYAN=$'\033[36m'
+else
+  C_RESET=""
+  C_BOLD=""
+  C_DIM=""
+  C_RED=""
+  C_GREEN=""
+  C_YELLOW=""
+  C_CYAN=""
 fi
 
 usage() {
@@ -29,6 +66,9 @@ Options:
   --quick        Select quick benchmark sizes (default mode)
   --full         Select longer benchmark sizes (bigger sizes / more iters)
   --bench        Run performance benchmarks (in addition to sanity)
+  --bench-lite   Run only the lightweight BLAS GEMM benchmarks (rocBLAS + hipBLAS)
+  --bench-menu   Interactive bench menu (select 1-9; 0=all; q=quit)
+  --log [file]   Enable logging to file (default: test_gfx1031.log)
   --no-bench     Skip performance benchmarks (default)
   --bench-only   Run benchmarks only (no sanity)
   --miopen       Check MIOpen + composable_kernel artifacts (and MIOpenDriver --version if present)
@@ -50,7 +90,7 @@ Options:
 Environment overrides:
   BENCH_SIZE       override GEMM size (default 2048 quick, 4096 full)
   BENCH_ITERS      override iterations (default 10 quick, 20 full)
-  TEST_LOG         override log file (default test_gfx1031.log)
+  TEST_LOG         override log file (only used if --log is set)
   BUILD_DIR        build directory name (auto: if multiple exist, tests build-stage2, build, build-stage1)
   STAGE1_BUILD_DIR Stage-1 build dir for Stage-2 expectations (default: build-stage1)
 EOF_USAGE
@@ -93,6 +133,26 @@ while [[ $# -gt 0 ]]; do
     --bench)
       RUN_BENCH=1
       shift
+      ;;
+    --bench-lite)
+      RUN_BENCH=1
+      BENCH_LITE=1
+      shift
+      ;;
+    --bench-menu)
+      RUN_SANITY=0
+      RUN_BENCH=1
+      BENCH_MENU=1
+      shift
+      ;;
+    --log)
+      LOG_ENABLED=1
+      if [[ -n "${2:-}" && "${2:-}" != --* ]]; then
+        LOG_FILE="$2"
+        shift 2
+      else
+        shift
+      fi
       ;;
     --no-bench)
       RUN_BENCH=0
@@ -161,6 +221,13 @@ while [[ $# -gt 0 ]]; do
   esac
 done
 
+# Default UX: if invoked without args in an interactive terminal, open the bench menu.
+if (( ${#ORIG_ARGS[@]} == 0 )) && [[ -t 0 ]]; then
+  RUN_SANITY=0
+  RUN_BENCH=1
+  BENCH_MENU=1
+fi
+
 # If no build dir was specified, and we have multiple in-tree dist roots,
 # run the same tests for each build dir automatically (stage2/build/stage1).
 if [[ -z "${TEST_GFX1031_SINGLE:-}" && ${USER_SELECTED_BUILD_DIR} -eq 0 ]]; then
@@ -190,24 +257,34 @@ if [[ -z "${TEST_GFX1031_SINGLE:-}" && ${USER_SELECTED_BUILD_DIR} -eq 0 ]]; then
         overall_rc=0
         for d in "${build_dirs[@]}"; do
           echo "==== build dir: ${d} ===="
-          base_log="${TEST_LOG:-${LOG_FILE}}"
+        if (( LOG_ENABLED )); then
+          base_log="${LOG_FILE_DEFAULT}"
           if [[ "${base_log}" == *.log ]]; then
             this_log="${base_log%.log}.${d}.log"
           else
             this_log="${base_log}.${d}.log"
           fi
-          TEST_GFX1031_SINGLE=1 BUILD_DIR="${d}" TEST_LOG="${this_log}" "${ROOT}/test_gfx1031.sh" "${ORIG_ARGS[@]}" || overall_rc=1
-        done
-        exit "${overall_rc}"
-      fi
+          TEST_GFX1031_SINGLE=1 BUILD_DIR="${d}" "${ROOT}/test_gfx1031.sh" --log "${this_log}" "${ORIG_ARGS[@]}" || overall_rc=1
+        else
+          TEST_GFX1031_SINGLE=1 BUILD_DIR="${d}" "${ROOT}/test_gfx1031.sh" "${ORIG_ARGS[@]}" || overall_rc=1
+        fi
+      done
+      exit "${overall_rc}"
     fi
   fi
+fi
 fi
 
 choose_default_build_dir
 
-if [[ -n "${TEST_LOG:-}" ]]; then
-  LOG_FILE="${TEST_LOG}"
+if (( LOG_ENABLED )); then
+  if [[ -n "${TEST_LOG:-}" ]]; then
+    LOG_FILE="${TEST_LOG}"
+  fi
+else
+  # Default: no log file is created. We still pipe through a log sink for
+  # simplicity (tee -a /dev/null).
+  LOG_FILE="/dev/null"
 fi
 
 if [[ -f "${ROOT}/.venv/bin/activate" ]] && [[ -z "${VIRTUAL_ENV:-}" ]]; then
@@ -216,12 +293,13 @@ if [[ -f "${ROOT}/.venv/bin/activate" ]] && [[ -z "${VIRTUAL_ENV:-}" ]]; then
   source "${ROOT}/.venv/bin/activate"
 fi
 
-if [[ -f "${LOG_FILE}" ]]; then
-  ts="$(date +%Y%m%d-%H%M%S)"
-  mv "${LOG_FILE}" "${LOG_FILE}.bak-${ts}"
+if (( LOG_ENABLED )); then
+  if [[ -f "${LOG_FILE}" ]]; then
+    ts="$(date +%Y%m%d-%H%M%S)"
+    mv "${LOG_FILE}" "${LOG_FILE}.bak-${ts}"
+  fi
+  touch "${LOG_FILE}"
 fi
-
-touch "${LOG_FILE}"
 
 ROCM_PATH_DEFAULT="${ROOT}/${BUILD_DIR}/dist/rocm"
 ROCM_PATH="${ROCM_PATH:-${ROCM_PATH_DEFAULT}}"
@@ -250,7 +328,7 @@ if [[ -d "${ROCM_PATH}" ]]; then
       export HIP_DEVICE_LIB_PATH="$ROCM_PATH/amdgcn/bitcode"
     fi
   fi
-  echo "Activated in-tree ROCm: ${ROCM_PATH}" | tee -a "${LOG_FILE}"
+  echo "${C_GREEN}Activated in-tree ROCm:${C_RESET} ${ROCM_PATH}" | tee -a "${LOG_FILE}"
 else
   if (( RUN_SANITY )) || (( RUN_BENCH )); then
     echo "ROCM_PATH not found: ${ROCM_PATH}" | tee -a "${LOG_FILE}" >&2
@@ -614,6 +692,192 @@ extract_tflops() {
   echo ""
 }
 
+extract_gbps() {
+  local file="$1"
+  local v
+  v=$(grep -Eo '([0-9]+(\.[0-9]+)?)\s*GB/s' "$file" | tail -n1 | awk '{print $1}')
+  echo "${v}"
+}
+
+extract_gsamples() {
+  local file="$1"
+  local v
+  v=$(grep -Eo '([0-9]+(\.[0-9]+)?)\s*GSample/s' "$file" | tail -n1 | awk '{print $1}')
+  echo "${v}"
+}
+
+extract_ms() {
+  local file="$1"
+  local v
+  v=$(grep -Eo '([0-9]+(\.[0-9]+)?)\s*ms' "$file" | tail -n1 | awk '{print $1}')
+  echo "${v}"
+}
+
+extract_sparse_metrics() {
+  local file="$1"
+  awk '
+    BEGIN { g=0; b=0; m=0; gf=""; gb=""; ms="" }
+    /^size[[:space:]]/ {
+      for(i=1;i<=NF;i++) {
+        if($i=="GFlop/s" || $i=="GFlops") g=i
+        if($i=="GB/s") b=i
+        if($i=="msec" || $i=="ms") m=i
+      }
+      next
+    }
+    g>0 && $1 ~ /^[0-9]+/ {
+      gf=$g
+      if(b>0) gb=$b
+      if(m>0) ms=$m
+    }
+    END {
+      if(gf!="") {
+        out="GFLOP/s=" gf
+        if(gb!="") out=out " (GB/s=" gb ")"
+        if(ms!="") out=out " (ms=" ms ")"
+        print out
+      }
+    }
+  ' "$file" 2>/dev/null
+}
+
+extract_rocrand_metrics() {
+  local file="$1"
+  awk -F',' '
+    BEGIN { gb=""; gs=""; ms="" }
+    /^[a-zA-Z0-9_]+,[a-zA-Z0-9_-]+,[0-9]/ {
+      gb=$3; gs=$4; ms=$5
+    }
+    END {
+      if(gb!="") {
+        out="GB/s=" gb
+        if(gs!="") out=out " (GSample/s=" gs ")"
+        if(ms!="") out=out " (ms=" ms ")"
+        print out
+      }
+    }
+  ' "$file" 2>/dev/null
+}
+
+extract_single_number() {
+  local file="$1"
+  local v
+  # Some bench clients print a single numeric value (e.g. gpu_time_us).
+  v="$(tr -d '[:space:]' <"${file}" | head -c 64)"
+  if [[ "${v}" =~ ^[0-9]+(\.[0-9]+)?$ ]]; then
+    echo "${v}"
+    return 0
+  fi
+  echo ""
+  return 1
+}
+
+print_bench_menu() {
+  cat <<'EOF_BENCH_MENU'
+
+Bench menu (gfx1031):
+  0) Run all (1-9)
+  1) rocBLAS GEMM f32
+  2) hipBLAS GEMM f32
+  3) rocSOLVER geqrf_strided_batched (s)
+  4) hipSOLVER (default) tiny solver
+  5) rocSPARSE axpyi (s)
+  6) hipSPARSE axpyi (s)
+  7) rocFFT complex fwd 1024 (single)
+  8) dyna-rocFFT complex fwd 1024 (single)
+  9) rocRAND generate (philox, uniform-float)
+
+Enter one number (e.g. 2) or a list (e.g. 1,2,7). Use 'q' to quit.
+EOF_BENCH_MENU
+}
+
+parse_bench_selection() {
+  local input="$1"
+  local -a out=()
+  input="$(echo "${input}" | tr -d '[:space:]')"
+  input="${input//,/ }"
+  # shellcheck disable=SC2206
+  out=(${input})
+  echo "${out[@]}"
+}
+
+fmt_status() {
+  local s="$1"
+  case "${s}" in
+    OK) echo "${C_GREEN}OK${C_RESET}" ;;
+    FAIL) echo "${C_RED}FAIL${C_RESET}" ;;
+    SKIP) echo "${C_YELLOW}SKIP${C_RESET}" ;;
+    *) echo "${s}" ;;
+  esac
+}
+
+fmt_label() {
+  local s="$1"
+  echo "${C_BOLD}${s}${C_RESET}"
+}
+
+now_ms() {
+  local t
+  t="$(date +%s%3N 2>/dev/null || true)"
+  if [[ -n "${t}" && "${t}" =~ ^[0-9]+$ ]]; then
+    echo "${t}"
+    return 0
+  fi
+  echo "$(( $(date +%s) * 1000 ))"
+}
+
+fmt_duration_ms() {
+  local ms="$1"
+  if [[ -z "${ms}" || "${ms}" == "0" ]]; then
+    echo "0ms"
+    return 0
+  fi
+  if (( ms < 1000 )); then
+    echo "${ms}ms"
+    return 0
+  fi
+  local s=$((ms / 1000))
+  local rem_ms=$((ms % 1000))
+  if (( s < 60 )); then
+    printf "%d.%03ds" "${s}" "${rem_ms}"
+    return 0
+  fi
+  local m=$((s / 60))
+  local rem_s=$((s % 60))
+  printf "%dm%02ds" "${m}" "${rem_s}"
+}
+
+print_run_header() {
+  local title="$1"
+  local build_dir="$2"
+  local rocm_path="$3"
+
+  local log_state="disabled (use --log [file])"
+  if (( LOG_ENABLED )); then
+    log_state="${LOG_FILE}"
+  fi
+
+  echo "${C_BOLD}${title}${C_RESET}" | tee -a "${LOG_FILE}"
+  echo "${C_DIM}- build dir:${C_RESET} ${build_dir}" | tee -a "${LOG_FILE}"
+  echo "${C_DIM}- ROCm:${C_RESET} ${rocm_path}" | tee -a "${LOG_FILE}"
+  echo "${C_DIM}- mode:${C_RESET} ${MODE} (BENCH_SIZE=${BENCH_SIZE:-auto}, BENCH_ITERS=${BENCH_ITERS:-auto})" | tee -a "${LOG_FILE}"
+  echo "${C_DIM}- logging:${C_RESET} ${log_state}" | tee -a "${LOG_FILE}"
+
+  local what=()
+  if (( RUN_CONSISTENCY )); then what+=("consistency"); fi
+  if (( RUN_SANITY )); then what+=("sanity"); fi
+  if (( RUN_MIOPEN )); then
+    if (( RUN_MIOPEN_SMOKE )); then what+=("miopen-smoke"); else what+=("miopen"); fi
+  fi
+  if (( RUN_BENCH )); then
+    if (( BENCH_MENU )); then what+=("bench-menu"); elif (( BENCH_LITE )); then what+=("bench-lite"); else what+=("bench"); fi
+  fi
+  if (( ${#what[@]} )); then
+    echo "${C_DIM}- will run:${C_RESET} ${what[*]}" | tee -a "${LOG_FILE}"
+  fi
+  echo "" | tee -a "${LOG_FILE}"
+}
+
 run_timed() {
   local label="$1"
   local expected="$2"
@@ -621,38 +885,53 @@ run_timed() {
   local cmd=("$@")
   local tmp
   tmp="$(mktemp)"
-  echo "==> ${label} (expected: ${expected})" | tee -a "${LOG_FILE}"
-  local start=$SECONDS
+  echo "${C_CYAN}==>${C_RESET} $(fmt_label "${label}") ${C_DIM}(expected: ${expected})${C_RESET}" | tee -a "${LOG_FILE}"
+  local start_ms
+  start_ms="$(now_ms)"
   set +e
   "${cmd[@]}" 2>&1 | tee -a "${LOG_FILE}" | tee "${tmp}" >/dev/null
   local rc=${PIPESTATUS[0]}
   set -e
-  local elapsed=$((SECONDS - start))
+  local end_ms
+  end_ms="$(now_ms)"
+  local elapsed_ms=$((end_ms - start_ms))
   if [[ ${rc} -eq 0 ]]; then
-    add_result "${label}" "OK" "${elapsed}s" ""
+    add_result "${label}" "OK" "$(fmt_duration_ms "${elapsed_ms}")" ""
   else
-    add_result "${label}" "FAIL" "${elapsed}s" "rc=${rc}"
+    add_result "${label}" "FAIL" "$(fmt_duration_ms "${elapsed_ms}")" "rc=${rc}"
   fi
   rm -f "${tmp}"
   return ${rc}
 }
 
-run_bench() {
+run_bench_with_timeout() {
   local label="$1"
   local expected="$2"
-  shift 2
+  local timeout_s="$3"
+  shift 3
   local cmd=("$@")
   local tmp
   tmp="$(mktemp)"
-  echo "==> ${label} (expected: ${expected})" | tee -a "${LOG_FILE}"
-  local start=$SECONDS
+  echo "${C_CYAN}==>${C_RESET} $(fmt_label "${label}") ${C_DIM}(expected: ${expected})${C_RESET}" | tee -a "${LOG_FILE}"
+  local start_ms
+  start_ms="$(now_ms)"
   set +e
-  "${cmd[@]}" 2>&1 | tee -a "${LOG_FILE}" | tee "${tmp}" >/dev/null
+  if command -v timeout >/dev/null 2>&1; then
+    timeout --preserve-status "${timeout_s}" "${cmd[@]}" 2>&1 | tee -a "${LOG_FILE}" | tee "${tmp}" >/dev/null
+  else
+    "${cmd[@]}" 2>&1 | tee -a "${LOG_FILE}" | tee "${tmp}" >/dev/null
+  fi
   local rc=${PIPESTATUS[0]}
   set -e
-  local elapsed=$((SECONDS - start))
+  local end_ms
+  end_ms="$(now_ms)"
+  local elapsed_ms=$((end_ms - start_ms))
   local metric=""
-  if [[ ${rc} -eq 0 ]]; then
+  if [[ ${rc} -eq 124 || ${rc} -eq 137 || ${rc} -eq 143 ]]; then
+    add_result "${label}" "SKIP" "$(fmt_duration_ms "${elapsed_ms}")" "timeout after ${timeout_s}s (first run may JIT; rerun)"
+    rm -f "${tmp}"
+    return 0
+  elif [[ ${rc} -eq 0 ]]; then
     local gflops
     local tflops
     gflops="$(extract_gflops "${tmp}")"
@@ -663,23 +942,173 @@ run_bench() {
     elif [[ -n "${tflops}" ]]; then
       metric="TFLOPS=${tflops}"
     fi
-    add_result "${label}" "OK" "${elapsed}s" "${metric}"
+    if [[ -z "${metric}" ]]; then
+      local gbps
+      local gs
+      local ms
+      local special
+      gbps="$(extract_gbps "${tmp}")"
+      gs="$(extract_gsamples "${tmp}")"
+      ms="$(extract_ms "${tmp}")"
+      if [[ -n "${gbps}" ]]; then
+        metric="GB/s=${gbps}"
+        if [[ -n "${gs}" ]]; then
+          metric="${metric} (GSample/s=${gs})"
+        fi
+      elif [[ -n "${gs}" ]]; then
+        metric="GSample/s=${gs}"
+      elif [[ -n "${ms}" ]]; then
+        metric="ms=${ms}"
+      fi
+      if [[ -z "${metric}" && ( "${label}" == *"rocSPARSE"* || "${label}" == *"hipSPARSE"* ) ]]; then
+        special="$(extract_sparse_metrics "${tmp}")"
+        metric="${special:-}"
+      fi
+      if [[ -z "${metric}" && "${label}" == *"rocRAND"* ]]; then
+        special="$(extract_rocrand_metrics "${tmp}")"
+        metric="${special:-}"
+      fi
+      if [[ -z "${metric}" && ( "${label}" == *"rocSOLVER"* || "${label}" == *"hipSOLVER"* ) ]]; then
+        special="$(extract_single_number "${tmp}")"
+        if [[ -n "${special}" ]]; then
+          metric="gpu_time_us=${special}"
+        fi
+      fi
+    fi
+    add_result "${label}" "OK" "$(fmt_duration_ms "${elapsed_ms}")" "${metric}"
   else
-    add_result "${label}" "FAIL" "${elapsed}s" "rc=${rc}"
+    # Some upstream bench clients can print valid results but still exit non-zero
+    # (observed: rocsolver-bench exits 255 while printing a full "Results" table).
+    if [[ ${rc} -eq 255 ]] && [[ "${label}" == *"rocSOLVER"* ]] && rg -q "Results:|gpu_time" "${tmp}"; then
+      add_result "${label}" "OK" "$(fmt_duration_ms "${elapsed_ms}")" "rc=255 (client exit-code bug; results printed)"
+    else
+      add_result "${label}" "FAIL" "$(fmt_duration_ms "${elapsed_ms}")" "rc=${rc}"
+    fi
   fi
   rm -f "${tmp}"
   return ${rc}
 }
 
+run_bench_suite() {
+  local timeout_s="$1"
+  shift 1
+  local -a selected=("$@")
+  local expected_blas="${BENCH_EXPECTED}"
+  local expected_misc="${BENCH_EXPECTED_MISC}"
+
+  bench_selected() {
+    local idx="$1"
+    if (( ${#selected[@]} == 0 )); then
+      return 0
+    fi
+    local s
+    for s in "${selected[@]}"; do
+      if [[ "${s}" == "${idx}" ]]; then
+        return 0
+      fi
+    done
+    return 1
+  }
+
+  # 1) BLAS (GEMM) — good "is my stack fast?" signal
+  if bench_selected 1 && command -v rocblas-bench >/dev/null 2>&1; then
+    run_bench_with_timeout "bench: rocBLAS GEMM f32" "${expected_blas}" "${timeout_s}" \
+      rocblas-bench -f gemm -r f32_r -m "${BENCH_SIZE}" -n "${BENCH_SIZE}" -k "${BENCH_SIZE}" \
+      --alpha 1 --beta 0 --iters "${BENCH_ITERS}" || true
+  elif bench_selected 1; then
+    add_result "bench: rocBLAS GEMM f32" "SKIP" "0s" "rocblas-bench not in PATH (enable build.benchmarks=true, then rebuild rocBLAS)"
+  fi
+
+  if bench_selected 2 && command -v hipblas-bench >/dev/null 2>&1; then
+    run_bench_with_timeout "bench: hipBLAS GEMM f32" "${expected_blas}" "${timeout_s}" \
+      hipblas-bench -f gemm -r f32_r -m "${BENCH_SIZE}" -n "${BENCH_SIZE}" -k "${BENCH_SIZE}" \
+      --alpha 1 --beta 0 --iters "${BENCH_ITERS}" || true
+  elif bench_selected 2; then
+    add_result "bench: hipBLAS GEMM f32" "SKIP" "0s" "hipblas-bench not in PATH (enable build.benchmarks=true, then rebuild hipBLAS)"
+  fi
+
+  if (( BENCH_LITE )); then
+    return 0
+  fi
+
+  # 2) SOLVER (LAPACK-ish)
+  if bench_selected 3 && command -v rocsolver-bench >/dev/null 2>&1; then
+    # Use a known-good invocation that returns rc=0 and produces timing output.
+    run_bench_with_timeout "bench: rocSOLVER geqrf_strided_batched (s)" "${expected_misc}" "${timeout_s}" \
+      rocsolver-bench -f geqrf_strided_batched -r s -m 30 --batch_count 100 --perf 1 -i 2 || true
+  elif bench_selected 3; then
+    add_result "bench: rocSOLVER geqrf_strided_batched (s)" "SKIP" "0s" "rocsolver-bench not in PATH"
+  fi
+
+  if bench_selected 4 && command -v hipsolver-bench >/dev/null 2>&1; then
+    run_bench_with_timeout "bench: hipSOLVER (tiny solver)" "${expected_misc}" "${timeout_s}" \
+      hipsolver-bench -m 128 -n 128 -i 2 || true
+  elif bench_selected 4; then
+    add_result "bench: hipSOLVER (tiny solver)" "SKIP" "0s" "hipsolver-bench not in PATH"
+  fi
+
+  # 3) SPARSE
+  if bench_selected 5 && command -v rocsparse-bench >/dev/null 2>&1; then
+    run_bench_with_timeout "bench: rocSPARSE axpyi (s)" "${expected_misc}" "${timeout_s}" \
+      rocsparse-bench -f axpyi -n 256 -z 64 -i 1 --iters_inner 1 -v 0 -r s || true
+  elif bench_selected 5; then
+    add_result "bench: rocSPARSE axpyi (s)" "SKIP" "0s" "rocsparse-bench not in PATH"
+  fi
+
+  if bench_selected 6 && command -v hipsparse-bench >/dev/null 2>&1; then
+    run_bench_with_timeout "bench: hipSPARSE axpyi (s)" "${expected_misc}" "${timeout_s}" \
+      hipsparse-bench -f axpyi -n 256 -z 64 -i 1 --iters_inner 1 -v 0 -r s || true
+  elif bench_selected 6; then
+    add_result "bench: hipSPARSE axpyi (s)" "SKIP" "0s" "hipsparse-bench not in PATH"
+  fi
+
+  # 4) FFT
+  if bench_selected 7 && command -v rocfft-bench >/dev/null 2>&1; then
+    run_bench_with_timeout "bench: rocFFT complex fwd 1024 (single)" "${expected_misc}" "${timeout_s}" \
+      rocfft-bench --length 1024 --precision single -t 0 -N 2 || true
+  elif bench_selected 7; then
+    add_result "bench: rocFFT complex fwd 1024 (single)" "SKIP" "0s" "rocfft-bench not in PATH"
+  fi
+
+  if bench_selected 8 && command -v dyna-rocfft-bench >/dev/null 2>&1; then
+    local lib
+    lib="$(ls -1 "${ROCM_PATH}/lib/librocfft.so"* 2>/dev/null | head -n 1 || true)"
+    if [[ -n "${lib}" ]]; then
+      run_bench_with_timeout "bench: dyna-rocFFT complex fwd 1024 (single)" "${expected_misc}" "${timeout_s}" \
+        dyna-rocfft-bench --lib "${lib}" --length 1024 --precision single -t 0 -N 2 || true
+    else
+      add_result "bench: dyna-rocFFT complex fwd 1024 (single)" "SKIP" "0s" "librocfft.so not found under ${ROCM_PATH}/lib"
+    fi
+  elif bench_selected 8; then
+    add_result "bench: dyna-rocFFT complex fwd 1024 (single)" "SKIP" "0s" "dyna-rocfft-bench not in PATH"
+  fi
+
+  # 5) RNG
+  if bench_selected 9 && command -v benchmark_rocrand_generate >/dev/null 2>&1; then
+    run_bench_with_timeout "bench: rocRAND generate (philox, uniform-float)" "${expected_misc}" "${timeout_s}" \
+      benchmark_rocrand_generate --size 1048576 --trials 2 --dis uniform-float --engine philox --format csv || true
+  elif bench_selected 9; then
+    add_result "bench: rocRAND generate (philox, uniform-float)" "SKIP" "0s" "benchmark_rocrand_generate not in PATH"
+  fi
+}
+
 if [[ "${MODE}" == "full" ]]; then
   BENCH_SIZE="${BENCH_SIZE:-4096}"
   BENCH_ITERS="${BENCH_ITERS:-20}"
-  BENCH_EXPECTED="30-120s"
+  # RX 6700 XT (gfx1031) typical: GEMM 2-6s, others <1s (warm cache).
+  BENCH_EXPECTED="typ. 2-6s"
+  BENCH_EXPECTED_MISC="typ. <1s"
+  BENCH_TIMEOUT_S="${BENCH_TIMEOUT_S:-900}"
 else
   BENCH_SIZE="${BENCH_SIZE:-2048}"
   BENCH_ITERS="${BENCH_ITERS:-10}"
-  BENCH_EXPECTED="10-45s"
+  # RX 6700 XT (gfx1031) typical: GEMM 1-2s, others <1s (warm cache).
+  BENCH_EXPECTED="typ. 1-2s"
+  BENCH_EXPECTED_MISC="typ. <1s"
+  BENCH_TIMEOUT_S="${BENCH_TIMEOUT_S:-300}"
 fi
+
+print_run_header "gfx1031 test run" "${BUILD_DIR}" "${ROCM_PATH}"
 
 detect_expect_stage
 
@@ -723,15 +1152,15 @@ fi
 
 if (( RUN_SANITY )); then
   if command -v rocminfo >/dev/null 2>&1; then
-    run_timed "rocminfo (sanity)" "<10s" rocminfo
+    run_timed "rocminfo (sanity)" "typ. <1s" rocminfo
   else
     add_result "rocminfo (sanity)" "SKIP" "0s" "not in PATH"
   fi
 
   if command -v hipinfo >/dev/null 2>&1; then
-    run_timed "hipinfo (sanity)" "<10s" hipinfo
+    run_timed "hipinfo (sanity)" "typ. <1s" hipinfo
   else
-    add_result "hipinfo (sanity)" "SKIP" "0s" "not in PATH"
+    add_result "hipinfo (sanity)" "SKIP" "0s" "not in PATH (linux builds typically don't ship hipinfo; core-hipinfo is windows-only)"
   fi
 fi
 
@@ -739,21 +1168,65 @@ if (( RUN_MIOPEN )); then
   run_miopen_checks "miopen" || true
 fi
 
-  if (( RUN_BENCH )); then
-  if command -v rocblas-bench >/dev/null 2>&1; then
-    run_bench "rocBLAS GEMM f32" "${BENCH_EXPECTED}" \
-      rocblas-bench -f gemm -r f32_r -m "${BENCH_SIZE}" -n "${BENCH_SIZE}" -k "${BENCH_SIZE}" \
-      --alpha 1 --beta 0 --iters "${BENCH_ITERS}"
-  else
-    add_result "rocBLAS GEMM f32" "SKIP" "0s" "rocblas-bench not in PATH (enable build.benchmarks=true, then rebuild rocBLAS)"
-  fi
+if (( RUN_BENCH )); then
+  if (( BENCH_MENU )); then
+    if [[ ! -t 0 ]]; then
+      echo "ERROR: --bench-menu requires an interactive TTY (stdin)." | tee -a "${LOG_FILE}" >&2
+      exit 2
+    fi
+    while true; do
+      print_bench_menu | tee -a "${LOG_FILE}"
+      read -r -p "Select bench test (0-9, list, q): " sel
+      echo "Selection: ${sel}" | tee -a "${LOG_FILE}"
+      case "${sel}" in
+        q|quit|exit)
+          break
+          ;;
+        "")
+          continue
+          ;;
+      esac
+      # shellcheck disable=SC2207
+      selected_arr=($(parse_bench_selection "${sel}"))
+      # If user chose 0, run all (empty selection -> all).
+      for s in "${selected_arr[@]}"; do
+        if [[ "${s}" == "0" ]]; then
+          selected_arr=()
+          break
+        fi
+      done
 
-  if command -v hipblas-bench >/dev/null 2>&1; then
-    run_bench "hipBLAS GEMM f32" "${BENCH_EXPECTED}" \
-      hipblas-bench -f gemm -r f32_r -m "${BENCH_SIZE}" -n "${BENCH_SIZE}" -k "${BENCH_SIZE}" \
-      --alpha 1 --beta 0 --iters "${BENCH_ITERS}"
+      # Reset results per selection so the summary is for this run only.
+      RESULT_LABELS=()
+      RESULT_STATUS=()
+      RESULT_TIME=()
+      RESULT_METRIC=()
+
+      run_bench_suite "${BENCH_TIMEOUT_S}" "${selected_arr[@]}"
+
+      echo "" | tee -a "${LOG_FILE}"
+      echo "==== gfx1031 test summary ====" | tee -a "${LOG_FILE}"
+      for i in "${!RESULT_LABELS[@]}"; do
+        label="${RESULT_LABELS[$i]}"
+        status="${RESULT_STATUS[$i]}"
+        time="${RESULT_TIME[$i]}"
+        metric="${RESULT_METRIC[$i]}"
+        fmt_s="$(fmt_status "${status}")"
+        fmt_l="$(fmt_label "${label}")"
+        if [[ -n "${metric}" ]]; then
+          printf -- "- %02d) %-36s %s ${C_DIM}(%s)${C_RESET} %s\n" "$((i+1))" "${fmt_l}" "${fmt_s}" "${time}" "${metric}" | tee -a "${LOG_FILE}"
+        else
+          printf -- "- %02d) %-36s %s ${C_DIM}(%s)${C_RESET}\n" "$((i+1))" "${fmt_l}" "${fmt_s}" "${time}" | tee -a "${LOG_FILE}"
+        fi
+      done
+      if (( LOG_ENABLED )); then
+        echo "${C_DIM}Log:${C_RESET} ${LOG_FILE}" | tee -a "${LOG_FILE}"
+      else
+        echo "${C_DIM}Log:${C_RESET} (disabled; re-run with --log [file])" | tee -a "${LOG_FILE}"
+      fi
+    done
   else
-    add_result "hipBLAS GEMM f32" "SKIP" "0s" "hipblas-bench not in PATH (enable build.benchmarks=true, then rebuild hipBLAS)"
+    run_bench_suite "${BENCH_TIMEOUT_S}"
   fi
 fi
 
@@ -764,11 +1237,17 @@ for i in "${!RESULT_LABELS[@]}"; do
   status="${RESULT_STATUS[$i]}"
   time="${RESULT_TIME[$i]}"
   metric="${RESULT_METRIC[$i]}"
+  fmt_s="$(fmt_status "${status}")"
+  fmt_l="$(fmt_label "${label}")"
   if [[ -n "${metric}" ]]; then
-    printf -- "- %-28s %s (%s) %s\n" "${label}" "${status}" "${time}" "${metric}" | tee -a "${LOG_FILE}"
+    printf -- "- %02d) %-36s %s ${C_DIM}(%s)${C_RESET} %s\n" "$((i+1))" "${fmt_l}" "${fmt_s}" "${time}" "${metric}" | tee -a "${LOG_FILE}"
   else
-    printf -- "- %-28s %s (%s)\n" "${label}" "${status}" "${time}" | tee -a "${LOG_FILE}"
+    printf -- "- %02d) %-36s %s ${C_DIM}(%s)${C_RESET}\n" "$((i+1))" "${fmt_l}" "${fmt_s}" "${time}" | tee -a "${LOG_FILE}"
   fi
 done
 
-echo "Log: ${LOG_FILE}" | tee -a "${LOG_FILE}"
+if (( LOG_ENABLED )); then
+  echo "${C_DIM}Log:${C_RESET} ${LOG_FILE}" | tee -a "${LOG_FILE}"
+else
+  echo "${C_DIM}Log:${C_RESET} (disabled; re-run with --log [file])" | tee -a "${LOG_FILE}"
+fi

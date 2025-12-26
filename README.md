@@ -441,10 +441,11 @@ The script auto-activates the in-tree ROCm environment from `<builddir>/dist/roc
 **Common usage:**
 
 ```bash
-# Sanity only (default; no benchmarks unless you opt-in).
-# If multiple in-tree dist roots exist, the script tests each one
-# (build-stage2, build, build-stage1) and writes per-build logs.
+# Interactive bench menu (default if you run without args in a terminal)
 ./test_gfx1031.sh
+
+# Sanity only (no benchmarks unless you opt-in)
+./test_gfx1031.sh --no-bench
 
 # Enable benchmarks (requires the bench binaries to exist in PATH; build them via `config_gfx1031.yaml: build.benchmarks: true`)
 ./test_gfx1031.sh --bench
@@ -452,6 +453,10 @@ The script auto-activates the in-tree ROCm environment from `<builddir>/dist/roc
 
 # Benchmarks only
 ./test_gfx1031.sh --bench-only
+
+# Enable log files (otherwise no logs are written; useful for debugging/recordkeeping)
+./test_gfx1031.sh --log --bench-only
+./test_gfx1031.sh --log my_run.log --bench
 ```
 
 **Build/toolchain consistency checks (recommended after reconfigure / rebuild):**
@@ -501,6 +506,22 @@ The script auto-activates the in-tree ROCm environment from `<builddir>/dist/roc
 Notes:
 - The bench binaries link a **host reference BLAS** from `host-blas` (OpenBLAS in `lib/host-math/lib`). Running via `./test_gfx1031.sh` is recommended because it auto-sets `LD_LIBRARY_PATH` appropriately.
 - `dist-rocm` updates `<builddir>/dist/rocm/bin` so the bench binaries are in `PATH` for `./test_gfx1031.sh`.
+
+**Bench tools you may have in Stage‑2 (`build-stage2/dist/rocm/bin`)** (numbered for easy reference):
+
+1) `rocblas-bench` — rocBLAS (BLAS) benchmark client  
+2) `hipblas-bench` — hipBLAS (BLAS) benchmark client  
+3) `rocsolver-bench` — rocSOLVER (LAPACK/solver) benchmark client  
+4) `hipsolver-bench` — hipSOLVER (LAPACK/solver) benchmark client  
+5) `rocsparse-bench` — rocSPARSE benchmark client  
+6) `hipsparse-bench` — hipSPARSE benchmark client  
+7) `rocfft-bench` — rocFFT benchmark client  
+8) `dyna-rocfft-bench` — rocFFT dynamic loader benchmark client  
+9) `benchmark_rocrand_*` — rocRAND micro-benchmarks (multiple executables)
+
+Note: `./test_gfx1031.sh --bench` runs the full “quick” bench suite (skipping missing tools) and reports key throughput metrics when available. Use `./test_gfx1031.sh --bench-lite` to run only rocBLAS+hipBLAS GEMM.
+
+`hipinfo` note: On Linux, TheRock does not typically ship a `hipinfo` executable (the `core-hipinfo` artifact is windows-only). Use `rocminfo` + `./test_gfx1031.sh --consistency --expect-stage2` to validate the HIP toolchain/device libs instead.
 
 ### Phase 1 vs Phase 2 (rocprofiler-systems)
 
