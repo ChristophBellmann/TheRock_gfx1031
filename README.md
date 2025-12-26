@@ -456,6 +456,9 @@ The script auto-activates the in-tree ROCm environment from `<builddir>/dist/roc
 ./test_gfx1031.sh --bench
 ./test_gfx1031.sh --bench --full
 
+# Add sysfs power/util sampling (baseline + per-test metrics)
+./test_gfx1031.sh --bench-lite --power
+
 # Benchmarks only
 ./test_gfx1031.sh --bench-only
 
@@ -596,6 +599,7 @@ This writes logs under `./perf_compare/<timestamp>/` and prints a side-by-side T
 
 Notes:
 - The container run installs a minimal runtime dep (`libgfortran5`) because some bench clients link it dynamically. Disable via `./compare_perf_gfx1031.sh --no-install-deps`.
+- By default, `compare_perf_gfx1031.sh` enables `--power` and prints avgW + gpu% next to TFLOPS. Disable via `./compare_perf_gfx1031.sh --no-power`.
 
 ### Optional: Upstream test suites (ctest / gtest clients)
 

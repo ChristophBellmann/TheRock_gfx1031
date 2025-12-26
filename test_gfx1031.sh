@@ -12,6 +12,7 @@ RUN_SANITY=1
 RUN_BENCH=0
 RUN_MIOPEN=0
 RUN_MIOPEN_SMOKE=0
+RUN_POWER=0
 BUILD_DIR="${BUILD_DIR:-}"
 RUN_CONSISTENCY=0
 CONSISTENCY_DEEP=0
@@ -65,6 +66,7 @@ Usage: test_gfx1031.sh [options]
 Options:
   --quick        Select quick benchmark sizes (default mode)
   --full         Select longer benchmark sizes (bigger sizes / more iters)
+  --power        Sample GPU power/utilization via sysfs during sanity/bench (adds baseline + per-test metrics)
   --bench        Run performance benchmarks (in addition to sanity)
   --bench-lite   Run only the lightweight BLAS GEMM benchmarks (rocBLAS + hipBLAS)
   --bench-menu   Interactive bench menu (select 1-9; 0=all; q=quit)
@@ -128,6 +130,10 @@ while [[ $# -gt 0 ]]; do
       ;;
     --full)
       MODE="full"
+      shift
+      ;;
+    --power)
+      RUN_POWER=1
       shift
       ;;
     --bench)
@@ -882,6 +888,9 @@ print_run_header() {
   echo "${C_DIM}- ROCm:${C_RESET} ${rocm_path}" | tee -a "${LOG_FILE}"
   echo "${C_DIM}- mode:${C_RESET} ${MODE} (BENCH_SIZE=${BENCH_SIZE:-auto}, BENCH_ITERS=${BENCH_ITERS:-auto})" | tee -a "${LOG_FILE}"
   echo "${C_DIM}- logging:${C_RESET} ${log_state}" | tee -a "${LOG_FILE}"
+  if (( RUN_POWER )); then
+    echo "${C_DIM}- power:${C_RESET} enabled (sysfs)" | tee -a "${LOG_FILE}"
+  fi
 
   local what=()
   if (( RUN_CONSISTENCY )); then what+=("consistency"); fi
@@ -898,6 +907,231 @@ print_run_header() {
   echo "" | tee -a "${LOG_FILE}"
 }
 
+POWER_PATH=""
+GPU_BUSY_PATH=""
+MEM_BUSY_PATH=""
+POWER_BASELINE_AVG_W=""
+POWER_SAMPLER_PID=""
+
+discover_power_sensor() {
+  POWER_PATH=""
+  GPU_BUSY_PATH=""
+  MEM_BUSY_PATH=""
+  local drm="/sys/class/drm"
+  [[ -d "${drm}" ]] || return 1
+  local card
+  for card in "${drm}"/card[0-9]*; do
+    [[ -d "${card}" ]] || continue
+    local dev="${card}/device"
+    [[ -d "${dev}/hwmon" ]] || continue
+    local hm
+    for hm in "${dev}/hwmon"/hwmon*; do
+      [[ -d "${hm}" ]] || continue
+      local name=""
+      if [[ -f "${hm}/name" ]]; then
+        name="$(cat "${hm}/name" 2>/dev/null || true)"
+        name="${name//$'\n'/}"
+      fi
+      [[ "${name}" == "amdgpu" ]] || continue
+      if [[ -f "${hm}/power1_average" ]]; then
+        POWER_PATH="${hm}/power1_average"
+        [[ -f "${dev}/gpu_busy_percent" ]] && GPU_BUSY_PATH="${dev}/gpu_busy_percent"
+        [[ -f "${dev}/mem_busy_percent" ]] && MEM_BUSY_PATH="${dev}/mem_busy_percent"
+        return 0
+      fi
+    done
+  done
+  return 1
+}
+
+power_sampler_start() {
+  local out_file="$1"
+  local interval_s="${2:-0.5}"
+  : >"${out_file}"
+  (
+    set +e
+    read_quick() {
+      local p="$1"
+      cat "${p}" 2>/dev/null || true
+    }
+    while true; do
+      local t_ms
+      t_ms="$(now_ms)"
+      local p_uw=""
+      local gpu=""
+      local mem=""
+      if [[ -n "${POWER_PATH}" ]] && [[ -r "${POWER_PATH}" ]]; then
+        p_uw="$(read_quick "${POWER_PATH}")"
+      fi
+      if [[ -n "${GPU_BUSY_PATH}" ]] && [[ -r "${GPU_BUSY_PATH}" ]]; then
+        gpu="$(read_quick "${GPU_BUSY_PATH}")"
+      fi
+      if [[ -n "${MEM_BUSY_PATH}" ]] && [[ -r "${MEM_BUSY_PATH}" ]]; then
+        mem="$(read_quick "${MEM_BUSY_PATH}")"
+      fi
+      echo "${t_ms} ${p_uw:-} ${gpu:-} ${mem:-}" >>"${out_file}"
+      sleep "${interval_s}"
+    done
+  ) &
+  POWER_SAMPLER_PID="$!"
+}
+
+power_sampler_stop_and_format() {
+  local out_file="$1"
+  local pid="$2"
+  local baseline_avg_w="$3" # may be empty
+  if [[ -n "${pid}" ]]; then
+    kill "${pid}" >/dev/null 2>&1 || true
+    # Avoid blocking forever if the sampler is stuck in an uninterruptible read.
+    for _ in {1..10}; do
+      kill -0 "${pid}" >/dev/null 2>&1 || break
+      sleep 0.05
+    done
+    kill -KILL "${pid}" >/dev/null 2>&1 || true
+  fi
+  awk -v base="${baseline_avg_w:-}" '
+  function fmt_ws(v){ if(v=="") return "  n/a"; return sprintf("%4.0fWs", v) }
+  function fmt_w(v){ if(v=="") return "   n/a"; return sprintf("%6.1fW", v) }
+  function fmt_dw(v){ if(v=="") return "   n/a"; return sprintf("%+6.1fW", v) }
+  function fmt_pct(v){ if(v=="") return "n/a"; return sprintf("%3.0f", v) }
+  BEGIN{prev_t=""; prev_p=""; n=0; sum_p=0; max_p=""; sum_gpu=0; n_gpu=0; sum_mem=0; n_mem=0; e=0}
+  /^[0-9]+/{
+    t=$1
+    p_uw=$2
+    gpu=$3
+    mem=$4
+    p=""
+    if(p_uw ~ /^[0-9]+$/){ p=p_uw/1000000.0; sum_p+=p; n++; if(max_p==""||p>max_p) max_p=p }
+    if(gpu ~ /^[0-9]+$/){ sum_gpu+=gpu; n_gpu++ }
+    if(mem ~ /^[0-9]+$/){ sum_mem+=mem; n_mem++ }
+    if(prev_t!="" && prev_p!="" && p!=""){
+      dt=(t-prev_t)/1000.0
+      e += 0.5*(prev_p+p)*dt
+    }
+    prev_t=t
+    if(p!=""){ prev_p=p }
+  }
+  END{
+    avg=""; dw=""
+    if(n>0){ avg=sum_p/n }
+    if(avg!="" && base!="" && base ~ /^[0-9.]+$/){ dw=avg-base }
+    gpu_avg=""; mem_avg=""
+    if(n_gpu>0){ gpu_avg=sum_gpu/n_gpu }
+    if(n_mem>0){ mem_avg=sum_mem/n_mem }
+    if(n<2){ e="" }
+    printf("E=%s  avgW=%s  dW=%s  maxW=%s  gpu%%=%s  mem%%=%s", fmt_ws(e), fmt_w(avg), fmt_dw(dw), fmt_w(max_p), fmt_pct(gpu_avg), fmt_pct(mem_avg))
+  }' "${out_file}"
+}
+
+power_compute_avg_w() {
+  local out_file="$1"
+  awk '
+  BEGIN{n=0; sum=0}
+  /^[0-9]+/{
+    p_uw=$2
+    if(p_uw ~ /^[0-9]+$/){ sum += (p_uw/1000000.0); n++ }
+  }
+  END{ if(n>0) printf("%.3f", sum/n) }' "${out_file}"
+}
+
+power_wrap() {
+  local label="$1"
+  local expected="$2"
+  local timeout_s="$3" # may be empty
+  shift 3
+  local -a cmd=("$@")
+
+  local tmp
+  tmp="$(mktemp)"
+  local ptmp
+  ptmp="$(mktemp)"
+  local start_ms
+  start_ms="$(now_ms)"
+  power_sampler_start "${ptmp}" "0.2"
+  local pid="${POWER_SAMPLER_PID}"
+
+  set +e
+  if [[ -n "${timeout_s}" ]] && command -v timeout >/dev/null 2>&1; then
+    timeout --preserve-status "${timeout_s}" "${cmd[@]}" 2>&1 | tee -a "${LOG_FILE}" | tee "${tmp}" >/dev/null
+  else
+    "${cmd[@]}" 2>&1 | tee -a "${LOG_FILE}" | tee "${tmp}" >/dev/null
+  fi
+  local rc=${PIPESTATUS[0]}
+  set -e
+  local end_ms
+  end_ms="$(now_ms)"
+  local elapsed_ms=$((end_ms - start_ms))
+
+  local power_blob=""
+  if [[ -n "${POWER_PATH}" ]]; then
+    power_blob="$(power_sampler_stop_and_format "${ptmp}" "${pid}" "${POWER_BASELINE_AVG_W}")"
+  else
+    [[ -n "${pid}" ]] && kill "${pid}" >/dev/null 2>&1 || true
+  fi
+  rm -f "${ptmp}"
+
+  local metric=""
+  if [[ ${rc} -eq 124 || ${rc} -eq 137 || ${rc} -eq 143 ]]; then
+    metric="timeout after ${timeout_s}s (first run may JIT; rerun)"
+    [[ -n "${power_blob}" ]] && metric="${metric} | ${power_blob}"
+    add_result "${label}" "SKIP" "$(fmt_duration_ms "${elapsed_ms}")" "${metric}"
+    rm -f "${tmp}"
+    return 0
+  elif [[ ${rc} -eq 0 ]]; then
+    local gflops
+    local tflops
+    gflops="$(extract_gflops "${tmp}")"
+    tflops="$(extract_tflops "${tmp}")"
+    if [[ -z "${tflops}" && -n "${gflops}" ]]; then
+      tflops=$(awk -v v="${gflops}" 'BEGIN{printf "%.3f", v/1000.0}')
+      metric="TFLOPS=${tflops} (GFLOPS=${gflops})"
+    elif [[ -n "${tflops}" ]]; then
+      metric="TFLOPS=${tflops}"
+    fi
+    if [[ -z "${metric}" ]]; then
+      local gbps
+      local gs
+      local ms
+      local special
+      gbps="$(extract_gbps "${tmp}")"
+      gs="$(extract_gsamples "${tmp}")"
+      ms="$(extract_ms "${tmp}")"
+      if [[ -n "${gbps}" ]]; then
+        metric="GB/s=${gbps}"
+        if [[ -n "${gs}" ]]; then
+          metric="${metric} (GSample/s=${gs})"
+        fi
+      elif [[ -n "${gs}" ]]; then
+        metric="GSample/s=${gs}"
+      elif [[ -n "${ms}" ]]; then
+        metric="ms=${ms}"
+      fi
+      if [[ -z "${metric}" && ( "${label}" == *"rocSPARSE"* || "${label}" == *"hipSPARSE"* ) ]]; then
+        special="$(extract_sparse_metrics "${tmp}")"
+        metric="${special:-}"
+      fi
+      if [[ -z "${metric}" && "${label}" == *"rocRAND"* ]]; then
+        special="$(extract_rocrand_metrics "${tmp}")"
+        metric="${special:-}"
+      fi
+      if [[ -z "${metric}" && ( "${label}" == *"rocSOLVER"* || "${label}" == *"hipSOLVER"* ) ]]; then
+        special="$(extract_single_number "${tmp}")"
+        if [[ -n "${special}" ]]; then
+          metric="gpu_time_us=${special}"
+        fi
+      fi
+    fi
+    [[ -n "${power_blob}" ]] && metric="${metric} | ${power_blob}"
+    add_result "${label}" "OK" "$(fmt_duration_ms "${elapsed_ms}")" "${metric}"
+  else
+    metric="rc=${rc}"
+    [[ -n "${power_blob}" ]] && metric="${metric} | ${power_blob}"
+    add_result "${label}" "FAIL" "$(fmt_duration_ms "${elapsed_ms}")" "${metric}"
+  fi
+  rm -f "${tmp}"
+  return ${rc}
+}
+
 run_timed() {
   local label="$1"
   local expected="$2"
@@ -906,6 +1140,11 @@ run_timed() {
   local tmp
   tmp="$(mktemp)"
   echo "${C_CYAN}==>${C_RESET} $(fmt_label "${label}") ${C_DIM}(expected: ${expected})${C_RESET}" | tee -a "${LOG_FILE}"
+  if (( RUN_POWER )) && [[ -n "${POWER_PATH}" ]]; then
+    rm -f "${tmp}"
+    power_wrap "${label}" "${expected}" "" "${cmd[@]}"
+    return $?
+  fi
   local start_ms
   start_ms="$(now_ms)"
   set +e
@@ -933,6 +1172,11 @@ run_bench_with_timeout() {
   local tmp
   tmp="$(mktemp)"
   echo "${C_CYAN}==>${C_RESET} $(fmt_label "${label}") ${C_DIM}(expected: ${expected})${C_RESET}" | tee -a "${LOG_FILE}"
+  if (( RUN_POWER )) && [[ -n "${POWER_PATH}" ]]; then
+    rm -f "${tmp}"
+    power_wrap "${label}" "${expected}" "${timeout_s}" "${cmd[@]}"
+    return $?
+  fi
   local start_ms
   start_ms="$(now_ms)"
   set +e
@@ -1128,9 +1372,35 @@ else
   BENCH_TIMEOUT_S="${BENCH_TIMEOUT_S:-300}"
 fi
 
+# If power sampling is enabled, prefer a sustained load so avgW/gpu% are meaningful.
+# Only adjust if BENCH_ITERS is still at the default.
+if (( RUN_POWER )); then
+  if [[ "${MODE}" == "quick" && "${BENCH_ITERS}" == "10" ]]; then
+    BENCH_ITERS="40"
+  elif [[ "${MODE}" == "full" && "${BENCH_ITERS}" == "20" ]]; then
+    BENCH_ITERS="40"
+  fi
+fi
+
 print_run_header "gfx1031 test run" "${BUILD_DIR}" "${ROCM_PATH}"
 
 detect_expect_stage
+
+if (( RUN_POWER )); then
+  if discover_power_sensor; then
+    # Measure a short idle baseline (no GPU load). Used for dW deltas.
+    ptmp="$(mktemp)"
+    power_sampler_start "${ptmp}" "0.2"
+    pid="${POWER_SAMPLER_PID}"
+    sleep 5
+    POWER_BASELINE_AVG_W="$(power_compute_avg_w "${ptmp}")"
+    power_blob="$(power_sampler_stop_and_format "${ptmp}" "${pid}" "")"
+    rm -f "${ptmp}"
+    add_result "Power idle baseline" "OK" "5.000s" "${power_blob}"
+  else
+    add_result "Power idle baseline" "SKIP" "0s" "no amdgpu power sensor found in sysfs"
+  fi
+fi
 
 if (( RUN_CONSISTENCY )); then
   echo "==== consistency checks (${BUILD_DIR}) ====" | tee -a "${LOG_FILE}"

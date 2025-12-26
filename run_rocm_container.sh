@@ -13,6 +13,7 @@ NO_TTY=0
 LOG_ENABLED=0
 LOG_FILE=""
 INSTALL_DEPS=0
+POWER=0
 
 usage() {
   cat <<'EOF'
@@ -29,6 +30,7 @@ Options:
   --bench            Run ./test_gfx1031.sh --bench
   --bench-lite       Run ./test_gfx1031.sh --bench-lite
   --full             Use longer benchmark sizes (passes --full)
+  --power            Enable sysfs power sampling in ./test_gfx1031.sh
   --log [file]       Enable logging (default: run_rocm_container.<builddir>.log)
   --install-deps     Install minimal runtime deps inside the container (e.g. libgfortran5 for bench clients)
   --no-shell         Exit after running tests (default: drop into bash)
@@ -70,6 +72,10 @@ while [[ $# -gt 0 ]]; do
       ;;
     --full)
       MODE="full"
+      shift
+      ;;
+    --power)
+      POWER=1
       shift
       ;;
     --log)
@@ -121,6 +127,9 @@ if (( RUN_BENCH )); then
     cmd+=(--full)
   fi
 fi
+if (( POWER )); then
+  cmd+=(--power)
+fi
 
 if (( LOG_ENABLED )); then
   if [[ -z "${LOG_FILE}" ]]; then
@@ -168,7 +177,12 @@ docker run --rm "${docker_it[@]}" \
       fi
     fi
     echo '== GPU check (container) =='
-    if command -v rocminfo >/dev/null 2>&1; then rocminfo | head -n 60 || true; else echo 'rocminfo not found in image'; fi
+    if command -v rocminfo >/dev/null 2>&1; then
+      # Show a compact summary including the GPU agent.
+      rocminfo | grep -E 'HSA Agents|Agent [0-9]+|Name:|Marketing Name:|Device Type:|amdgcn|gfx|Chip ID:' | head -n 120 || true
+    else
+      echo 'rocminfo not found in image'
+    fi
     echo
     echo '== Activate in-tree ROCm (${BUILD_DIR}) =='
     export BUILD_DIR='${BUILD_DIR}'
