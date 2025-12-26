@@ -1,0 +1,24 @@
+# Environment templates for running against an in-tree ROCm dist.
+#
+# Note: actual exports are derived programmatically; this file documents the intent
+# and provides a stable place for future customization.
+env_exports:
+  required:
+    - ROCM_PATH
+    - HIP_PATH
+    - HSA_PATH
+    - PATH
+    - LD_LIBRARY_PATH
+    - HIP_DEVICE_LIB_PATH
+
+  path_prefixes:
+    - "{ROCM_PATH}/bin"
+    - "{ROCM_PATH}/llvm/bin"
+
+  ld_library_prefixes:
+    - "{ROCM_PATH}/lib"
+    - "{ROCM_PATH}/lib64"
+    - "{ROCM_PATH}/lib/host-math/lib"
+    - "{ROCM_PATH}/lib/rocm_sysdeps/lib"
+    - "{ROCM_PATH}/llvm/lib"
+

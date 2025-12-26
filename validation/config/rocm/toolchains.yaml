@@ -1,7 +1,0 @@
-# Toolchain hints for external projects (MFEM, etc.).
-# In-tree ROCm dist path is used as the default toolchain provider.
-toolchains:
-  in_tree:
-    clangxx_rel: "llvm/bin/clang++"
-    hipcc_rel: "bin/hipcc"
-

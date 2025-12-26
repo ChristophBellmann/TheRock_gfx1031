@@ -1,0 +1,19 @@
+# TheRock build/install layout discovery hints.
+#
+# The validation suite primarily targets "in-tree dist" builds:
+#   <repo>/<build_dir>/dist/rocm
+#
+# The detection order is mirrored in code (default: stage2 -> build -> stage1).
+install_layouts:
+  in_tree_dist:
+    rocm_dist_rel: "dist/rocm"
+    build_dir_candidates:
+      - "build-stage2"
+      - "build"
+      - "build-stage1"
+
+# Toolchain hints for external projects (MFEM, etc.).
+toolchains:
+  in_tree:
+    clangxx_rel: "llvm/bin/clang++"
+    hipcc_rel: "bin/hipcc"

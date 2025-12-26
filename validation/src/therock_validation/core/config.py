@@ -7,7 +7,7 @@ import yaml
 
 
 def _validation_root() -> Path:
-    # .../validation/src/rocm_validation/core/config.py -> validation/
+    # .../validation/src/therock_validation/core/config.py -> validation/
     return Path(__file__).resolve().parents[3]
 
 
@@ -32,4 +32,3 @@ def load_config(profile: str | None = None) -> dict[str, Any]:
         overlay: dict[str, Any] = yaml.safe_load(prof.read_text(encoding="utf-8"))
         cfg = _deep_merge(cfg, overlay)
     return cfg
-

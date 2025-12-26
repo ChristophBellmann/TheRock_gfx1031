@@ -5,7 +5,7 @@ import shutil
 import subprocess
 from pathlib import Path
 
-from rocm_validation.core.context import Context
+from therock_validation.core.context import Context
 
 
 def write_report_json(ctx: Context, data: dict) -> Path:
@@ -51,4 +51,3 @@ def open_last_report(ctx: Context, *, open_browser: bool) -> int:
             print("No report.html present for last run")
             return 2
     return 0
-

@@ -5,7 +5,7 @@ import urllib.request
 from dataclasses import dataclass
 from pathlib import Path
 
-from rocm_validation.core.context import Context
+from therock_validation.core.context import Context
 
 
 @dataclass(frozen=True)
@@ -45,4 +45,3 @@ def download(ctx: Context, url: str, dest: Path, *, expected_sha256: str | None 
         got = _sha256(dest)
         if got.lower() != expected_sha256.lower():
             raise RuntimeError(f"sha256 mismatch for {dest.name}: got {got}, expected {expected_sha256}")
-

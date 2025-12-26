@@ -80,6 +80,10 @@ python3 validation/scripts/report_open.py --open
   - `validation/config/profiles/full.yaml` (default; everything enabled, downloads gated)
   - `validation/config/profiles/quick.yaml` (ROCm-only smoke)
   - `validation/config/profiles/airgapped.yaml` (same as quick; future-proof name)
+- TheRock layout/env hints:
+  - `validation/config/therock/gfx_targets.yaml`
+  - `validation/config/therock/install_layouts.yaml`
+  - `validation/config/therock/env_exports.yaml`
 
 ## Layout
 
@@ -87,17 +91,18 @@ python3 validation/scripts/report_open.py --open
 validation/
 ├─ README.md
 ├─ AI_WORKFLOW_VALIDATION.md
+├─ ANWEISUNG_STRUKTUR.md
 ├─ pyproject.toml
 ├─ requirements-lock.txt
 ├─ .gitignore
 ├─ .env.example
 ├─ config/
 ├─ scripts/                # user entrypoints (auto-venv bootstrap)
-├─ src/rocm_validation/    # implementation package
+├─ src/therock_validation/ # implementation package
 └─ workspace/              # runtime artifacts (gitignored)
 ```
 
 ## Legal / third-party
 
 Third-party projects used by optional checks are referenced in:
-`validation/src/rocm_validation/assets/notices/THIRD_PARTY_NOTICES.md`.
+`validation/src/therock_validation/assets/notices/THIRD_PARTY_NOTICES.md`.
