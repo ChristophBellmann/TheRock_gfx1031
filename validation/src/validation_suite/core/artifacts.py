@@ -5,7 +5,7 @@ import shutil
 import subprocess
 from pathlib import Path
 
-from therock_validation.core.context import Context
+from validation_suite.core.context import Context
 
 
 def write_report_json(ctx: Context, data: dict) -> Path:

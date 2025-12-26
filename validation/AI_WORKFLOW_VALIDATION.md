@@ -8,7 +8,7 @@ but is scoped specifically to **validation** (in-tree ROCm, plus optional third�
 
 ## Situation
 
-- **Desired outcome:** keep `validation/scripts/validate.py` + `validation/src/therock_validation/` a reliable “usability proof” of the in-tree build, and (optionally) a practical integration test bed.
+- **Desired outcome:** keep `validation/scripts/validate.py` + `validation/src/validation_suite/` a reliable “usability proof” of the in-tree build, and (optionally) a practical integration test bed.
 - **Constraints:**
   - Must run against `<builddir>/dist/rocm` (no `/opt/rocm` assumptions).
   - Downloads/builds must be **explicitly confirmed** (Y/n) and bounded; avoid surprise multi‑GB downloads.
@@ -41,7 +41,7 @@ but is scoped specifically to **validation** (in-tree ROCm, plus optional third�
 
 ## Execution
 
-- Add/modify steps in `validation/src/therock_validation/steps/`:
+- Add/modify steps in `validation/src/validation_suite/steps/`:
   - Use `SKIP` for missing prerequisites; use `FAIL` for real malfunctions.
   - Make expected runtime realistic and hardware-aware (gfx1031 / RX 6700 XT).
 - Keep downloads/builds in user-space:

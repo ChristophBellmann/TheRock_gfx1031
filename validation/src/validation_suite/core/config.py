@@ -7,7 +7,7 @@ import yaml
 
 
 def _validation_root() -> Path:
-    # .../validation/src/therock_validation/core/config.py -> validation/
+    # .../validation/src/validation_suite/core/config.py -> validation/
     return Path(__file__).resolve().parents[3]
 
 

@@ -13,4 +13,3 @@ def write_placeholder_html(path: Path, *, title: str) -> None:
 \"\"\",
         encoding="utf-8",
     )
-

@@ -2,8 +2,8 @@ from __future__ import annotations
 
 import sys
 
-from therock_validation.core.context import Context
-from therock_validation.core.reporting.models import StepResult
+from validation_suite.core.context import Context
+from validation_suite.core.reporting.models import StepResult
 
 
 class Ansi:

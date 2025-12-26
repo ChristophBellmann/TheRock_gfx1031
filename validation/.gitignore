@@ -8,7 +8,8 @@
 # Legacy cache dir (kept for backwards compatibility, not committed)
 /_cache/
 
-# Avoid package-path drift: keep only `src/therock_validation/`
+# Avoid package-path drift: keep only `src/validation_suite/`
 /therock_validation/
+/rocm_validation/
 __pycache__/
 *.pyc

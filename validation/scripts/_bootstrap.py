@@ -51,7 +51,6 @@ def run_cli(command: str, argv: list[str], script_path: Path) -> int:
         sys.path.insert(0, str(src))
     os.chdir(repo_root())
 
-    from therock_validation.cli.main import main as cli_main  # noqa: E402
+    from validation_suite.cli.main import main as cli_main  # noqa: E402
 
     return cli_main([command] + argv)
-

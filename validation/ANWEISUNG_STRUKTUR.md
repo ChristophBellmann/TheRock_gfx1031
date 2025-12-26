@@ -35,7 +35,7 @@ validation/
 │  └─ report_open.py
 │
 ├─ src/
-│  └─ therock_validation/                 # wichtig: Name zeigt “gehört zu TheRock”
+│  └─ validation_suite/                  # bewusst generisch (Repo-Kontext ist klar)
 │     ├─ __init__.py
 │
 │     ├─ cli/
@@ -136,16 +136,16 @@ validation/
 │  ├─ unit/
 │  └─ integration/
 │
-└─ therock_validation/                    # falls schon existiert: nur EINES von beiden behalten
-   └─ (entweder dies ODER src/therock_validation)
+└─ validation_suite/                      # falls schon existiert: nur EINES von beiden behalten
+   └─ (entweder dies ODER src/validation_suite)
 
 Wichtiger Hinweis (weil du es schon im Tree hast)
 
-Du hast aktuell beides: validation/src und validation/therock_validation. Das ist ein typischer Drift. Entscheide dich für eine dieser Varianten:
+Du hast aktuell beides: validation/src und validation/validation_suite. Das ist ein typischer Drift. Entscheide dich für eine dieser Varianten:
 
-Empfohlen: validation/src/therock_validation/… (sauber, packagable, testbar)
+Empfohlen: validation/src/validation_suite/… (sauber, packagable, testbar)
 
-Oder: validation/therock_validation/… (flacher, aber weniger standardkonform)
+Oder: validation/validation_suite/… (flacher, aber weniger standardkonform)
 
 Wenn du schon Code hast: verschieben statt neu erfinden, aber Ziel ist nur ein Paketpfad.
 
