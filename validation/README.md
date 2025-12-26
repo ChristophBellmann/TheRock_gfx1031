@@ -60,7 +60,7 @@ reports per-test energy deltas (`dW`) relative to that baseline.
 
 ## Build dirs (Stage-1 vs Stage-2)
 
-If you don’t specify anything, validation auto-detects and runs against every present build dir
+If you don’t specify anything, validation auto-detects and uses the **preferred** build dir
 in this order: `build-stage2`, `build`, `build-stage1`.
 
 This is why results can differ per build dir:
@@ -70,6 +70,11 @@ This is why results can differ per build dir:
 To force one build dir:
 ```bash
 python3 validation/scripts/validate.py --build-dirs build-stage2
+```
+
+To validate all detected build dirs:
+```bash
+python3 validation/scripts/validate.py --all-build-dirs
 ```
 
 ## Doctor / cache / reports

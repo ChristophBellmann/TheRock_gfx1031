@@ -15,6 +15,7 @@ def _cmd_validate(argv: list[str]) -> int:
     ap = argparse.ArgumentParser(prog="validate", description="Repo-local ROCm validation suite.")
     ap.add_argument("--profile", default=None, help="Config profile (full/quick/airgapped). Default: full.")
     ap.add_argument("--build-dirs", default=None, help="Comma-separated build dirs to validate (default: auto).")
+    ap.add_argument("--all-build-dirs", action="store_true", help="Validate all detected build dirs (default: only the preferred one).")
     ap.add_argument("--no-downloads", action="store_true", help="Disable network downloads (third-party steps will SKIP).")
     ap.add_argument("--yes", action="store_true", help="Assume 'yes' for prompts (non-interactive).")
     ap.add_argument("--power", action="store_true", help="Sample GPU power/utilization via sysfs during sustained-load tests.")
@@ -24,6 +25,8 @@ def _cmd_validate(argv: list[str]) -> int:
     cfg = load_config(profile=args.profile)
     if args.build_dirs:
         cfg["run"]["build_dirs"] = [x.strip() for x in args.build_dirs.split(",") if x.strip()]
+    if args.all_build_dirs:
+        cfg["run"]["all_build_dirs"] = True
     if args.no_downloads or os.environ.get("ROCM_VALIDATION_NO_DOWNLOADS", "") == "1":
         cfg["run"]["downloads_enabled"] = False
         cfg["run"]["ask_before_downloads"] = False

@@ -17,7 +17,7 @@ from core.context import Context
 from core.download import DownloadPolicy, download
 from core.power import PowerSampler, discover_sensors, format_power_metrics, write_csv
 from core.rocm_env import activated_env, which
-from core.tree import detect_build_dirs, rocm_dist_for_build
+from core.tree import detect_build_dirs, detect_default_build_dir, rocm_dist_for_build
 from core.reporting.models import StepResult
 from core.runner import fmt_duration, run_cmd
 
@@ -135,6 +135,8 @@ def _step_rocm_env(ctx: Context, cfg: dict[str, Any], build_dir: str, rocm_dist:
 
 def _step_rocminfo(ctx: Context, cfg: dict[str, Any], build_dir: str, rocm_dist: Path, env: dict[str, str], log: Path | None) -> StepResult:
     t = int(cfg.get("timeouts_s", {}).get("rocminfo", 10))
+    if which("rocminfo", env) is None:
+        return StepResult(build_dir, "rocminfo", "SKIP", "0ms", "rocminfo not in PATH")
     r = run_cmd(ctx.repo_root, env, ["rocminfo"], t, log)
     return StepResult(build_dir, "rocminfo", "OK" if r.rc == 0 else "FAIL", fmt_duration(r.dur_ms), "" if r.rc == 0 else f"rc={r.rc}")
 
@@ -144,6 +146,9 @@ def _step_hipcc_compile_run(ctx: Context, cfg: dict[str, Any], build_dir: str, r
     hipcc = which("hipcc", env)
     if not hipcc:
         return StepResult(build_dir, "hipcc compile+run", "SKIP", "0ms", "hipcc not in PATH")
+    # Stage-1 toolchain builds may have hipcc but not the ROCr runtime/libs needed to execute.
+    if which("rocminfo", env) is None:
+        return StepResult(build_dir, "hipcc compile+run", "SKIP", "0ms", "runtime not present (rocminfo missing)")
 
     arch = str(cfg.get("rocm", {}).get("amd_gpu_arch", "gfx1031"))
     with tempfile.TemporaryDirectory(prefix="rocm-validation-hip-") as td:
@@ -203,6 +208,8 @@ int main() {
         r1 = run_cmd(ctx.repo_root, env, [hipcc, f"--offload-arch={arch}", str(src), "-O2", "-o", str(exe)], t, log)
         if r1.rc != 0:
             return StepResult(build_dir, "hipcc compile+run", "FAIL", fmt_duration(r1.dur_ms), f"compile rc={r1.rc}")
+        if not exe.exists():
+            return StepResult(build_dir, "hipcc compile+run", "FAIL", fmt_duration(r1.dur_ms), "compile produced no output executable")
         def run_kernel(sampler: PowerSampler | None):
             r2 = run_cmd(ctx.repo_root, env, [str(exe)], 120, log)
             return r2, sampler
@@ -612,7 +619,10 @@ def build_plan(cfg: dict[str, Any], *, doctor_only: bool = False) -> list[Step]:
 def run_plan(ctx: Context, cfg: dict[str, Any], plan: list[Step]) -> list[StepResult]:
     build_dirs = cfg.get("run", {}).get("build_dirs") or []
     if not build_dirs:
-        build_dirs = detect_build_dirs(ctx.repo_root)
+        if bool(cfg.get("run", {}).get("all_build_dirs", False)):
+            build_dirs = detect_build_dirs(ctx.repo_root)
+        else:
+            build_dirs = [detect_default_build_dir(ctx.repo_root)]
 
     results: list[StepResult] = []
     report: dict[str, Any] = {"run_id": ctx.run_id, "build_dirs": build_dirs, "results": []}

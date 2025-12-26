@@ -4,6 +4,7 @@ run:
   ask_before_downloads: true
   downloads_enabled: true
   power_monitor: true       # default: show power/energy (Ws) in terminal
+  all_build_dirs: false     # default: only validate the preferred build dir
   max_download_gb: 8
   max_single_download_gb: 4
   build_dirs: []           # empty => auto-detect (build-stage2/build/build-stage1)

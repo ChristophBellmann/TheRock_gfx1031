@@ -40,14 +40,23 @@ def run_cmd(
     log_path: Path | None,
 ) -> CommandResult:
     start = now_ms()
-    proc = subprocess.Popen(
-        cmd,
-        cwd=str(cwd),
-        env=env,
-        stdout=subprocess.PIPE,
-        stderr=subprocess.PIPE,
-        text=True,
-    )
+    try:
+        proc = subprocess.Popen(
+            cmd,
+            cwd=str(cwd),
+            env=env,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            text=True,
+        )
+    except FileNotFoundError as e:
+        dur_ms = now_ms() - start
+        err = f"{e}"
+        if log_path is not None:
+            log_path.parent.mkdir(parents=True, exist_ok=True)
+            with log_path.open("a", encoding="utf-8") as f:
+                f.write(f"$ {shlex.join(cmd)}\n{err}\n\n")
+        return CommandResult(rc=127, out="", err=err, dur_ms=dur_ms)
     try:
         out, err = proc.communicate(timeout=timeout_s)
         rc = proc.returncode
@@ -72,4 +81,3 @@ def run_cmd(
             f.write("\n")
 
     return CommandResult(rc=rc, out=out, err=err, dur_ms=dur_ms)
-
