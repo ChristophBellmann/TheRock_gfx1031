@@ -3,9 +3,7 @@ from __future__ import annotations
 import json
 import os
 import re
-import shutil
 import sys
-import tarfile
 import tempfile
 import time
 from dataclasses import dataclass
@@ -14,12 +12,16 @@ from typing import Any, Callable
 
 from core.artifacts import write_report_json
 from core.context import Context
-from core.download import DownloadPolicy, download
 from core.power import PowerSampler, discover_sensors, format_power_metrics, write_csv
 from core.rocm_env import activated_env, which
 from core.tree import detect_build_dirs, detect_default_build_dir, rocm_dist_for_build
 from core.reporting.models import StepResult
 from core.runner import fmt_duration, run_cmd
+from steps.workloads.llama_cpp.docker_env import step_llama_cpp_docker
+from steps.workloads.mfem.hip_build import step_mfem_hip
+from steps.workloads.ollama.functional import step_ollama
+from steps.workloads.open_interpreter.functional import step_open_interpreter
+from steps.workloads.whisper.setup import step_whisper
 
 
 @dataclass(frozen=True)
@@ -35,21 +37,6 @@ def _log_path(ctx: Context, build_dir: str, key: str) -> Path | None:
     if ctx.logs_dir is None:
         return None
     return ctx.logs_dir / f"{build_dir}.{key}.log"
-
-
-def _downloads_enabled(cfg: dict[str, Any]) -> bool:
-    run_cfg = cfg.get("run", {})
-    return bool(run_cfg.get("downloads_enabled", True))
-
-
-def _dl_policy(cfg: dict[str, Any]) -> DownloadPolicy:
-    run_cfg = cfg.get("run", {})
-    max_total_gb = float(run_cfg.get("max_download_gb", 8))
-    max_single_gb = float(run_cfg.get("max_single_download_gb", 4))
-    return DownloadPolicy(
-        max_total_bytes=int(max_total_gb * 1024 * 1024 * 1024),
-        max_single_bytes=int(max_single_gb * 1024 * 1024 * 1024),
-    )
 
 
 def _power_enabled(cfg: dict[str, Any]) -> bool:
@@ -411,174 +398,6 @@ def _step_miopen_smoke(ctx: Context, cfg: dict[str, Any], build_dir: str, rocm_d
     return StepResult(build_dir, "MIOpen smoke", "OK", fmt_duration(r.dur_ms), metric)
 
 
-def _pip_install(ctx: Context, env: dict[str, str], pkgs: list[str], log: Path | None, timeout_s: int) -> StepResult | None:
-    cmd = [sys.executable, "-m", "pip", "install"] + pkgs
-    r = run_cmd(ctx.repo_root, env, cmd, timeout_s, log)
-    if r.rc != 0:
-        return StepResult("<meta>", "pip install", "FAIL", fmt_duration(r.dur_ms), f"rc={r.rc}")
-    return None
-
-
-def _step_llama_cpp_docker(ctx: Context, cfg: dict[str, Any], build_dir: str, rocm_dist: Path, env: dict[str, str], log: Path | None) -> StepResult:
-    if not _downloads_enabled(cfg):
-        return StepResult(build_dir, "llama.cpp (docker) smoke", "SKIP", "0ms", "downloads disabled")
-    if which("docker", env) is None:
-        return StepResult(build_dir, "llama.cpp (docker) smoke", "SKIP", "0ms", "docker not installed or not in PATH")
-
-    url = "https://rocm.docs.amd.com/projects/install-on-linux/en/latest/install/3rd-party/llama-cpp-install.html"
-    r = run_cmd(ctx.repo_root, env, ["bash", "-lc", f"curl -fsSL {url!s}"], 30, log)
-    if r.rc != 0:
-        return StepResult(build_dir, "llama.cpp (docker) smoke", "FAIL", fmt_duration(r.dur_ms), f"failed to fetch docs rc={r.rc}")
-
-    tags = re.findall(r"rocm/llama\\.cpp:([a-zA-Z0-9._-]+_(?:server|full|light))", r.out)
-    if not tags:
-        return StepResult(build_dir, "llama.cpp (docker) smoke", "FAIL", fmt_duration(r.dur_ms), "no rocm/llama.cpp tag found in docs HTML")
-    image = f"rocm/llama.cpp:{tags[0]}"
-
-    rp = run_cmd(ctx.repo_root, env, ["docker", "pull", image], int(cfg.get("timeouts_s", {}).get("llama_cpp_docker", 900)), log)
-    if rp.rc != 0:
-        return StepResult(build_dir, "llama.cpp (docker) smoke", "FAIL", fmt_duration(rp.dur_ms), f"docker pull rc={rp.rc}")
-
-    rr = run_cmd(ctx.repo_root, env, ["docker", "run", "--rm", image, "--help"], 60, log)
-    return StepResult(build_dir, "llama.cpp (docker) smoke", "OK" if rr.rc == 0 else "FAIL", fmt_duration(rp.dur_ms + rr.dur_ms), f"image={image}")
-
-
-def _step_ollama(ctx: Context, cfg: dict[str, Any], build_dir: str, rocm_dist: Path, env: dict[str, str], log: Path | None) -> StepResult:
-    if not _downloads_enabled(cfg):
-        return StepResult(build_dir, "Ollama (local binary) smoke", "SKIP", "0ms", "downloads disabled")
-
-    exe = which("ollama", env)
-    if exe is None:
-        tgz = ctx.downloads_dir() / "ollama" / "ollama-linux-amd64.tgz"
-        root = ctx.builds_dir() / "ollama" / "root"
-        bin_path = root / "bin" / "ollama"
-        if not bin_path.exists():
-            url = "https://ollama.com/download/ollama-linux-amd64.tgz"
-            try:
-                download(ctx, url, tgz, policy=_dl_policy(cfg))
-                if root.exists():
-                    shutil.rmtree(root)
-                root.mkdir(parents=True, exist_ok=True)
-                with tarfile.open(tgz, "r:gz") as tf:
-                    tf.extractall(path=root)
-                if (root / "ollama").is_file() and not bin_path.exists():
-                    (root / "ollama").rename(bin_path)
-                bin_path.chmod(0o755)
-            except Exception as e:
-                return StepResult(build_dir, "Ollama (local binary) smoke", "FAIL", "0ms", f"download/extract failed: {e}")
-        exe = str(bin_path)
-    r = run_cmd(ctx.repo_root, env, [exe, "--version"], int(cfg.get("timeouts_s", {}).get("ollama", 120)), log)
-    return StepResult(build_dir, "Ollama (local binary) smoke", "OK" if r.rc == 0 else "FAIL", fmt_duration(r.dur_ms), "ollama --version" if r.rc == 0 else f"rc={r.rc}")
-
-
-def _step_open_interpreter(ctx: Context, cfg: dict[str, Any], build_dir: str, rocm_dist: Path, env: dict[str, str], log: Path | None) -> StepResult:
-    if not _downloads_enabled(cfg):
-        return StepResult(build_dir, "Open Interpreter (pip) smoke", "SKIP", "0ms", "downloads disabled")
-    t = int(cfg.get("timeouts_s", {}).get("open_interpreter", 900))
-    rpi = _pip_install(ctx, env, ["open-interpreter"], log, t)
-    if rpi is not None:
-        return StepResult(build_dir, "Open Interpreter (pip) smoke", "FAIL", rpi.duration, rpi.metric)
-    interp = which("interpreter", env) or str(Path(sys.executable).resolve().parent / "interpreter")
-    r = run_cmd(ctx.repo_root, env, [interp, "--help"], 20, log)
-    return StepResult(build_dir, "Open Interpreter (pip) smoke", "OK" if r.rc == 0 else "FAIL", fmt_duration(r.dur_ms), "interpreter --help" if r.rc == 0 else f"rc={r.rc}")
-
-
-def _step_whisper(ctx: Context, cfg: dict[str, Any], build_dir: str, rocm_dist: Path, env: dict[str, str], log: Path | None) -> StepResult:
-    if not _downloads_enabled(cfg):
-        return StepResult(build_dir, "Whisper (pip) smoke", "SKIP", "0ms", "downloads disabled")
-    t = int(cfg.get("timeouts_s", {}).get("whisper", 1800))
-    rpi = _pip_install(ctx, env, ["torch", "openai-whisper"], log, t)
-    if rpi is not None:
-        return StepResult(build_dir, "Whisper (pip) smoke", "FAIL", rpi.duration, rpi.metric)
-
-    script = r"""
-import os, wave, struct, math, time
-import torch
-import whisper
-
-print("torch", torch.__version__)
-print("torch.cuda.is_available", torch.cuda.is_available())
-print("torch.version.hip", getattr(torch.version, "hip", None))
-
-sr=16000
-dur=1.0
-freq=440.0
-n=int(sr*dur)
-fname=os.path.join("validation","workspace","cache","downloads","whisper_test.wav")
-os.makedirs(os.path.dirname(fname), exist_ok=True)
-with wave.open(fname, "w") as w:
-    w.setnchannels(1)
-    w.setsampwidth(2)
-    w.setframerate(sr)
-    for i in range(n):
-        v=int(0.2*32767*math.sin(2*math.pi*freq*i/sr))
-        w.writeframes(struct.pack("<h", v))
-
-model=whisper.load_model("tiny.en")
-t0=time.time()
-result=model.transcribe(fname, fp16=False)
-dt=time.time()-t0
-print("seconds", dt)
-print("text_len", len(result.get("text","")))
-"""
-    r = run_cmd(ctx.repo_root, env, [sys.executable, "-c", script], t, log)
-    if r.rc != 0:
-        return StepResult(build_dir, "Whisper (pip) smoke", "FAIL", fmt_duration(r.dur_ms), f"rc={r.rc}")
-    out = r.out + "\n" + r.err
-    metric = "ran tiny.en transcribe"
-    if "torch.version.hip None" in out and "torch.cuda.is_available False" in out:
-        metric += " (CPU torch; ROCm not detected)"
-    return StepResult(build_dir, "Whisper (pip) smoke", "OK", fmt_duration(r.dur_ms), metric)
-
-
-def _step_mfem(ctx: Context, cfg: dict[str, Any], build_dir: str, rocm_dist: Path, env: dict[str, str], log: Path | None) -> StepResult:
-    if not _downloads_enabled(cfg):
-        return StepResult(build_dir, "MFEM (HIP) build+run", "SKIP", "0ms", "downloads disabled")
-    if which("cmake", env) is None or which("ninja", env) is None:
-        return StepResult(build_dir, "MFEM (HIP) build+run", "SKIP", "0ms", "missing cmake/ninja (install system packages)")
-    if which("hipcc", env) is None:
-        return StepResult(build_dir, "MFEM (HIP) build+run", "SKIP", "0ms", "hipcc not in PATH (need Stage-2 dist)")
-
-    t = int(cfg.get("timeouts_s", {}).get("mfem_hip", 3600))
-    src = ctx.git_cache_dir() / "mfem"
-    bld = ctx.builds_dir() / "mfem"
-    if not src.exists():
-        r0 = run_cmd(ctx.repo_root, env, ["git", "clone", "--depth", "1", "https://github.com/mfem/mfem.git", str(src)], 900, log)
-        if r0.rc != 0:
-            return StepResult(build_dir, "MFEM (HIP) build+run", "FAIL", fmt_duration(r0.dur_ms), f"git clone rc={r0.rc}")
-
-    bld.mkdir(parents=True, exist_ok=True)
-    hipcc = which("hipcc", env) or "hipcc"
-    clangxx = str(rocm_dist / "llvm" / "bin" / "clang++")
-    arch = str(cfg.get("rocm", {}).get("amd_gpu_arch", "gfx1031"))
-    cfg_cmd = [
-        "cmake",
-        "-S",
-        str(src),
-        "-B",
-        str(bld),
-        "-G",
-        "Ninja",
-        "-DMFEM_USE_HIP=YES",
-        f"-DHIP_ARCH={arch}",
-        f"-DCMAKE_CXX_COMPILER={clangxx}",
-        f"-DCMAKE_HIP_COMPILER={hipcc}",
-    ]
-    r1 = run_cmd(ctx.repo_root, env, cfg_cmd, 600, log)
-    if r1.rc != 0:
-        return StepResult(build_dir, "MFEM (HIP) build+run", "FAIL", fmt_duration(r1.dur_ms), f"cmake rc={r1.rc}")
-    r2 = run_cmd(ctx.repo_root, env, ["ninja", "-C", str(bld), "-j4"], t, log)
-    if r2.rc != 0:
-        return StepResult(build_dir, "MFEM (HIP) build+run", "FAIL", fmt_duration(r1.dur_ms + r2.dur_ms), f"ninja rc={r2.rc}")
-    ex1 = bld / "examples" / "ex1"
-    if not ex1.exists():
-        ex1 = bld / "bin" / "ex1"
-    if not ex1.exists():
-        return StepResult(build_dir, "MFEM (HIP) build+run", "FAIL", fmt_duration(r1.dur_ms + r2.dur_ms), "MFEM ex1 not found after build")
-    r3 = run_cmd(ctx.repo_root, env, [str(ex1), "-m", str(src / "data" / "star.mesh")], 60, log)
-    return StepResult(build_dir, "MFEM (HIP) build+run", "OK" if r3.rc == 0 else "FAIL", fmt_duration(r1.dur_ms + r2.dur_ms + r3.dur_ms), "ex1 star.mesh" if r3.rc == 0 else f"run rc={r3.rc}")
-
-
 def build_plan(cfg: dict[str, Any], *, doctor_only: bool = False) -> list[Step]:
     steps_cfg = cfg.get("steps", {})
     plan: list[Step] = []
@@ -605,11 +424,11 @@ def build_plan(cfg: dict[str, Any], *, doctor_only: bool = False) -> list[Step]:
     add("miopen_smoke", "miopen_driver", "MIOpen driver", "typ. <1s", _step_miopen_driver)
     add("miopen_smoke", "miopen_smoke", "MIOpen smoke", "typ. ~5s (continuous; first run may JIT)", _step_miopen_smoke)
 
-    add("llama_cpp_docker", "llama_cpp_docker", "llama.cpp (docker) smoke", "minutes (pull), <5s run", _step_llama_cpp_docker)
-    add("ollama", "ollama", "Ollama (local binary) smoke", "<10s download, <1s version", _step_ollama)
-    add("open_interpreter", "open_interpreter", "Open Interpreter (pip) smoke", "minutes (pip), <2s help", _step_open_interpreter)
-    add("whisper", "whisper", "Whisper (pip) smoke", "minutes (pip/model), <30s run", _step_whisper)
-    add("mfem_hip", "mfem_hip", "MFEM (HIP) build+run", "minutes (clone/build), <5s run", _step_mfem)
+    add("llama_cpp_docker", "llama_cpp_docker", "llama.cpp (docker) smoke", "minutes (pull), <5s run", step_llama_cpp_docker)
+    add("ollama", "ollama", "Ollama (local binary) smoke", "<10s download, <1s version", step_ollama)
+    add("open_interpreter", "open_interpreter", "Open Interpreter (pip) smoke", "minutes (pip), <2s help", step_open_interpreter)
+    add("whisper", "whisper", "Whisper (python) smoke", "<5s run (if installed)", step_whisper)
+    add("mfem_hip", "mfem_hip", "MFEM (HIP) build+run", "minutes (clone/build), <5s run", step_mfem_hip)
     return plan
 
 

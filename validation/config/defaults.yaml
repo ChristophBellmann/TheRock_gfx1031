@@ -14,6 +14,15 @@ rocm:
   amd_gpu_arch: gfx1031
   prefer_in_tree_rocm: true
 
+workloads:
+  llama_cpp:
+    docker_image: ""   # optional override; empty => auto-detect from AMD docs
+  ollama:
+    url: "https://ollama.com/download/ollama-linux-amd64.tgz"
+  mfem:
+    git: "https://github.com/mfem/mfem.git"
+    ref: "master"
+
 steps:
   rocm_sanity: true
   rocm_bench_smoke: true

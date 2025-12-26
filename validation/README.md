@@ -61,6 +61,9 @@ reports per-test energy deltas (`dW`) relative to that baseline.
   `validation/workspace/envs/py/` and install only minimal dependencies (see `validation/requirements-lock.txt`).
 - **Downloads are gated:** third-party checks are enabled by default in `full` and guarded by
   a single **Y/n prompt** on startup (use `--yes` to skip prompting).
+- **Workloads are best-effort:** workload steps may `SKIP` if prerequisites aren’t present
+  (e.g. `docker` missing for llama.cpp, or Python packages missing for Whisper).
+  The goal is to keep the suite reproducible and avoid surprise multi-GB installs.
 - **All runtime artifacts live in `validation/workspace/`** and are gitignored.
 
 ## Build dirs (Stage-1 vs Stage-2)
@@ -108,6 +111,7 @@ python3 validation/scripts/report_open.py --open
   - `validation/config/profiles/full.yaml` (default; everything enabled, downloads gated)
   - `validation/config/profiles/quick.yaml` (ROCm-only smoke)
   - `validation/config/profiles/airgapped.yaml` (same as quick; future-proof name)
+- Workload inputs (URLs/refs): `validation/config/defaults.yaml` under `workloads:`
 - Layout/env hints:
   - `validation/config/layout/gfx_targets.yaml`
   - `validation/config/layout/install_layouts.yaml`
