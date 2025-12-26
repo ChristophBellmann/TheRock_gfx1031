@@ -128,38 +128,6 @@ def _step_power_idle_baseline(ctx: Context, cfg: dict[str, Any], build_dir: str,
     return StepResult(build_dir, "Power idle baseline", "OK", "5.000s", metric)
 
 
-def _repeat_cmd_for_load(
-    ctx: Context,
-    env: dict[str, str],
-    cmd: list[str],
-    *,
-    min_wall_s: float = 5.0,
-    max_wall_s: float = 8.0,
-    per_run_timeout_s: int = 60,
-    log: Path | None,
-):
-    """
-    Run `cmd` repeatedly to create sustained load.
-
-    Some upstream bench tools have a large fixed setup cost or ignore iteration knobs.
-    Repeating the process is a pragmatic way to keep GPU/CPU utilization visible for ~5s.
-    """
-    start = time.monotonic()
-    total_ms = 0
-    runs = 0
-    last = None
-    while True:
-        r = run_cmd(ctx.repo_root, env, cmd, per_run_timeout_s, log)
-        last = r
-        runs += 1
-        total_ms += r.dur_ms
-        if r.rc != 0:
-            return r, total_ms, runs
-        elapsed = time.monotonic() - start
-        if elapsed >= min_wall_s or elapsed >= max_wall_s:
-            return r, total_ms, runs
-
-
 def _step_rocm_env(ctx: Context, cfg: dict[str, Any], build_dir: str, rocm_dist: Path, env: dict[str, str], log: Path | None) -> StepResult:
     ok = (rocm_dist / "bin").is_dir() and (rocm_dist / "llvm" / "bin").is_dir()
     return StepResult(build_dir, "ROCm env activation", "OK" if ok else "FAIL", "0ms", f"ROCM_PATH={rocm_dist}")
@@ -266,6 +234,9 @@ def _step_rocblas(ctx: Context, cfg: dict[str, Any], build_dir: str, rocm_dist: 
     t = int(cfg.get("timeouts_s", {}).get("rocblas_bench", 60))
     if not which("rocblas-bench", env):
         return StepResult(build_dir, "rocBLAS GEMM f32", "SKIP", "0ms", "rocblas-bench not in PATH")
+    # Single long-running bench invocation (avoid "pulses" from repeated process startup).
+    m = n = k = 6144
+    iters = 80
     cmd = [
         "rocblas-bench",
         "-f",
@@ -273,66 +244,75 @@ def _step_rocblas(ctx: Context, cfg: dict[str, Any], build_dir: str, rocm_dist: 
         "-r",
         "f32_r",
         "-m",
-        "2048",
+        str(m),
         "-n",
-        "2048",
+        str(n),
         "-k",
-        "2048",
+        str(k),
         "--alpha",
         "1",
         "--beta",
         "0",
         "--iters",
-        "10",
+        str(iters),
     ]
-    def run_load(sampler: PowerSampler | None):
-        r, total_ms, runs = _repeat_cmd_for_load(ctx, env, cmd, min_wall_s=5.0, max_wall_s=8.0, per_run_timeout_s=t, log=log)
-        return r, total_ms, runs, sampler
 
-    r, total_ms, runs, sampler = _with_power_sampler(ctx, cfg, build_dir, "rocblas_gemm_f32", run_load)
+    def run_one(sampler: PowerSampler | None):
+        r = run_cmd(ctx.repo_root, env, cmd, t, log)
+        return r, sampler
+
+    r, sampler = _with_power_sampler(ctx, cfg, build_dir, "rocblas_gemm_f32", run_one)
     if r.rc != 0:
-        return StepResult(build_dir, "rocBLAS GEMM f32", "FAIL", fmt_duration(total_ms), f"rc={r.rc}")
+        return StepResult(build_dir, "rocBLAS GEMM f32", "FAIL", fmt_duration(r.dur_ms), f"rc={r.rc}")
     gflops = _extract_gflops(r.out + "\n" + r.err)
-    metric = f"runs={runs}"
+    metric = f"m=n=k={m} iters={iters}"
     if gflops is not None:
         metric += f" TFLOPS={gflops/1000.0:.3f} (GFLOPS={gflops:.1f})"
     if sampler is not None:
         pm = format_power_metrics(sampler, baseline_avg_w=_get_baseline_avg_w(cfg, build_dir))
         if pm:
             metric += f" {pm}"
-    return StepResult(build_dir, "rocBLAS GEMM f32", "OK", fmt_duration(total_ms), metric)
+    return StepResult(build_dir, "rocBLAS GEMM f32", "OK", fmt_duration(r.dur_ms), metric)
 
 
 def _step_rocfft(ctx: Context, cfg: dict[str, Any], build_dir: str, rocm_dist: Path, env: dict[str, str], log: Path | None) -> StepResult:
     t = int(cfg.get("timeouts_s", {}).get("rocfft_bench", 30))
     if not which("rocfft-bench", env):
         return StepResult(build_dir, "rocFFT 1024", "SKIP", "0ms", "rocfft-bench not in PATH")
-    cmd = ["rocfft-bench", "--length", "1024", "--precision", "single", "-t", "0", "-N", "2"]
-    def run_load(sampler: PowerSampler | None):
-        r, total_ms, runs = _repeat_cmd_for_load(ctx, env, cmd, min_wall_s=5.0, max_wall_s=8.0, per_run_timeout_s=t, log=log)
-        return r, total_ms, runs, sampler
+    # Single long-running bench invocation.
+    length = 1_048_576
+    batch = 16
+    ntrial = 800
+    cmd = ["rocfft-bench", "--length", str(length), "--precision", "single", "-t", "0", "-b", str(batch), "-N", str(ntrial)]
 
-    r, total_ms, runs, sampler = _with_power_sampler(ctx, cfg, build_dir, "rocfft_1024", run_load)
+    def run_one(sampler: PowerSampler | None):
+        r = run_cmd(ctx.repo_root, env, cmd, max(t, 120), log)
+        return r, sampler
+
+    r, sampler = _with_power_sampler(ctx, cfg, build_dir, "rocfft", run_one)
     if r.rc != 0:
-        return StepResult(build_dir, "rocFFT 1024", "FAIL", fmt_duration(total_ms), f"rc={r.rc}")
-    metric = f"runs={runs}"
+        return StepResult(build_dir, "rocFFT", "FAIL", fmt_duration(r.dur_ms), f"rc={r.rc}")
+    metric = f"len={length} batch={batch} ntrial={ntrial}"
     if sampler is not None:
         pm = format_power_metrics(sampler, baseline_avg_w=_get_baseline_avg_w(cfg, build_dir))
         if pm:
             metric += f" {pm}"
-    return StepResult(build_dir, "rocFFT 1024", "OK", fmt_duration(total_ms), metric)
+    return StepResult(build_dir, "rocFFT", "OK", fmt_duration(r.dur_ms), metric)
 
 
 def _step_rocrand(ctx: Context, cfg: dict[str, Any], build_dir: str, rocm_dist: Path, env: dict[str, str], log: Path | None) -> StepResult:
     t = int(cfg.get("timeouts_s", {}).get("rocrand_bench", 30))
     if not which("benchmark_rocrand_generate", env):
         return StepResult(build_dir, "rocRAND generate", "SKIP", "0ms", "benchmark_rocrand_generate not in PATH")
+    # Single long-running bench invocation.
+    size = 134_217_728  # 512MB of floats
+    trials = 3300
     cmd = [
         "benchmark_rocrand_generate",
         "--size",
-        "16777216",
+        str(size),
         "--trials",
-        "2",
+        str(trials),
         "--dis",
         "uniform-float",
         "--engine",
@@ -340,19 +320,20 @@ def _step_rocrand(ctx: Context, cfg: dict[str, Any], build_dir: str, rocm_dist: 
         "--format",
         "csv",
     ]
-    def run_load(sampler: PowerSampler | None):
-        r, total_ms, runs = _repeat_cmd_for_load(ctx, env, cmd, min_wall_s=5.0, max_wall_s=8.0, per_run_timeout_s=t, log=log)
-        return r, total_ms, runs, sampler
 
-    r, total_ms, runs, sampler = _with_power_sampler(ctx, cfg, build_dir, "rocrand_generate", run_load)
+    def run_one(sampler: PowerSampler | None):
+        r = run_cmd(ctx.repo_root, env, cmd, max(t, 120), log)
+        return r, sampler
+
+    r, sampler = _with_power_sampler(ctx, cfg, build_dir, "rocrand_generate", run_one)
     if r.rc != 0:
-        return StepResult(build_dir, "rocRAND generate", "FAIL", fmt_duration(total_ms), f"rc={r.rc}")
-    metric = f"runs={runs} size=16777216"
+        return StepResult(build_dir, "rocRAND generate", "FAIL", fmt_duration(r.dur_ms), f"rc={r.rc}")
+    metric = f"size={size} trials={trials}"
     if sampler is not None:
         pm = format_power_metrics(sampler, baseline_avg_w=_get_baseline_avg_w(cfg, build_dir))
         if pm:
             metric += f" {pm}"
-    return StepResult(build_dir, "rocRAND generate", "OK", fmt_duration(total_ms), metric)
+    return StepResult(build_dir, "rocRAND generate", "OK", fmt_duration(r.dur_ms), metric)
 
 
 def _step_miopen_driver(ctx: Context, cfg: dict[str, Any], build_dir: str, rocm_dist: Path, env: dict[str, str], log: Path | None) -> StepResult:
@@ -407,23 +388,23 @@ def _step_miopen_smoke(ctx: Context, cfg: dict[str, Any], build_dir: str, rocm_d
             "1",
         ]
 
-    # `--iter` is not always reliably reflected in wall time (backend-specific), so we
-    # also repeat the command until we reach sustained load.
-    cmd = cmd_for(20)
+    # Single long-running invocation. `--iter` impacts runtime (measured on RX 6700 XT).
+    iters = 700
+    cmd = cmd_for(iters)
 
-    def run_load(sampler: PowerSampler | None):
-        r, total_ms, runs = _repeat_cmd_for_load(ctx, env, cmd, min_wall_s=5.0, max_wall_s=10.0, per_run_timeout_s=t, log=log)
-        return r, total_ms, runs, sampler
+    def run_one(sampler: PowerSampler | None):
+        r = run_cmd(ctx.repo_root, env, cmd, t, log)
+        return r, sampler
 
-    r, total_ms, runs, sampler = _with_power_sampler(ctx, cfg, build_dir, "miopen_smoke", run_load)
+    r, sampler = _with_power_sampler(ctx, cfg, build_dir, "miopen_smoke", run_one)
     if r.rc != 0:
-        return StepResult(build_dir, "MIOpen smoke", "FAIL", fmt_duration(total_ms), f"rc={r.rc}")
-    metric = f"driver={Path(drv).name} runs={runs} iters=20"
+        return StepResult(build_dir, "MIOpen smoke", "FAIL", fmt_duration(r.dur_ms), f"rc={r.rc}")
+    metric = f"driver={Path(drv).name} iters={iters}"
     if sampler is not None:
         pm = format_power_metrics(sampler, baseline_avg_w=_get_baseline_avg_w(cfg, build_dir))
         if pm:
             metric += f" {pm}"
-    return StepResult(build_dir, "MIOpen smoke", "OK", fmt_duration(total_ms), metric)
+    return StepResult(build_dir, "MIOpen smoke", "OK", fmt_duration(r.dur_ms), metric)
 
 
 def _pip_install(ctx: Context, env: dict[str, str], pkgs: list[str], log: Path | None, timeout_s: int) -> StepResult | None:
@@ -613,12 +594,12 @@ def build_plan(cfg: dict[str, Any], *, doctor_only: bool = False) -> list[Step]:
     add("rocm_sanity", "rocminfo", "rocminfo", "typ. <1s", _step_rocminfo)
     add("rocm_sanity", "hipcc_compile_run", "hipcc compile+run", "typ. ~5s (sustained)", _step_hipcc_compile_run)
 
-    add("rocm_bench_smoke", "rocblas_gemm_f32", "rocBLAS GEMM f32", "typ. ~5s (sustained)", _step_rocblas)
-    add("rocm_bench_smoke", "rocfft_1024", "rocFFT 1024", "typ. ~5s (sustained)", _step_rocfft)
-    add("rocm_bench_smoke", "rocrand_generate", "rocRAND generate", "typ. ~5s (sustained)", _step_rocrand)
+    add("rocm_bench_smoke", "rocblas_gemm_f32", "rocBLAS GEMM f32", "typ. ~5s (continuous)", _step_rocblas)
+    add("rocm_bench_smoke", "rocfft", "rocFFT", "typ. ~5s (continuous)", _step_rocfft)
+    add("rocm_bench_smoke", "rocrand_generate", "rocRAND generate", "typ. ~5s (continuous)", _step_rocrand)
 
     add("miopen_smoke", "miopen_driver", "MIOpen driver", "typ. <1s", _step_miopen_driver)
-    add("miopen_smoke", "miopen_smoke", "MIOpen smoke", "typ. ~5s (sustained; first run may JIT)", _step_miopen_smoke)
+    add("miopen_smoke", "miopen_smoke", "MIOpen smoke", "typ. ~5s (continuous; first run may JIT)", _step_miopen_smoke)
 
     add("llama_cpp_docker", "llama_cpp_docker", "llama.cpp (docker) smoke", "minutes (pull), <5s run", _step_llama_cpp_docker)
     add("ollama", "ollama", "Ollama (local binary) smoke", "<10s download, <1s version", _step_ollama)

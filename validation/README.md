@@ -43,7 +43,7 @@ reports per-test energy deltas (`dW`) relative to that baseline.
 - **Explicit in-tree activation:** each step runs with `ROCM_PATH`, `PATH`, and `LD_LIBRARY_PATH`
   set to `<builddir>/dist/rocm` so it doesn’t accidentally use system ROCm.
 - **Sustained-load checks:** core ROCm tests are parameterized to run for ~5 seconds each, so it’s
-  easier to observe GPU/CPU utilization and confirm hardware acceleration before running workloads.
+  easier to observe *continuous* GPU/CPU utilization (no “pulses”) and confirm hardware acceleration before running workloads.
 - **Optional power/energy sampling:** with `--power`, sustained-load tests sample AMDGPU sysfs
   power (`power1_average`, µW) and integrate to an approximate energy in **Ws**. With `--log`,
   per-test samples are written as `*.power.csv` under the run’s `logs/` directory.
