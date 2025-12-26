@@ -132,7 +132,7 @@ class PowerSampler:
         return float(sum(vals)) / float(len(vals))
 
 
-def format_power_metrics(s: PowerSampler) -> str:
+def format_power_metrics(s: PowerSampler, *, baseline_avg_w: float | None = None) -> str:
     e = s.energy_ws()
     avg = s.avg_power_w()
     peak = s.peak_power_w()
@@ -143,6 +143,8 @@ def format_power_metrics(s: PowerSampler) -> str:
         parts.append(f"E={e:.0f}Ws")
     if avg is not None:
         parts.append(f"avgW={avg:.1f}")
+        if baseline_avg_w is not None:
+            parts.append(f"dW={avg - baseline_avg_w:+.1f}")
     if peak is not None:
         parts.append(f"peakW={peak:.1f}")
     if gpu is not None:
@@ -161,4 +163,3 @@ def write_csv(path: Path, samples: list[Sample]) -> None:
         mb = "" if s.mem_busy is None else str(s.mem_busy)
         lines.append(f"{s.t_s:.3f},{pw},{gb},{mb}\n")
     path.write_text("".join(lines), encoding="utf-8")
-

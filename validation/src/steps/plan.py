@@ -79,6 +79,55 @@ def _with_power_sampler(ctx: Context, cfg: dict[str, Any], build_dir: str, key: 
             write_csv(csvp, sampler.samples())
 
 
+def _baseline_cache(cfg: dict[str, Any]) -> dict[str, Any]:
+    rt = cfg.setdefault("_runtime", {})
+    return rt.setdefault("power_baseline", {})
+
+
+def _get_baseline_avg_w(cfg: dict[str, Any], build_dir: str) -> float | None:
+    b = _baseline_cache(cfg).get(build_dir) or {}
+    v = b.get("avg_w")
+    try:
+        return float(v) if v is not None else None
+    except Exception:
+        return None
+
+
+def _set_baseline(cfg: dict[str, Any], build_dir: str, *, avg_w: float | None, peak_w: float | None, energy_ws: float | None, gpu: float | None, mem: float | None) -> None:
+    _baseline_cache(cfg)[build_dir] = {"avg_w": avg_w, "peak_w": peak_w, "energy_ws": energy_ws, "gpu": gpu, "mem": mem}
+
+
+def _step_power_idle_baseline(ctx: Context, cfg: dict[str, Any], build_dir: str, rocm_dist: Path, env: dict[str, str], log: Path | None) -> StepResult:
+    if not _power_enabled(cfg):
+        return StepResult(build_dir, "Power idle baseline", "SKIP", "0ms", "power monitor disabled")
+    sensors = discover_sensors()
+    if sensors is None:
+        return StepResult(build_dir, "Power idle baseline", "SKIP", "0ms", "no amdgpu power sensor found in sysfs")
+    sampler = PowerSampler(sensors=sensors, interval_s=0.5)
+    sampler.start()
+    try:
+        # No GPU load: just sleep to measure baseline.
+        time.sleep(5.0)
+    finally:
+        sampler.stop()
+        csvp = _power_csv_path(ctx, build_dir, "power_idle_baseline")
+        if csvp is not None:
+            write_csv(csvp, sampler.samples())
+    avg = sampler.avg_power_w()
+    peak = sampler.peak_power_w()
+    e = sampler.energy_ws()
+    gpu = sampler.avg_gpu_busy()
+    mem = sampler.avg_mem_busy()
+    _set_baseline(cfg, build_dir, avg_w=avg, peak_w=peak, energy_ws=e, gpu=gpu, mem=mem)
+    metric = format_power_metrics(sampler)
+    warn = []
+    if gpu is not None and gpu >= 10.0:
+        warn.append(f"gpu%={gpu:.0f} (busy?)")
+    if warn:
+        metric = (metric + " WARN:" + ";".join(warn)).strip()
+    return StepResult(build_dir, "Power idle baseline", "OK", "5.000s", metric)
+
+
 def _repeat_cmd_for_load(
     ctx: Context,
     env: dict[str, str],
@@ -194,7 +243,7 @@ int main() {
         ok = (r2.rc == 0) and ("OK" in (r2.out + r2.err))
         metric = "" if ok else f"run rc={r2.rc}"
         if ok and sampler is not None:
-            pm = format_power_metrics(sampler)
+            pm = format_power_metrics(sampler, baseline_avg_w=_get_baseline_avg_w(cfg, build_dir))
             if pm:
                 metric = (metric + " " + pm).strip()
         return StepResult(build_dir, "hipcc compile+run", "OK" if ok else "FAIL", fmt_duration(r1.dur_ms + r2.dur_ms), metric)
@@ -248,7 +297,7 @@ def _step_rocblas(ctx: Context, cfg: dict[str, Any], build_dir: str, rocm_dist: 
     if gflops is not None:
         metric += f" TFLOPS={gflops/1000.0:.3f} (GFLOPS={gflops:.1f})"
     if sampler is not None:
-        pm = format_power_metrics(sampler)
+        pm = format_power_metrics(sampler, baseline_avg_w=_get_baseline_avg_w(cfg, build_dir))
         if pm:
             metric += f" {pm}"
     return StepResult(build_dir, "rocBLAS GEMM f32", "OK", fmt_duration(total_ms), metric)
@@ -268,7 +317,7 @@ def _step_rocfft(ctx: Context, cfg: dict[str, Any], build_dir: str, rocm_dist: P
         return StepResult(build_dir, "rocFFT 1024", "FAIL", fmt_duration(total_ms), f"rc={r.rc}")
     metric = f"runs={runs}"
     if sampler is not None:
-        pm = format_power_metrics(sampler)
+        pm = format_power_metrics(sampler, baseline_avg_w=_get_baseline_avg_w(cfg, build_dir))
         if pm:
             metric += f" {pm}"
     return StepResult(build_dir, "rocFFT 1024", "OK", fmt_duration(total_ms), metric)
@@ -300,7 +349,7 @@ def _step_rocrand(ctx: Context, cfg: dict[str, Any], build_dir: str, rocm_dist: 
         return StepResult(build_dir, "rocRAND generate", "FAIL", fmt_duration(total_ms), f"rc={r.rc}")
     metric = f"runs={runs} size=16777216"
     if sampler is not None:
-        pm = format_power_metrics(sampler)
+        pm = format_power_metrics(sampler, baseline_avg_w=_get_baseline_avg_w(cfg, build_dir))
         if pm:
             metric += f" {pm}"
     return StepResult(build_dir, "rocRAND generate", "OK", fmt_duration(total_ms), metric)
@@ -371,7 +420,7 @@ def _step_miopen_smoke(ctx: Context, cfg: dict[str, Any], build_dir: str, rocm_d
         return StepResult(build_dir, "MIOpen smoke", "FAIL", fmt_duration(total_ms), f"rc={r.rc}")
     metric = f"driver={Path(drv).name} runs={runs} iters=20"
     if sampler is not None:
-        pm = format_power_metrics(sampler)
+        pm = format_power_metrics(sampler, baseline_avg_w=_get_baseline_avg_w(cfg, build_dir))
         if pm:
             metric += f" {pm}"
     return StepResult(build_dir, "MIOpen smoke", "OK", fmt_duration(total_ms), metric)
@@ -560,6 +609,7 @@ def build_plan(cfg: dict[str, Any], *, doctor_only: bool = False) -> list[Step]:
         plan.append(Step(group=group, key=key, name=name, expected=expected, fn=fn))
 
     add("rocm_sanity", "rocm_env", "ROCm env activation", "typ. <50ms", _step_rocm_env)
+    add("rocm_sanity", "power_idle_baseline", "Power idle baseline", "5s (no load)", _step_power_idle_baseline)
     add("rocm_sanity", "rocminfo", "rocminfo", "typ. <1s", _step_rocminfo)
     add("rocm_sanity", "hipcc_compile_run", "hipcc compile+run", "typ. ~5s (sustained)", _step_hipcc_compile_run)
 

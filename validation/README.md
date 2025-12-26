@@ -35,6 +35,9 @@ Add optional GPU power/util sampling during sustained-load tests:
 python3 validation/scripts/validate.py --profile quick --power --log
 ```
 
+When `--power` is enabled, the run starts with a **5s idle baseline** (no GPU load) and then
+reports per-test energy deltas (`dW`) relative to that baseline.
+
 ## How it works
 
 - **Explicit in-tree activation:** each step runs with `ROCM_PATH`, `PATH`, and `LD_LIBRARY_PATH`
