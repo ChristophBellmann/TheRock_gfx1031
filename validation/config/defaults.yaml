@@ -28,7 +28,7 @@ workloads:
     prompt_file: "validation/src/assets/samples/prompts/tiny_prompt.txt"
     # Optional functional test (disabled unless set):
     # model: "tinyllama"
-    model: ""             # set (e.g. "tinyllama") to enable `ollama pull` + `ollama run` smoke
+    model: "llama3.2:3b-instruct-q4_0"  # enables `ollama pull` + `ollama run` smoke (≈1.9GB model)
   mfem:
     git: "https://github.com/mfem/mfem.git"
     ref: "master"
