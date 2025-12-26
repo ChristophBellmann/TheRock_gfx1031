@@ -34,6 +34,8 @@ python3 validation/scripts/validate.py --log
 
 - **Explicit in-tree activation:** each step runs with `ROCM_PATH`, `PATH`, and `LD_LIBRARY_PATH`
   set to `<builddir>/dist/rocm` so it doesn’t accidentally use system ROCm.
+- **Sustained-load checks:** core ROCm tests are parameterized to run for ~5 seconds each, so it’s
+  easier to observe GPU/CPU utilization and confirm hardware acceleration before running workloads.
 - **Repo-local Python environment:** the scripts auto-create a venv under
   `validation/workspace/envs/py/` and install only minimal dependencies (see `validation/requirements-lock.txt`).
 - **Downloads are gated:** third-party checks are enabled by default in `full` and guarded by

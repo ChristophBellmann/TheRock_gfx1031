@@ -7,6 +7,7 @@ import shutil
 import sys
 import tarfile
 import tempfile
+import time
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Callable
@@ -50,6 +51,38 @@ def _dl_policy(cfg: dict[str, Any]) -> DownloadPolicy:
     )
 
 
+def _repeat_cmd_for_load(
+    ctx: Context,
+    env: dict[str, str],
+    cmd: list[str],
+    *,
+    min_wall_s: float = 5.0,
+    max_wall_s: float = 8.0,
+    per_run_timeout_s: int = 60,
+    log: Path | None,
+):
+    """
+    Run `cmd` repeatedly to create sustained load.
+
+    Some upstream bench tools have a large fixed setup cost or ignore iteration knobs.
+    Repeating the process is a pragmatic way to keep GPU/CPU utilization visible for ~5s.
+    """
+    start = time.monotonic()
+    total_ms = 0
+    runs = 0
+    last = None
+    while True:
+        r = run_cmd(ctx.repo_root, env, cmd, per_run_timeout_s, log)
+        last = r
+        runs += 1
+        total_ms += r.dur_ms
+        if r.rc != 0:
+            return r, total_ms, runs
+        elapsed = time.monotonic() - start
+        if elapsed >= min_wall_s or elapsed >= max_wall_s:
+            return r, total_ms, runs
+
+
 def _step_rocm_env(ctx: Context, cfg: dict[str, Any], build_dir: str, rocm_dist: Path, env: dict[str, str], log: Path | None) -> StepResult:
     ok = (rocm_dist / "bin").is_dir() and (rocm_dist / "llvm" / "bin").is_dir()
     return StepResult(build_dir, "ROCm env activation", "OK" if ok else "FAIL", "0ms", f"ROCM_PATH={rocm_dist}")
@@ -76,6 +109,8 @@ def _step_hipcc_compile_run(ctx: Context, cfg: dict[str, Any], build_dir: str, r
             r"""
 #include <hip/hip_runtime.h>
 #include <cstdio>
+#include <chrono>
+#include <cstdlib>
 #include <vector>
 
 __global__ void vadd(const float* a, const float* b, float* c, int n) {
@@ -84,25 +119,37 @@ __global__ void vadd(const float* a, const float* b, float* c, int n) {
 }
 
 int main() {
-  int n = 1<<20;
+  // Choose a size that is big enough to keep the GPU busy for a few seconds
+  // (we want sustained load, not just microsecond kernels).
+  int n = 1<<25; // 33,554,432 floats (~128MB per vector)
+  int iters = 3000;
   size_t bytes = n * sizeof(float);
   std::vector<float> ha(n, 1.0f), hb(n, 2.0f), hc(n, 0.0f);
   float *da=nullptr, *db=nullptr, *dc=nullptr;
-  hipMalloc(&da, bytes);
-  hipMalloc(&db, bytes);
-  hipMalloc(&dc, bytes);
+  if (hipMalloc(&da, bytes) != hipSuccess ||
+      hipMalloc(&db, bytes) != hipSuccess ||
+      hipMalloc(&dc, bytes) != hipSuccess) {
+    std::fprintf(stderr, "hipMalloc failed (bytes=%zu)\n", bytes);
+    return 2;
+  }
   hipMemcpy(da, ha.data(), bytes, hipMemcpyHostToDevice);
   hipMemcpy(db, hb.data(), bytes, hipMemcpyHostToDevice);
   int threads = 256;
   int blocks = (n + threads - 1) / threads;
-  hipLaunchKernelGGL(vadd, dim3(blocks), dim3(threads), 0, 0, da, db, dc, n);
   hipDeviceSynchronize();
+  auto t0 = std::chrono::high_resolution_clock::now();
+  for (int i = 0; i < iters; i++) {
+    hipLaunchKernelGGL(vadd, dim3(blocks), dim3(threads), 0, 0, da, db, dc, n);
+  }
+  hipDeviceSynchronize();
+  auto t1 = std::chrono::high_resolution_clock::now();
   hipMemcpy(hc.data(), dc, bytes, hipMemcpyDeviceToHost);
   hipFree(da); hipFree(db); hipFree(dc);
   for (int i = 0; i < 10; i++) {
     if (hc[i] != 3.0f) { std::printf("FAIL %d %f\n", i, hc[i]); return 1; }
   }
-  std::printf("OK\n");
+  auto ms = std::chrono::duration_cast<std::chrono::milliseconds>(t1 - t0).count();
+  std::printf("OK iters=%d ms=%lld\n", iters, (long long)ms);
   return 0;
 }
 """.lstrip(),
@@ -152,22 +199,25 @@ def _step_rocblas(ctx: Context, cfg: dict[str, Any], build_dir: str, rocm_dist: 
         "--iters",
         "10",
     ]
-    r = run_cmd(ctx.repo_root, env, cmd, t, log)
+    r, total_ms, runs = _repeat_cmd_for_load(ctx, env, cmd, min_wall_s=5.0, max_wall_s=8.0, per_run_timeout_s=t, log=log)
     if r.rc != 0:
-        return StepResult(build_dir, "rocBLAS GEMM f32", "FAIL", fmt_duration(r.dur_ms), f"rc={r.rc}")
+        return StepResult(build_dir, "rocBLAS GEMM f32", "FAIL", fmt_duration(total_ms), f"rc={r.rc}")
     gflops = _extract_gflops(r.out + "\n" + r.err)
-    metric = ""
+    metric = f"runs={runs}"
     if gflops is not None:
-        metric = f"TFLOPS={gflops/1000.0:.3f} (GFLOPS={gflops:.1f})"
-    return StepResult(build_dir, "rocBLAS GEMM f32", "OK", fmt_duration(r.dur_ms), metric)
+        metric += f" TFLOPS={gflops/1000.0:.3f} (GFLOPS={gflops:.1f})"
+    return StepResult(build_dir, "rocBLAS GEMM f32", "OK", fmt_duration(total_ms), metric)
 
 
 def _step_rocfft(ctx: Context, cfg: dict[str, Any], build_dir: str, rocm_dist: Path, env: dict[str, str], log: Path | None) -> StepResult:
     t = int(cfg.get("timeouts_s", {}).get("rocfft_bench", 30))
     if not which("rocfft-bench", env):
         return StepResult(build_dir, "rocFFT 1024", "SKIP", "0ms", "rocfft-bench not in PATH")
-    r = run_cmd(ctx.repo_root, env, ["rocfft-bench", "--length", "1024", "--precision", "single", "-t", "0", "-N", "2"], t, log)
-    return StepResult(build_dir, "rocFFT 1024", "OK" if r.rc == 0 else "FAIL", fmt_duration(r.dur_ms), "" if r.rc == 0 else f"rc={r.rc}")
+    cmd = ["rocfft-bench", "--length", "1024", "--precision", "single", "-t", "0", "-N", "2"]
+    r, total_ms, runs = _repeat_cmd_for_load(ctx, env, cmd, min_wall_s=5.0, max_wall_s=8.0, per_run_timeout_s=t, log=log)
+    if r.rc != 0:
+        return StepResult(build_dir, "rocFFT 1024", "FAIL", fmt_duration(total_ms), f"rc={r.rc}")
+    return StepResult(build_dir, "rocFFT 1024", "OK", fmt_duration(total_ms), f"runs={runs}")
 
 
 def _step_rocrand(ctx: Context, cfg: dict[str, Any], build_dir: str, rocm_dist: Path, env: dict[str, str], log: Path | None) -> StepResult:
@@ -177,7 +227,7 @@ def _step_rocrand(ctx: Context, cfg: dict[str, Any], build_dir: str, rocm_dist: 
     cmd = [
         "benchmark_rocrand_generate",
         "--size",
-        "1048576",
+        "16777216",
         "--trials",
         "2",
         "--dis",
@@ -187,8 +237,10 @@ def _step_rocrand(ctx: Context, cfg: dict[str, Any], build_dir: str, rocm_dist: 
         "--format",
         "csv",
     ]
-    r = run_cmd(ctx.repo_root, env, cmd, t, log)
-    return StepResult(build_dir, "rocRAND generate", "OK" if r.rc == 0 else "FAIL", fmt_duration(r.dur_ms), "" if r.rc == 0 else f"rc={r.rc}")
+    r, total_ms, runs = _repeat_cmd_for_load(ctx, env, cmd, min_wall_s=5.0, max_wall_s=8.0, per_run_timeout_s=t, log=log)
+    if r.rc != 0:
+        return StepResult(build_dir, "rocRAND generate", "FAIL", fmt_duration(total_ms), f"rc={r.rc}")
+    return StepResult(build_dir, "rocRAND generate", "OK", fmt_duration(total_ms), f"runs={runs} size=16777216")
 
 
 def _step_miopen_driver(ctx: Context, cfg: dict[str, Any], build_dir: str, rocm_dist: Path, env: dict[str, str], log: Path | None) -> StepResult:
@@ -205,9 +257,51 @@ def _step_miopen_smoke(ctx: Context, cfg: dict[str, Any], build_dir: str, rocm_d
     drv = which("MIOpenDriver", env) or which("miopen-driver", env)
     if not drv:
         return StepResult(build_dir, "MIOpen smoke", "SKIP", "0ms", "MIOpenDriver/miopen-driver not in PATH")
-    cmd = [drv, "conv", "-n", "1", "-c", "1", "-H", "8", "-W", "8", "-k", "1", "-y", "3", "-x", "3", "-p", "1", "-q", "1"]
-    r = run_cmd(ctx.repo_root, env, cmd, t, log)
-    return StepResult(build_dir, "MIOpen smoke", "OK" if r.rc == 0 else "FAIL", fmt_duration(r.dur_ms), f"driver={Path(drv).name}")
+    def cmd_for(iters: int) -> list[str]:
+        # Use a moderately-sized forward conv with timing enabled and verification disabled.
+        # Goal: ~5s of sustained GPU load (adaptive iters).
+        return [
+            drv,
+            "conv",
+            "--forw",
+            "1",
+            "--verify",
+            "0",
+            "--gpualloc",
+            "1",
+            "--time",
+            "1",
+            "--wall",
+            "1",
+            "--iter",
+            str(iters),
+            "--batchsize",
+            "32",
+            "--in_channels",
+            "64",
+            "--out_channels",
+            "64",
+            "--in_h",
+            "224",
+            "--in_w",
+            "224",
+            "--fil_h",
+            "3",
+            "--fil_w",
+            "3",
+            "--pad_h",
+            "1",
+            "--pad_w",
+            "1",
+        ]
+
+    # `--iter` is not always reliably reflected in wall time (backend-specific), so we
+    # also repeat the command until we reach sustained load.
+    cmd = cmd_for(20)
+    r, total_ms, runs = _repeat_cmd_for_load(ctx, env, cmd, min_wall_s=5.0, max_wall_s=10.0, per_run_timeout_s=t, log=log)
+    if r.rc != 0:
+        return StepResult(build_dir, "MIOpen smoke", "FAIL", fmt_duration(total_ms), f"rc={r.rc}")
+    return StepResult(build_dir, "MIOpen smoke", "OK", fmt_duration(total_ms), f"driver={Path(drv).name} runs={runs} iters=20")
 
 
 def _pip_install(ctx: Context, env: dict[str, str], pkgs: list[str], log: Path | None, timeout_s: int) -> StepResult | None:
@@ -394,14 +488,14 @@ def build_plan(cfg: dict[str, Any], *, doctor_only: bool = False) -> list[Step]:
 
     add("rocm_sanity", "rocm_env", "ROCm env activation", "typ. <50ms", _step_rocm_env)
     add("rocm_sanity", "rocminfo", "rocminfo", "typ. <1s", _step_rocminfo)
-    add("rocm_sanity", "hipcc_compile_run", "hipcc compile+run", "typ. 1-5s", _step_hipcc_compile_run)
+    add("rocm_sanity", "hipcc_compile_run", "hipcc compile+run", "typ. ~5s (sustained)", _step_hipcc_compile_run)
 
-    add("rocm_bench_smoke", "rocblas_gemm_f32", "rocBLAS GEMM f32", "typ. ~1-2s", _step_rocblas)
-    add("rocm_bench_smoke", "rocfft_1024", "rocFFT 1024", "typ. <1s", _step_rocfft)
-    add("rocm_bench_smoke", "rocrand_generate", "rocRAND generate", "typ. <1s", _step_rocrand)
+    add("rocm_bench_smoke", "rocblas_gemm_f32", "rocBLAS GEMM f32", "typ. ~5s (sustained)", _step_rocblas)
+    add("rocm_bench_smoke", "rocfft_1024", "rocFFT 1024", "typ. ~5s (sustained)", _step_rocfft)
+    add("rocm_bench_smoke", "rocrand_generate", "rocRAND generate", "typ. ~5s (sustained)", _step_rocrand)
 
     add("miopen_smoke", "miopen_driver", "MIOpen driver", "typ. <1s", _step_miopen_driver)
-    add("miopen_smoke", "miopen_smoke", "MIOpen smoke", "typ. 30-180s (cold)", _step_miopen_smoke)
+    add("miopen_smoke", "miopen_smoke", "MIOpen smoke", "typ. ~5s (sustained; first run may JIT)", _step_miopen_smoke)
 
     add("llama_cpp_docker", "llama_cpp_docker", "llama.cpp (docker) smoke", "minutes (pull), <5s run", _step_llama_cpp_docker)
     add("ollama", "ollama", "Ollama (local binary) smoke", "<10s download, <1s version", _step_ollama)
