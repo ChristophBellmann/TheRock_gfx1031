@@ -13,6 +13,11 @@ sources/
 .vscode/
 *.venv
 __pycache__
+validation/__pycache__/
+validation/.venv/
+validation/_cache/
+validation/_build/
+validation/_logs/
 /.ccache
 
 # Patch control files.
