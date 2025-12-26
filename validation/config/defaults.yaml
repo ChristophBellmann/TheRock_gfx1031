@@ -29,6 +29,9 @@ workloads:
     # Optional functional test (disabled unless set):
     # model: "tinyllama"
     model: "llama3.2:3b-instruct-q4_0"  # enables `ollama pull` + `ollama run` smoke (≈1.9GB model)
+    num_predict: 128
+    use_docker: "auto"     # auto|true|false; auto prefers docker ROCm when host binary lacks ROCm backend
+    docker_image: "ollama/ollama:rocm"
   mfem:
     git: "https://github.com/mfem/mfem.git"
     ref: "master"

@@ -46,8 +46,20 @@ Workload steps use small repo-local inputs by default:
 - Audio: `validation/src/assets/samples/audio/Take2_Audio1-1.wav`
 
 Some workload steps have **optional functional modes** which are disabled unless configured:
-- **Ollama**: set `workloads.ollama.model` to enable `ollama pull` + `ollama run` (default is `llama3.2:3b-instruct-q4_0`, ~1.9GB).
+- **Ollama**: enabled by default (model `llama3.2:3b-instruct-q4_0`, ~1.9GB). The suite measures:
+  - `tok/s` (generation throughput)
+  - `ttft` (time to first token, ms)
+  - `avg_tok` (avg ms/token)
+  - optional power/energy when `--power` is enabled
 - **llama.cpp (docker)**: set `workloads.llama_cpp.model_url` (and optionally `model_sha256`) to download a GGUF and run a best-effort inference smoke inside the container.
+
+Tip: run just the Ollama workload:
+```bash
+python3 validation/scripts/validate.py --profile ollama --yes --power --log
+```
+
+If Ollama falls back to CPU, the suite marks the step as `FAIL` and the per-step log contains the docker logs
+showing why (e.g. `entering low vram mode` / `total vram=0 B`).
 
 Write per-step logs + a JSON report:
 ```bash

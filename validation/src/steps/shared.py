@@ -7,6 +7,7 @@ from typing import Any
 from core.context import Context
 from core.download import DownloadPolicy
 from core.reporting.models import StepResult
+from core.power import PowerSampler, discover_sensors, format_power_metrics
 from core.runner import fmt_duration, run_cmd
 
 
@@ -41,3 +42,42 @@ def pip_install(ctx: Context, env: dict[str, str], pkgs: list[str], log: Path | 
     if r.rc != 0:
         return StepResult("<meta>", "pip install", "FAIL", fmt_duration(r.dur_ms), f"rc={r.rc}")
     return None
+
+
+def baseline_avg_w(cfg: dict[str, Any], build_dir: str) -> float | None:
+    try:
+        b = cfg.get("_runtime", {}).get("power_baseline", {}).get(build_dir, {})
+        v = b.get("avg_w")
+        return float(v) if v is not None else None
+    except Exception:
+        return None
+
+
+def power_enabled(cfg: dict[str, Any]) -> bool:
+    return bool(cfg.get("run", {}).get("power_monitor", False))
+
+
+def with_power_sampler(cfg: dict[str, Any], *, build_dir: str, fn):
+    """
+    Runs fn(sampler_or_none) with an active power sampler if enabled+available.
+    """
+    if not power_enabled(cfg):
+        return fn(None)
+    sensors = discover_sensors()
+    if sensors is None:
+        return fn(None)
+    sampler = PowerSampler(sensors=sensors, interval_s=0.5)
+    sampler.start()
+    try:
+        return fn(sampler)
+    finally:
+        sampler.stop()
+
+
+def append_power(metric: str, sampler: PowerSampler | None, *, baseline_w: float | None) -> str:
+    if sampler is None:
+        return metric
+    pm = format_power_metrics(sampler, baseline_avg_w=baseline_w)
+    if not pm:
+        return metric
+    return f"{metric} | {pm}" if metric else pm
