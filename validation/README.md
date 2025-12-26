@@ -58,6 +58,11 @@ Tip: run just the Ollama workload:
 python3 validation/scripts/validate.py --profile ollama --yes --power --log
 ```
 
+One-shot self-contained validation + diagnosis:
+```bash
+python3 validation/scripts/ollama_doctor.py --yes
+```
+
 If Ollama falls back to CPU, the suite marks the step as `FAIL` and the per-step log contains the docker logs
 showing why (e.g. `entering low vram mode` / `total vram=0 B`).
 

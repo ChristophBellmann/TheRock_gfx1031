@@ -224,11 +224,25 @@ def _docker_run_ollama(
             timeout_s=min(60, trun),
         )
 
+        # Inspect container logs for backend + VRAM hints.
+        rlog_now = run_cmd(ctx.repo_root, env, ["docker", "logs", name], 20, None)
+        logs_text = (rlog_now.out + "\n" + rlog_now.err)
+        backend = "unknown"
+        if "inference compute\" id=cpu" in logs_text or "library=cpu" in logs_text:
+            backend = "cpu"
+        elif "libdir=/usr/lib/ollama/rocm" in logs_text or "library=ROCm" in logs_text:
+            backend = "rocm"
+        vram = None
+        for ln in logs_text.splitlines():
+            if "runner.vram=" in ln:
+                vram = ln.split("runner.vram=", 1)[-1].strip().split()[0].strip('"')
+                break
+
         tokps = m.tok_per_s
         ptokps = m.prompt_tok_per_s
         avg_tok_ms = (1000.0 / tokps) if tokps and tokps > 0 else None
 
-        metric = f"model={model} out={num_predict}"
+        metric = f"backend={backend} model={model} out={num_predict}"
         if tokps is not None:
             metric += f" tok/s={tokps:.2f}"
         if ptokps is not None:
@@ -237,10 +251,26 @@ def _docker_run_ollama(
             metric += f" ttft={ttft_ms:.0f}ms"
         if avg_tok_ms is not None:
             metric += f" avg_tok={avg_tok_ms:.1f}ms"
+        if m.load_s is not None:
+            metric += f" load={m.load_s:.2f}s"
+        if m.prompt_eval_s is not None:
+            metric += f" prompt_eval={m.prompt_eval_s:.2f}s"
+        if m.eval_s is not None:
+            metric += f" eval={m.eval_s:.2f}s"
+        if vram:
+            metric += f" vram={vram}"
         metric += f" wall={wall_s:.2f}s prompt={prompt_name}"
 
         baseline_w = baseline_avg_w(cfg, build_dir)
         metric = append_power(metric, sampler, baseline_w=baseline_w)
+
+        # Hard requirement for this bench: must be on ROCm backend.
+        if backend != "rocm":
+            hint = ""
+            keep = [ln for ln in logs_text.splitlines() if ("failure during GPU discovery" in ln) or ("entering low vram mode" in ln) or ("filtering device" in ln)]
+            if keep:
+                hint = " | " + keep[-1].strip()
+            return StepResult(build_dir, "Ollama (docker ROCm) bench", "FAIL", fmt_duration(int(wall_s * 1000.0)), f"ROCm backend inactive{hint} | {metric}")
 
         if sampler is not None:
             gpu = sampler.avg_gpu_busy()
@@ -250,8 +280,7 @@ def _docker_run_ollama(
                 # Include a tiny hint from container logs when available.
                 hint = ""
                 if log is not None:
-                    rlog = run_cmd(ctx.repo_root, env, ["docker", "logs", name], 15, None)
-                    lines = (rlog.out + "\n" + rlog.err).splitlines()
+                    lines = logs_text.splitlines()
                     keep = [ln for ln in lines if ("failure during GPU discovery" in ln) or ("entering low vram mode" in ln) or ("filtering device" in ln)]
                     if keep:
                         hint = " | " + keep[-1].strip()
@@ -260,9 +289,9 @@ def _docker_run_ollama(
         return StepResult(build_dir, "Ollama (docker ROCm) bench", "OK", fmt_duration(int(wall_s * 1000.0)), metric)
     finally:
         if log is not None:
-            rlog = run_cmd(ctx.repo_root, env, ["docker", "logs", name], 20, None)
             _write_log_line(log, "")
             _write_log_line(log, "---- docker logs (ollama) ----")
+            rlog = run_cmd(ctx.repo_root, env, ["docker", "logs", name], 20, None)
             for ln in (rlog.out + "\n" + rlog.err).splitlines():
                 _write_log_line(log, ln)
         run_cmd(ctx.repo_root, env, ["docker", "rm", "-f", name], 30, log)
