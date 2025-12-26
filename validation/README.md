@@ -10,14 +10,19 @@ It has two goals:
 
 ## Quick start
 
-ROCm-only smoke (no downloads):
+Default (no args): quick suite with **power metrics** (no downloads, no logs):
+```bash
+python3 validation/scripts/validate.py
+```
+
+Explicit ROCm-only smoke (no downloads):
 ```bash
 python3 validation/scripts/validate.py --profile quick
 ```
 
-Full validation (default profile, prompts once before downloads/builds):
+Full validation (enables workloads; prompts once before downloads/builds):
 ```bash
-python3 validation/scripts/validate.py
+python3 validation/scripts/validate.py --profile full
 ```
 
 Non-interactive full validation (assume “yes” to the prompt):

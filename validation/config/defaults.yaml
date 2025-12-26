@@ -1,9 +1,9 @@
 # Default config: "everything enabled" (heavy steps will download/build after one Y/n prompt).
 run:
-  profile: full
+  profile: quick
   ask_before_downloads: true
   downloads_enabled: true
-  power_monitor: false      # enable sysfs power sampling (E in Ws) for sustained-load tests
+  power_monitor: true       # default: show power/energy (Ws) in terminal
   max_download_gb: 8
   max_single_download_gb: 4
   build_dirs: []           # empty => auto-detect (build-stage2/build/build-stage1)
