@@ -8,6 +8,10 @@ It has two goals:
 2) **Representative apps (optional, download/build)**: smoke checks for typical workloads:
    llama.cpp (docker), Ollama, Whisper, Open Interpreter, MFEM (HIP build).
 
+This suite includes small **sample inputs** under `validation/src/assets/samples/`:
+- `audio/` contains a short WAV used by the Whisper smoke test.
+- `prompts/` contains short LLM prompts used by future functional inference checks.
+
 ## Quick start
 
 Default (no args): quick suite with **power metrics** (no downloads, no logs):

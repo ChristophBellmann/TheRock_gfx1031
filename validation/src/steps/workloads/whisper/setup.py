@@ -21,6 +21,10 @@ def step_whisper(ctx: Context, cfg: dict[str, Any], build_dir: str, rocm_dist: P
       bundled sample audio clip when present.
     """
     t = int(cfg.get("timeouts_s", {}).get("whisper", 1800))
+    audio_cfg = str(cfg.get("workloads", {}).get("whisper", {}).get("audio_file", "")).strip()
+    audio_cfg = audio_cfg or "validation/src/assets/samples/audio/Take2_Audio1-1.wav"
+    env = dict(env)
+    env["ROCM_VALIDATION_WHISPER_AUDIO"] = str(ctx.repo_root / audio_cfg) if not Path(audio_cfg).is_absolute() else audio_cfg
     script = r"""
 import os, wave, struct, math, time, sys
 try:
@@ -34,8 +38,8 @@ print("torch", getattr(torch, "__version__", ""))
 print("torch.cuda.is_available", torch.cuda.is_available())
 print("torch.version.hip", getattr(getattr(torch, "version", None), "hip", None))
 
-repo_sample=os.path.join("validation","src","assets","samples","audio","Take2_Audio1-1.wav")
-if os.path.isfile(repo_sample):
+repo_sample=os.environ.get("ROCM_VALIDATION_WHISPER_AUDIO", "")
+if repo_sample and os.path.isfile(repo_sample):
     fname=repo_sample
 else:
     # Fallback: generate a tiny 1s tone if the repo sample is not present.
@@ -68,7 +72,7 @@ print("text_len", len(result.get("text","")))
         return StepResult(build_dir, "Whisper (python) smoke", "FAIL", fmt_duration(r.dur_ms), f"rc={r.rc}")
 
     out = r.out + "\n" + r.err
-    metric = "ran tiny.en transcribe (sample audio)"
+    metric = f"ran tiny.en transcribe (audio={Path(audio_cfg).name})"
     if "torch.version.hip None" in out and "torch.cuda.is_available False" in out:
         metric += " (CPU torch; ROCm not detected)"
     return StepResult(build_dir, "Whisper (python) smoke", "OK", fmt_duration(r.dur_ms), metric)

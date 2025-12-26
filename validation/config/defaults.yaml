@@ -17,11 +17,21 @@ rocm:
 workloads:
   llama_cpp:
     docker_image: ""   # optional override; empty => auto-detect from AMD docs
+    prompt_file: "validation/src/assets/samples/prompts/tiny_prompt.txt"
+    # Optional functional test (disabled unless you provide a model):
+    # model_url: "https://..."   # optional
+    # model_sha256: "..."        # optional
+    # model_file: "validation/workspace/cache/downloads/llama_cpp/model.gguf"  # optional
   ollama:
     url: "https://ollama.com/download/ollama-linux-amd64.tgz"
+    prompt_file: "validation/src/assets/samples/prompts/tiny_prompt.txt"
+    # Optional functional test (disabled unless set):
+    # model: "tinyllama"
   mfem:
     git: "https://github.com/mfem/mfem.git"
     ref: "master"
+  whisper:
+    audio_file: "validation/src/assets/samples/audio/Take2_Audio1-1.wav"
 
 steps:
   rocm_sanity: true
