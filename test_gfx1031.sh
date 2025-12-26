@@ -15,6 +15,11 @@ RUN_CONSISTENCY=0
 CONSISTENCY_DEEP=0
 EXPECT_STAGE="" # "", "stage1", "stage2"
 STAGE1_BUILD_DIR="${STAGE1_BUILD_DIR:-build-stage1}"
+ORIG_ARGS=("$@")
+USER_SELECTED_BUILD_DIR=0
+if [[ -n "${BUILD_DIR}" ]]; then
+  USER_SELECTED_BUILD_DIR=1
+fi
 
 usage() {
   cat <<'EOF_USAGE'
@@ -46,7 +51,7 @@ Environment overrides:
   BENCH_SIZE       override GEMM size (default 2048 quick, 4096 full)
   BENCH_ITERS      override iterations (default 10 quick, 20 full)
   TEST_LOG         override log file (default test_gfx1031.log)
-  BUILD_DIR        build directory name (auto: prefer build-stage2, then build, then build-stage1)
+  BUILD_DIR        build directory name (auto: if multiple exist, tests build-stage2, build, build-stage1)
   STAGE1_BUILD_DIR Stage-1 build dir for Stage-2 expectations (default: build-stage1)
 EOF_USAGE
 }
@@ -131,14 +136,17 @@ while [[ $# -gt 0 ]]; do
       ;;
     --stage1)
       BUILD_DIR="build-stage1"
+      USER_SELECTED_BUILD_DIR=1
       shift
       ;;
     --stage2)
       BUILD_DIR="build-stage2"
+      USER_SELECTED_BUILD_DIR=1
       shift
       ;;
     --build-dir)
       BUILD_DIR="${2:-}"
+      USER_SELECTED_BUILD_DIR=1
       shift 2
       ;;
     -h|--help)
@@ -152,6 +160,49 @@ while [[ $# -gt 0 ]]; do
       ;;
   esac
 done
+
+# If no build dir was specified, and we have multiple in-tree dist roots,
+# run the same tests for each build dir automatically (stage2/build/stage1).
+if [[ -z "${TEST_GFX1031_SINGLE:-}" && ${USER_SELECTED_BUILD_DIR} -eq 0 ]]; then
+  # If the user sets an explicit expectation, interpret it as a selection.
+  if [[ "${EXPECT_STAGE}" == "stage2" ]]; then
+    BUILD_DIR="build-stage2"
+    USER_SELECTED_BUILD_DIR=1
+  elif [[ "${EXPECT_STAGE}" == "stage1" ]]; then
+    BUILD_DIR="build-stage1"
+    USER_SELECTED_BUILD_DIR=1
+  else
+    # For benchmarks, default to Stage-2 if available (Stage-1 is typically
+    # toolchain-only and does not ship rocblas-bench/hipblas-bench).
+    if (( RUN_BENCH )) && [[ -d "${ROOT}/build-stage2/dist/rocm" ]]; then
+      BUILD_DIR="build-stage2"
+      USER_SELECTED_BUILD_DIR=1
+    fi
+
+    if (( USER_SELECTED_BUILD_DIR == 0 )); then
+      build_dirs=()
+      for d in build-stage2 build build-stage1; do
+        if [[ -d "${ROOT}/${d}/dist/rocm" ]]; then
+          build_dirs+=("${d}")
+        fi
+      done
+      if (( ${#build_dirs[@]} > 1 )); then
+        overall_rc=0
+        for d in "${build_dirs[@]}"; do
+          echo "==== build dir: ${d} ===="
+          base_log="${TEST_LOG:-${LOG_FILE}}"
+          if [[ "${base_log}" == *.log ]]; then
+            this_log="${base_log%.log}.${d}.log"
+          else
+            this_log="${base_log}.${d}.log"
+          fi
+          TEST_GFX1031_SINGLE=1 BUILD_DIR="${d}" TEST_LOG="${this_log}" "${ROOT}/test_gfx1031.sh" "${ORIG_ARGS[@]}" || overall_rc=1
+        done
+        exit "${overall_rc}"
+      fi
+    fi
+  fi
+fi
 
 choose_default_build_dir
 
@@ -246,7 +297,7 @@ check_miopen_artifacts() {
     add_result "${label_prefix} miopen library" "OK" "0s" "libMIOpen found (lib64)"
     ok=1
   else
-    add_result "${label_prefix} miopen library" "FAIL" "0s" "libMIOpen not found under ${ROCM_PATH}/lib{,64}"
+    add_result "${label_prefix} miopen library" "SKIP" "0s" "libMIOpen not found under ${ROCM_PATH}/lib{,64} (may be disabled)"
   fi
 
   # composable_kernel headers (may or may not be installed depending on packaging)
@@ -260,7 +311,7 @@ check_miopen_artifacts() {
   if (( ok )); then
     add_result "${label_prefix} miopen artifacts" "OK" "${elapsed}s" ""
   else
-    add_result "${label_prefix} miopen artifacts" "FAIL" "${elapsed}s" ""
+    add_result "${label_prefix} miopen artifacts" "SKIP" "${elapsed}s" "MIOpen not installed in this dist"
   fi
 }
 

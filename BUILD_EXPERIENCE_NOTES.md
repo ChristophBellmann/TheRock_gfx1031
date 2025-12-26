@@ -39,7 +39,7 @@
    The venv `pip install cmake` (4.x) breaks third-party builds that still use `cmake_minimum_required(<3.5)` (fftw3, grpc/cares). Use system CMake 3.28 (`/usr/bin/cmake`) and remove the venv wrappers (`rm ~/.local/bin/cmake ~/.local/bin/cpack ~/.local/bin/ctest`) to avoid patching external sources.
 
 6. **In-tree ROCm env activation (tests)**  
-   Use `./test_gfx1031.sh` to run sanity/benchmarks; it auto-activates `.venv` (if present) and sets `ROCM_PATH`/`HIP_PATH`/`LD_LIBRARY_PATH` to `<builddir>/dist/rocm` (via `BUILD_DIR` / `--stage2`).
+   Use `./test_gfx1031.sh` to run sanity/benchmarks; it auto-activates `.venv` (if present) and sets `ROCM_PATH`/`HIP_PATH`/`LD_LIBRARY_PATH` to `<builddir>/dist/rocm`. If multiple in-tree dist roots exist, it runs the same checks for each (stage2/build/stage1) and writes per-build logs; restrict via `--stage2/--stage1/--build-dir` (or `BUILD_DIR=...`).
 
 7. **Verify gfx1031 HIP kernel/device-lib path (avoid generic fallback)**  
    The critical check is that HIP compiles and links against gfx1031-specific device libs, not generic compatibility bitcode.  

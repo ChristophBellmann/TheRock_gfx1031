@@ -130,84 +130,8 @@ BUILD_DIR=build-stage2 LOG_FILE=build-stage2.log UNIT=therock-gfx1031-build-stag
 After Stage‑2 completes:
 
 ```bash
-./test_gfx1031.sh --quick --stage2
-./test_gfx1031.sh --consistency --expect-stage2 --stage2
-```
-
-### What `cmake -B build -GNinja .` actually does (ASCII overview)
-
-```text
-User cmd
-  cmake -S . -B build -G Ninja  [ + -D... cache args ]
-    |
-    v
-(1) CMake reads + initializes
-    - ./CMakeLists.txt
-        - sets up project + cmake module path
-        - includes cmake/*.cmake modules (superbuild machinery)
-        - runs python/topology generation
-        - defines/validates THEROCK_ENABLE_* feature flags
-        - declares subprojects (configure/build/stage/dist phases)
-        - emits Ninja rules + per-subproject helper files
-
-    - ./cmake/*.cmake (key roles)
-        - cmake/therock_python_setup.cmake
-            - find Python3 interpreter
-            - runs build_tools/topology_to_cmake.py to generate:
-              build/cmake/therock_topology.cmake
-        - cmake/therock_features.cmake + cmake/therock_feature_groups.cmake
-            - defines THEROCK_ENABLE_* and dependencies between features
-        - cmake/therock_subproject.cmake
-            - declares each subproject as a DAG of phase targets:
-              <name>+configure -> <name>+build -> <name>+stage -> <name>+dist
-            - writes per-subproject:
-              build/<...>/_init.cmake (dep provider + env glue)
-              build/<...>/_toolchain.cmake (compiler/toolchain settings)
-        - cmake/therock_job_pools.cmake
-            - configures Ninja JOB_POOLS (BACKGROUND_BUILD)
-        - cmake/therock_bundled_sysdeps.cmake
-            - wires sysdeps (zlib/zstd/…) as deps and RPATH inputs
-
-    - ./BUILD_TOPOLOGY.toml
-        - source of truth for artifacts/features/grouping
-
-    - ./version.json + ./rocm-systems/projects/hip/VERSION
-        - sets ROCm + HIP version values used across the build
-
-    - ./build_tools/*.py
-        - topology_to_cmake.py: generates build/cmake/therock_topology.cmake
-        - teatime.py: log wrapper used in generated build rules
-        - fileset_tool.py: copies stage -> dist, assembles artifacts
-
-    - ./rocm-libraries/** and ./rocm-systems/**
-        - sources for ROCm components (must exist beforehand)
-
-    |
-    v
-(2) Configure output (what you get in build/)
-    - build/CMakeCache.txt
-        - saved cache variables (all -D options, detected tools, etc.)
-    - build/build.ninja
-        - Ninja build graph for the superbuild
-    - build/cmake/therock_topology.cmake
-        - auto-generated from BUILD_TOPOLOGY.toml
-    - build/**/_init.cmake + build/**/_toolchain.cmake
-        - generated per subproject; injected into subproject configures
-
-    |
-    v
-(3) Next command (actual compilation)
-    ninja -C build
-      - executes the graph from build/build.ninja:
-        for each subproject:
-          configure (cmake -S src -B subbuild ...)
-          build     (cmake --build subbuild)
-          stage     (cmake --install ...)
-          dist      (fileset_tool.py copy stage -> dist)
-
-Result of the *cmake configure step alone*
-  -> No compilation yet.
-  -> You end up with a generated Ninja build system in `build/`.
+./test_gfx1031.sh
+./test_gfx1031.sh --consistency --expect-stage2
 ```
 
 ### Clean bootstrap helper (gfx1031)
@@ -414,12 +338,13 @@ If you’re new here, prefer the Stage‑1/Stage‑2 flow from:
 
 - Nach dem Build: Sanity / Benchmarks / Komponenten-Smokes:
 ```bash
-./test_gfx1031.sh        # quick
-./test_gfx1031.sh --full # längere Bench
+./test_gfx1031.sh              # sanity (auto-tests all detected build dirs)
+./test_gfx1031.sh --bench      # quick micro-benchmarks (if installed)
+./test_gfx1031.sh --bench --full # larger benchmark sizes / more iters
 
 # MIOpen + composable_kernel checks + optional tiny smoke
-./test_gfx1031.sh --miopen --stage2
-./test_gfx1031.sh --miopen-smoke --stage2
+./test_gfx1031.sh --miopen
+./test_gfx1031.sh --miopen-smoke
 ```
 
 For the full list of testing options (including consistency checks), see
@@ -516,15 +441,17 @@ The script auto-activates the in-tree ROCm environment from `<builddir>/dist/roc
 **Common usage:**
 
 ```bash
-# Stage-2: sanity only (default; no benchmarks unless you opt-in)
-./test_gfx1031.sh --stage2
+# Sanity only (default; no benchmarks unless you opt-in).
+# If multiple in-tree dist roots exist, the script tests each one
+# (build-stage2, build, build-stage1) and writes per-build logs.
+./test_gfx1031.sh
 
 # Enable benchmarks (requires the bench binaries to exist in PATH; build them via `config_gfx1031.yaml: build.benchmarks: true`)
-./test_gfx1031.sh --bench --stage2
-./test_gfx1031.sh --bench --full --stage2
+./test_gfx1031.sh --bench
+./test_gfx1031.sh --bench --full
 
 # Benchmarks only
-./test_gfx1031.sh --bench-only --stage2
+./test_gfx1031.sh --bench-only
 ```
 
 **Build/toolchain consistency checks (recommended after reconfigure / rebuild):**
@@ -541,8 +468,8 @@ The script auto-activates the in-tree ROCm environment from `<builddir>/dist/roc
 **MIOpen / composable_kernel checks:**
 
 ```bash
-./test_gfx1031.sh --miopen --stage2
-./test_gfx1031.sh --miopen-smoke --stage2
+./test_gfx1031.sh --miopen
+./test_gfx1031.sh --miopen-smoke
 ```
 
 **CLI options (overview):**
@@ -597,7 +524,7 @@ export LD_LIBRARY_PATH="$ROCM_PATH/lib:$ROCM_PATH/lib64:$ROCM_PATH/lib/host-math
 
 Notes:
 - `./test_gfx1031.sh` performs this activation automatically (based on `BUILD_DIR`), and is the simplest way to run sanity/benchmarks.
-- If you don’t pass `--stage1/--stage2`, the script auto-picks a build dir (prefers `build-stage2`, then `build`, then `build-stage1`).
+- If you don’t pass `--stage1/--stage2/--build-dir`, the script tests all detected in-tree dist roots for sanity/consistency (prefers `build-stage2`, then `build`, then `build-stage1`). For `--bench/--bench-only`, it defaults to Stage‑2 if available.
 
 ### Running functionality tests of the finished build ?ToDo?
 
