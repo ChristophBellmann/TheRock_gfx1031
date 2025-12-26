@@ -115,8 +115,19 @@ def print_summary(ctx: Context, results: list[StepResult]) -> None:
     # Visible prefix length (excluding ANSI sequences).
     prefix_plain = f"- {'':<32} {'':<4} ({'':>7}) "
     prefix_len = len(prefix_plain)
-    power_sep_len = 3 if max_power_len > 0 else 0  # " | "
-    params_width = max(0, term_cols - prefix_len - power_sep_len - max_power_len)
+    # Params field: align to the longest params observed (for power-bearing tests),
+    # but clamp to terminal width so we don't explode horizontal scrolling.
+    max_params_len = 0
+    for r in results:
+        params, power = _split_metric(r.metric)
+        if power and params:
+            max_params_len = max(max_params_len, len(params))
+
+    # "  |  " separator makes the table easier to read.
+    power_sep = "  |  " if max_power_len > 0 else ""
+    power_sep_len = len(power_sep)
+    params_width_cap = max(0, term_cols - prefix_len - power_sep_len - max_power_len)
+    params_width = min(max_params_len, params_width_cap) if max_params_len > 0 else params_width_cap
     for r in results:
         if r.build_dir != cur:
             cur = r.build_dir
@@ -137,12 +148,12 @@ def print_summary(ctx: Context, results: list[StepResult]) -> None:
         line = f"- {ansi.label(r.name):<32} {ansi.status(r.status):<4} {ansi.dim}({r.duration:>7}){ansi.reset}"
         if power and max_power_len > 0:
             p = _ellipsize(params or "", params_width).ljust(params_width)
-            print(f"{line} {p} | {power}")
+            print(f"{line}  {p}{power_sep}{power}")
         elif params:
             # No power: keep line within terminal width (best-effort).
             avail = max(0, term_cols - prefix_len)
             p = _ellipsize(params, avail)
-            print(f"{line} {p}")
+            print(f"{line}  {p}")
         else:
             print(line)
     if ctx.logs_dir is not None:

@@ -154,11 +154,11 @@ def format_power_metrics(s: PowerSampler, *, baseline_avg_w: float | None = None
     dw = (avg - baseline_avg_w) if (avg is not None and baseline_avg_w is not None) else None
     # Keep a stable column order for scanability.
     return (
-        f"E={fmt_ws(e)} "
-        f"avgW={fmt_w(avg)} "
-        f"dW={fmt_dw(dw)} "
-        f"maxW={fmt_w(maxw)} "
-        f"gpu%={fmt_pct(gpu)} "
+        f"E={fmt_ws(e)}  "
+        f"avgW={fmt_w(avg)}  "
+        f"dW={fmt_dw(dw)}  "
+        f"maxW={fmt_w(maxw)}  "
+        f"gpu%={fmt_pct(gpu)}  "
         f"mem%={fmt_pct(mem)}"
     )
 
