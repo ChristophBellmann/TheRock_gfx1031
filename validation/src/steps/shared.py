@@ -10,6 +10,16 @@ from core.reporting.models import StepResult
 from core.runner import fmt_duration, run_cmd
 
 
+def read_small_text(path: Path, *, max_bytes: int = 64 * 1024) -> str:
+    data = path.read_bytes()
+    if len(data) > max_bytes:
+        raise RuntimeError(f"file too large: {path} ({len(data)} bytes > {max_bytes})")
+    try:
+        return data.decode("utf-8", errors="replace")
+    except Exception:
+        return data.decode(errors="replace")
+
+
 def downloads_enabled(cfg: dict[str, Any]) -> bool:
     run_cfg = cfg.get("run", {})
     return bool(run_cfg.get("downloads_enabled", True))
@@ -31,4 +41,3 @@ def pip_install(ctx: Context, env: dict[str, str], pkgs: list[str], log: Path | 
     if r.rc != 0:
         return StepResult("<meta>", "pip install", "FAIL", fmt_duration(r.dur_ms), f"rc={r.rc}")
     return None
-

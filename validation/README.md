@@ -39,6 +39,16 @@ Non-interactive full validation (assume “yes” to the prompt):
 python3 validation/scripts/validate.py --yes
 ```
 
+## Workloads (functional inputs)
+
+Workload steps use small repo-local inputs by default:
+- Prompt: `validation/src/assets/samples/prompts/tiny_prompt.txt`
+- Audio: `validation/src/assets/samples/audio/Take2_Audio1-1.wav`
+
+Some workload steps have **optional functional modes** which are disabled unless configured:
+- **Ollama**: set `workloads.ollama.model` (e.g. `tinyllama`) to enable `ollama pull` + `ollama run`.
+- **llama.cpp (docker)**: set `workloads.llama_cpp.model_url` (and optionally `model_sha256`) to download a GGUF and run a best-effort inference smoke inside the container.
+
 Write per-step logs + a JSON report:
 ```bash
 python3 validation/scripts/validate.py --log

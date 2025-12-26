@@ -22,11 +22,13 @@ workloads:
     # model_url: "https://..."   # optional
     # model_sha256: "..."        # optional
     # model_file: "validation/workspace/cache/downloads/llama_cpp/model.gguf"  # optional
+    # docker_cmd: ["llama-cli", "-m", "/model.gguf", "-p", "hello", "-n", "32"]  # optional override
   ollama:
     url: "https://ollama.com/download/ollama-linux-amd64.tgz"
     prompt_file: "validation/src/assets/samples/prompts/tiny_prompt.txt"
     # Optional functional test (disabled unless set):
     # model: "tinyllama"
+    model: ""             # set (e.g. "tinyllama") to enable `ollama pull` + `ollama run` smoke
   mfem:
     git: "https://github.com/mfem/mfem.git"
     ref: "master"
@@ -52,7 +54,10 @@ timeouts_s:
   miopen_driver: 10
   miopen_smoke: 240
   llama_cpp_docker: 900
+  llama_cpp_infer: 600
   ollama: 120
+  ollama_pull: 1800
+  ollama_run: 600
   open_interpreter: 900
   whisper: 1800
   mfem_hip: 3600
