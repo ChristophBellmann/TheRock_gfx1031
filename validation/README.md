@@ -53,7 +53,8 @@ Some workload steps have **optional functional modes** which are disabled unless
   - optional power/energy when `--power` is enabled
 - **llama.cpp (docker)**: set `workloads.llama_cpp.model_url` (and optionally `model_sha256`) to download a GGUF and run a sustained **`llama-bench`** run inside the container.
   - Reports `pp_tok/s` (prompt processing) and `tg_tok/s` (token generation) plus optional power/energy.
-  - Strict inference mode (must run GPU inference): `python3 validation/scripts/llama_cpp_infer.py` (sets `workloads.llama_cpp.require_inference=true` via profile).
+  - Strict inference mode (must run GPU inference) is the default: `python3 validation/scripts/llama_cpp_validate.py`.
+  - Smoke-only mode (no model download / no inference): `python3 validation/scripts/llama_cpp_validate.py --smoke`.
 
 Tip: run just the Ollama workload:
 ```bash
@@ -72,10 +73,9 @@ python3 validation/scripts/whisper_validate.py
 python3 validation/scripts/mfem_validate.py
 ```
 
-GPU-required llama.cpp **inference** (fails unless a GGUF URL is configured):
-```bash
-python3 validation/scripts/llama_cpp_infer.py
-```
+llama.cpp options:
+- Default (strict GPU inference via `llama-bench`): `python3 validation/scripts/llama_cpp_validate.py`
+- Smoke-only (no model download / no inference): `python3 validation/scripts/llama_cpp_validate.py --smoke`
 
 If Ollama falls back to CPU, the suite marks the step as `FAIL` and the per-step log contains the docker logs
 showing why (e.g. `entering low vram mode` / `total vram=0 B`).
@@ -163,6 +163,7 @@ python3 validation/scripts/report_open.py --open
   - `validation/config/profiles/ollama.yaml` (Ollama-only)
   - `validation/config/profiles/llama_cpp.yaml` (llama.cpp-only)
   - `validation/config/profiles/llama_cpp_infer.yaml` (llama.cpp inference-only; requires a model URL)
+  - `validation/config/profiles/llama_cpp_smoke.yaml` (llama.cpp smoke-only; no model/inference)
   - `validation/config/profiles/whisper.yaml` (Whisper-only)
   - `validation/config/profiles/mfem.yaml` (MFEM-only)
 - Workload inputs (URLs/refs): `validation/config/defaults.yaml` under `workloads:`

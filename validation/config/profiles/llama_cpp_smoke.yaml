@@ -1,0 +1,20 @@
+# Run llama.cpp docker smoke only (no model download / no inference).
+run:
+  profile: llama_cpp_smoke
+  ask_before_downloads: true
+  downloads_enabled: true
+
+workloads:
+  llama_cpp:
+    require_inference: false
+    model_url: ""
+
+steps:
+  rocm_sanity: true
+  rocm_bench_smoke: false
+  miopen_smoke: false
+  llama_cpp_docker: true
+  ollama: false
+  open_interpreter: false
+  whisper: false
+  mfem_hip: false

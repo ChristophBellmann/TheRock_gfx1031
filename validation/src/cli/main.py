@@ -19,6 +19,7 @@ def _cmd_validate(argv: list[str]) -> int:
     ap.add_argument("--no-downloads", action="store_true", help="Disable network downloads (third-party steps will SKIP).")
     ap.add_argument("--yes", action="store_true", help="Assume 'yes' for prompts (non-interactive).")
     ap.add_argument("--power", action="store_true", help="Sample GPU power/utilization via sysfs during sustained-load tests.")
+    ap.add_argument("--no-power", action="store_true", help="Disable GPU power/utilization sampling (override config).")
     ap.add_argument(
         "--summary-multiline",
         action="store_true",
@@ -37,6 +38,8 @@ def _cmd_validate(argv: list[str]) -> int:
         cfg["run"]["ask_before_downloads"] = False
     if args.power or os.environ.get("ROCM_VALIDATION_POWER", "") == "1":
         cfg["run"]["power_monitor"] = True
+    if args.no_power:
+        cfg["run"]["power_monitor"] = False
     if args.summary_multiline:
         cfg["run"]["summary_multiline"] = True
 
