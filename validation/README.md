@@ -69,6 +69,7 @@ python3 validation/scripts/ollama_doctor.py --yes
 One-shot self-contained workload validators (GPU required):
 ```bash
 python3 validation/scripts/llama_cpp_validate.py
+python3 validation/scripts/ollama_validate.py
 python3 validation/scripts/whisper_validate.py
 python3 validation/scripts/mfem_validate.py
 ```
@@ -161,6 +162,7 @@ python3 validation/scripts/report_open.py --open
   - `validation/config/profiles/quick.yaml` (ROCm-only smoke)
   - `validation/config/profiles/airgapped.yaml` (same as quick; future-proof name)
   - `validation/config/profiles/ollama.yaml` (Ollama-only)
+  - `validation/config/profiles/ollama_smoke.yaml` (Ollama smoke-only; no model/inference)
   - `validation/config/profiles/llama_cpp.yaml` (llama.cpp-only)
   - `validation/config/profiles/llama_cpp_infer.yaml` (llama.cpp inference-only; requires a model URL)
   - `validation/config/profiles/llama_cpp_smoke.yaml` (llama.cpp smoke-only; no model/inference)

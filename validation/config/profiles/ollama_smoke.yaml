@@ -1,0 +1,20 @@
+# Run only the Ollama step but without pulling a model / running inference.
+# This is mostly useful to confirm that (a) downloads work and (b) `ollama --version` runs.
+run:
+  profile: ollama_smoke
+  ask_before_downloads: true
+  downloads_enabled: true
+
+workloads:
+  ollama:
+    model: ""
+
+steps:
+  rocm_sanity: true
+  rocm_bench_smoke: false
+  miopen_smoke: false
+  llama_cpp_docker: false
+  ollama: true
+  open_interpreter: false
+  whisper: false
+  mfem_hip: false
