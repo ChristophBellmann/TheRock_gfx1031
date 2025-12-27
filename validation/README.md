@@ -52,6 +52,7 @@ Some workload steps have **optional functional modes** which are disabled unless
   - `avg_tok` (avg ms/token)
   - optional power/energy when `--power` is enabled
 - **llama.cpp (docker)**: set `workloads.llama_cpp.model_url` (and optionally `model_sha256`) to download a GGUF and run a best-effort inference smoke inside the container.
+  - Strict inference mode (must run inference): `python3 validation/scripts/llama_cpp_infer.py` (sets `workloads.llama_cpp.require_inference=true` via profile).
 
 Tip: run just the Ollama workload:
 ```bash
@@ -68,6 +69,11 @@ One-shot self-contained workload validators (GPU required):
 python3 validation/scripts/llama_cpp_validate.py
 python3 validation/scripts/whisper_validate.py
 python3 validation/scripts/mfem_validate.py
+```
+
+GPU-required llama.cpp **inference** (fails unless a GGUF URL is configured):
+```bash
+python3 validation/scripts/llama_cpp_infer.py
 ```
 
 If Ollama falls back to CPU, the suite marks the step as `FAIL` and the per-step log contains the docker logs
@@ -155,6 +161,7 @@ python3 validation/scripts/report_open.py --open
   - `validation/config/profiles/airgapped.yaml` (same as quick; future-proof name)
   - `validation/config/profiles/ollama.yaml` (Ollama-only)
   - `validation/config/profiles/llama_cpp.yaml` (llama.cpp-only)
+  - `validation/config/profiles/llama_cpp_infer.yaml` (llama.cpp inference-only; requires a model URL)
   - `validation/config/profiles/whisper.yaml` (Whisper-only)
   - `validation/config/profiles/mfem.yaml` (MFEM-only)
 - Workload inputs (URLs/refs): `validation/config/defaults.yaml` under `workloads:`

@@ -48,11 +48,14 @@ def step_llama_cpp_docker(ctx: Context, cfg: dict[str, Any], build_dir: str, roc
     if rr.rc != 0:
         return StepResult(build_dir, "llama.cpp (docker) smoke", "FAIL", fmt_duration(rp.dur_ms + rr.dur_ms), f"docker run --help rc={rr.rc}")
 
-    # Optional inference smoke: only enabled if a model_url is configured.
+    # Optional inference smoke: enabled if a model_url is configured.
     wl = cfg.get("workloads", {}).get("llama_cpp", {}) if isinstance(cfg.get("workloads", {}), dict) else {}
     model_url = str(wl.get("model_url", "")).strip()
     if not model_url:
-        return StepResult(build_dir, "llama.cpp (docker) smoke", "OK", fmt_duration(rp.dur_ms + rr.dur_ms), f"image={image} (set workloads.llama_cpp.model_url to enable inference)")
+        require = bool(wl.get("require_inference", False))
+        status = "FAIL" if require else "OK"
+        hint = "missing workloads.llama_cpp.model_url (GGUF) [required]" if require else "set workloads.llama_cpp.model_url to enable inference"
+        return StepResult(build_dir, "llama.cpp (docker) smoke", status, fmt_duration(rp.dur_ms + rr.dur_ms), f"image={image} ({hint})")
 
     model_sha256 = str(wl.get("model_sha256", "")).strip() or None
     model_file_cfg = str(wl.get("model_file", "")).strip() or "validation/workspace/cache/downloads/llama_cpp/model.gguf"

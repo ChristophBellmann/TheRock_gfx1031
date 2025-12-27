@@ -1,0 +1,20 @@
+# Run llama.cpp docker inference (plus minimal ROCm sanity).
+# This profile expects a GGUF URL configured in defaults (workloads.llama_cpp.model_url).
+run:
+  profile: llama_cpp_infer
+  ask_before_downloads: true
+  downloads_enabled: true
+
+workloads:
+  llama_cpp:
+    require_inference: true
+
+steps:
+  rocm_sanity: true
+  rocm_bench_smoke: false
+  miopen_smoke: false
+  llama_cpp_docker: true
+  ollama: false
+  open_interpreter: false
+  whisper: false
+  mfem_hip: false
