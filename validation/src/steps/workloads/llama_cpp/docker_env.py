@@ -44,6 +44,8 @@ def step_llama_cpp_docker(ctx: Context, cfg: dict[str, Any], build_dir: str, roc
     if rp.rc != 0:
         return StepResult(build_dir, "llama.cpp (docker) smoke", "FAIL", fmt_duration(rp.dur_ms), f"docker pull rc={rp.rc}")
 
+    # Note: rocm/llama.cpp images are typically "wrapper" images where the entrypoint expects commands like
+    # `--run` / `--bench`. We don't treat `--help` output as authoritative (it may print "Unknown command").
     rr = run_cmd(ctx.repo_root, env, ["docker", "run", "--rm", image, "--help"], 60, log)
     if rr.rc != 0:
         return StepResult(build_dir, "llama.cpp (docker) smoke", "FAIL", fmt_duration(rp.dur_ms + rr.dur_ms), f"docker run --help rc={rr.rc}")
@@ -68,8 +70,9 @@ def step_llama_cpp_docker(ctx: Context, cfg: dict[str, Any], build_dir: str, roc
 
     prompt_file = str(wl.get("prompt_file", "validation/src/assets/samples/prompts/tiny_prompt.txt"))
     prompt_path = (ctx.repo_root / prompt_file) if not Path(prompt_file).is_absolute() else Path(prompt_file)
-    prompt = read_small_text(prompt_path).strip().splitlines()[0:1]
-    prompt = prompt[0] if prompt else "Hello"
+    # For llama-bench we don't need a concrete prompt string, but we keep the file in the metric
+    # so users can quickly discover which prompt/config was used.
+    _ = read_small_text(prompt_path)
 
     # Some prebuilt ROCm binaries include HIP code objects for gfx1030 but not gfx1031.
     # When running those images on gfx1031, spoofing can avoid GPU discovery failures.
@@ -79,6 +82,11 @@ def step_llama_cpp_docker(ctx: Context, cfg: dict[str, Any], build_dir: str, roc
     # Inference knobs (aim for a sustained run so power sampling is meaningful).
     num_predict = int(cfg.get("workloads", {}).get("llama_cpp", {}).get("num_predict", 512) or 512)
     min_bench_s = float(cfg.get("workloads", {}).get("llama_cpp", {}).get("min_bench_s", 5.0) or 5.0)
+    # Prefer llama-bench because some wrapper images enable interactive mode for `--run` by default,
+    # which can terminate early in non-tty contexts. llama-bench prints stable performance numbers.
+    bench_repetitions = int(wl.get("bench_repetitions", 5) or 5)
+    if bench_repetitions < 1:
+        bench_repetitions = 1
 
     # Best-effort: try common llama.cpp CLI entrypoints inside the container.
     # Users can override by setting workloads.llama_cpp.docker_cmd.
@@ -98,9 +106,6 @@ def step_llama_cpp_docker(ctx: Context, cfg: dict[str, Any], build_dir: str, roc
             image,
         ] + list(docker_cmd)
     else:
-        # Prefer offload flags when supported; fall back if options are unknown.
-        # We avoid assuming a specific entrypoint; the image should include llama-cli or ./main.
-        prompt_escaped = prompt.replace('"', '\\"')
         cmd = [
             "docker",
             "run",
@@ -109,20 +114,25 @@ def step_llama_cpp_docker(ctx: Context, cfg: dict[str, Any], build_dir: str, roc
             "--device=/dev/dri",
             "--group-add",
             "video",
+            "--group-add",
+            "render",
             *([] if not hsa_override else ["-e", f"HSA_OVERRIDE_GFX_VERSION={hsa_override}"]),
             "-v",
             f"{model_path}:/model.gguf:ro",
             image,
-            "bash",
-            "-lc",
-            # Try llama-cli first, then ./main.
-            "("
-            f'command -v llama-cli && (llama-cli -m /model.gguf -p "{prompt_escaped}" -n {num_predict} -ngl 999 || '
-            f'llama-cli -m /model.gguf -p "{prompt_escaped}" -n {num_predict})'
-            ") || ("
-            f'test -x ./main && (./main -m /model.gguf -p "{prompt_escaped}" -n {num_predict} -ngl 999 || '
-            f'./main -m /model.gguf -p "{prompt_escaped}" -n {num_predict})'
-            ")",
+            "--bench",
+            "-m",
+            "/model.gguf",
+            "-o",
+            "json",
+            "-r",
+            str(bench_repetitions),
+            "-p",
+            "512",
+            "-n",
+            str(num_predict),
+            "-ngl",
+            "99",
         ]
 
     ti = int(cfg.get("timeouts_s", {}).get("llama_cpp_infer", 600))
@@ -135,14 +145,30 @@ def step_llama_cpp_docker(ctx: Context, cfg: dict[str, Any], build_dir: str, roc
 
     ri, wall_s, sampler = with_power_sampler(cfg, build_dir=build_dir, fn=run_one)
     status = "OK" if ri.rc == 0 else "FAIL"
-    metric = f"image={image} model={model_path.name} out={num_predict} wall={wall_s:.2f}s prompt_file={prompt_path.name}"
+    metric = f"image={image} model={model_path.name} bench=pp512+tg{num_predict} r={bench_repetitions} wall={wall_s:.2f}s prompt_file={prompt_path.name}"
     if wall_s < min_bench_s:
         metric += f" (short<{min_bench_s:.0f}s; increase workloads.llama_cpp.num_predict)"
 
-    # Best-effort: parse tokens/s when the binary prints timings.
-    m = re.search(r"tokens per second\\s*[:=]\\s*([0-9.]+)", ri.out + "\n" + ri.err, re.IGNORECASE)
-    if m:
-        metric += f" tok/s={float(m.group(1)):.2f}"
+    # Parse llama-bench JSON output for prompt-processing and generation speeds.
+    # We keep it regex-based to avoid adding dependencies.
+    out = (ri.out or "") + "\n" + (ri.err or "")
+    out_parse = out
+    if (('"avg_ts"' not in out_parse) or ('"backends"' not in out_parse)) and log is not None and log.exists():
+        try:
+            out_parse = out_parse + "\n" + log.read_text(encoding="utf-8", errors="ignore")
+        except Exception:
+            pass
+
+    m_pp = re.search(r'"n_prompt"\s*:\s*512\s*,[\s\S]*?"avg_ts"\s*:\s*([0-9.]+)', out_parse)
+    m_tg = re.search(r'"n_gen"\s*:\s*' + re.escape(str(num_predict)) + r'\s*,[\s\S]*?"avg_ts"\s*:\s*([0-9.]+)', out_parse)
+    if m_pp:
+        metric += f" pp_tok/s={float(m_pp.group(1)):.2f}"
+    if m_tg:
+        metric += f" tg_tok/s={float(m_tg.group(1)):.2f}"
+    m_backend = re.search(r'"backends"\s*:\s*"([^"]+)"', out_parse)
+    if m_backend and "ROCm" not in m_backend.group(1):
+        status = "FAIL"
+        metric = f"CPU fallback (backends={m_backend.group(1)}) | {metric}"
 
     metric = append_power(metric, sampler, baseline_w=baseline_avg_w(cfg, build_dir))
 

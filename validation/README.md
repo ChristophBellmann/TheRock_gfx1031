@@ -51,8 +51,9 @@ Some workload steps have **optional functional modes** which are disabled unless
   - `ttft` (time to first token, ms)
   - `avg_tok` (avg ms/token)
   - optional power/energy when `--power` is enabled
-- **llama.cpp (docker)**: set `workloads.llama_cpp.model_url` (and optionally `model_sha256`) to download a GGUF and run a best-effort inference smoke inside the container.
-  - Strict inference mode (must run inference): `python3 validation/scripts/llama_cpp_infer.py` (sets `workloads.llama_cpp.require_inference=true` via profile).
+- **llama.cpp (docker)**: set `workloads.llama_cpp.model_url` (and optionally `model_sha256`) to download a GGUF and run a sustained **`llama-bench`** run inside the container.
+  - Reports `pp_tok/s` (prompt processing) and `tg_tok/s` (token generation) plus optional power/energy.
+  - Strict inference mode (must run GPU inference): `python3 validation/scripts/llama_cpp_infer.py` (sets `workloads.llama_cpp.require_inference=true` via profile).
 
 Tip: run just the Ollama workload:
 ```bash

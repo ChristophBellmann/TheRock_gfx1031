@@ -424,7 +424,7 @@ def build_plan(cfg: dict[str, Any], *, doctor_only: bool = False) -> list[Step]:
     add("miopen_smoke", "miopen_driver", "MIOpen driver", "typ. <1s", _step_miopen_driver)
     add("miopen_smoke", "miopen_smoke", "MIOpen smoke", "typ. ~5s (continuous; first run may JIT)", _step_miopen_smoke)
 
-    add("llama_cpp_docker", "llama_cpp_docker", "llama.cpp (docker) smoke", "minutes (pull), <5s run", step_llama_cpp_docker)
+    add("llama_cpp_docker", "llama_cpp_docker", "llama.cpp (docker) smoke", "minutes (pull), ~10-60s bench", step_llama_cpp_docker)
     add("ollama", "ollama", "Ollama (local binary) smoke", "<10s download, <1s version", step_ollama)
     add("open_interpreter", "open_interpreter", "Open Interpreter (pip) smoke", "minutes (pip), <2s help", step_open_interpreter)
     add("whisper", "whisper", "Whisper (python) smoke", "<5s run (if installed)", step_whisper)

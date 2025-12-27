@@ -8,6 +8,9 @@ run:
 workloads:
   llama_cpp:
     require_inference: true
+    num_predict: 1024
+    min_bench_s: 5.0
+    bench_repetitions: 5
 
 steps:
   rocm_sanity: true
