@@ -449,15 +449,15 @@ The script auto-activates the in-tree ROCm environment from `<builddir>/dist/roc
 # Interactive bench menu (default if you run without args in a terminal)
 ./test_gfx1031.sh
 
-# Sanity only (no benchmarks unless you opt-in)
+# Runtime checks only (no benchmarks unless you opt-in)
 ./test_gfx1031.sh --no-bench
 
 # Enable benchmarks (requires the bench binaries to exist in PATH; build them via `config_gfx1031.yaml: build.benchmarks: true`)
 ./test_gfx1031.sh --bench
 ./test_gfx1031.sh --bench --full
 
-# Add sysfs power/util sampling (baseline + per-test metrics)
-./test_gfx1031.sh --bench-lite --power
+# Power sampling is enabled by default. Disable it like this:
+./test_gfx1031.sh --bench-lite --no-power
 
 # Benchmarks only
 ./test_gfx1031.sh --bench-only
@@ -488,6 +488,7 @@ The script auto-activates the in-tree ROCm environment from `<builddir>/dist/roc
 **CLI options (overview):**
 
 - Modes: `--quick` (default), `--full`
+- Power: `--power` (default), `--no-power`
 - Bench control: `--bench`, `--no-bench` (default), `--bench-only`
 - Consistency: `--consistency`, `--consistency-only`, `--deep`, `--expect-stage1`, `--expect-stage2`
 - Components: `--miopen`, `--miopen-smoke`
@@ -596,6 +597,21 @@ run:
 ```
 
 This prints a side-by-side TFLOPS/power/gpu% comparison. By default it keeps no logs; add `--keep-logs` (or `--out <dir>`) to keep captured output.
+
+**Common docker usage:**
+
+```bash
+# Docker-only run (no host run, no compare table):
+./test_docker_gfx1031.sh --docker-only --no-compare
+
+# Host-only run (no docker run, no compare table):
+./test_docker_gfx1031.sh --host-only --no-compare
+
+# Keep captured output:
+./test_docker_gfx1031.sh --keep-logs
+./test_docker_gfx1031.sh --out /tmp/perf_compare
+./test_docker_gfx1031.sh --log /tmp/tdg.log    # writes /tmp/tdg.log.host + /tmp/tdg.log.docker
+```
 
 Notes:
 - The container run installs a minimal runtime dep (`libgfortran5`) because some bench clients link it dynamically. Disable via `./test_docker_gfx1031.sh --no-install-deps`.
