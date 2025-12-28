@@ -1349,15 +1349,15 @@ run_bench_suite() {
     # Target: ~5s wall-time on gfx1031 (RX 6700 XT).
     local hipsolver_m hipsolver_iters
     if [[ "${MODE}" == "full" ]]; then
-      hipsolver_m=6144
-      hipsolver_iters=35
+      hipsolver_m="${HIP_SOLVER_M:-8192}"
+      hipsolver_iters="${HIP_SOLVER_ITERS:-10}"
     else
-      hipsolver_m=5120
-      hipsolver_iters=50
+      hipsolver_m="${HIP_SOLVER_M:-7168}"
+      hipsolver_iters="${HIP_SOLVER_ITERS:-22}"
     fi
     local expected_solver
     if [[ "${MODE}" == "full" ]]; then
-      expected_solver="typ. 4-8s"
+      expected_solver="typ. 7-12s"
     else
       expected_solver="typ. 4-7s"
     fi
