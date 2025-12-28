@@ -1,6 +1,10 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
+# Ensure numeric parsing/formatting uses '.' as decimal separator regardless of
+# user locale (important for printf/awk when emitting table-like output).
+export LC_ALL=C
+
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 LOG_ENABLED=0
 LOG_FILE_DEFAULT="${ROOT}/test_gfx1031.log"
@@ -469,6 +473,112 @@ add_result() {
   RESULT_STATUS+=("$2")
   RESULT_TIME+=("$3")
   RESULT_METRIC+=("$4")
+}
+
+time_to_seconds() {
+  local t="$1"
+  if [[ "${t}" == *ms ]]; then
+    local ms="${t%ms}"
+    awk -v v="${ms}" 'BEGIN{printf "%.3f", v/1000.0}'
+    return 0
+  fi
+  if [[ "${t}" == *s ]]; then
+    local s="${t%s}"
+    # Some callers may pass "0s" or already have decimals.
+    awk -v v="${s}" 'BEGIN{printf "%.3f", v+0}'
+    return 0
+  fi
+  # Fallback: unknown format.
+  awk 'BEGIN{printf "%.3f", 0.0}'
+}
+
+split_metric() {
+  # args: metric -> prints "perf<TAB>power"
+  local metric="$1"
+  if [[ "${metric}" == *" | "* ]]; then
+    local perf="${metric%% | *}"
+    local power="${metric#* | }"
+    printf "%s\t%s" "${perf}" "${power}"
+  else
+    printf "%s\t" "${metric}"
+  fi
+}
+
+normalize_perf() {
+  local perf="$1"
+  # Prefer a compact "KEY value" style.
+  perf="${perf//= / }"
+  perf="${perf//=/ }"
+  # Some metrics are empty.
+  echo "${perf}"
+}
+
+extract_power_field() {
+  # args: power_blob key_regex -> value
+  local blob="$1"
+  local key="$2"
+  echo "${blob}" | sed -nE "s/.*${key}= *([^ ]+).*/\\1/p" | head -n 1
+}
+
+print_summary_table() {
+  local title="$1"
+  echo "${title}" | tee -a "${LOG_FILE}"
+  printf "ID  %-30s  %-4s  %7s  %-18s\n" "BENCH" "ST" "TIME" "PERF" | tee -a "${LOG_FILE}"
+  printf "%s\n" "--------------------------------------------------------------------------------" | tee -a "${LOG_FILE}"
+
+  for i in "${!RESULT_LABELS[@]}"; do
+    local label="${RESULT_LABELS[$i]}"
+    local status="${RESULT_STATUS[$i]}"
+    local time="${RESULT_TIME[$i]}"
+    local metric="${RESULT_METRIC[$i]}"
+
+    local id=$((i + 1))
+    local name="${label}"
+    if [[ "${name}" == bench:* ]]; then
+      name="${name#bench: }"
+    fi
+
+    local seconds
+    seconds="$(time_to_seconds "${time}")"
+
+    local perf="" power=""
+    if [[ -n "${metric}" ]]; then
+      if [[ "${metric}" == *" | "* ]]; then
+        perf="${metric%% | *}"
+        power="${metric#* | }"
+      else
+        perf="${metric}"
+        power=""
+      fi
+      perf="$(normalize_perf "${perf}")"
+    fi
+
+    printf "%02d  %-30.30s  %-4s  %6.3fs  %-18.18s\n" \
+      "${id}" "${name}" "${status}" "${seconds}" "${perf}" | tee -a "${LOG_FILE}"
+
+    # Bench rows get a second line with energy/utilization fields (or n/a).
+    if [[ "${label}" == bench:* ]]; then
+      local e avgw maxw dw gpu mem
+      if [[ -n "${power}" ]]; then
+        e="$(extract_power_field "${power}" "E")"
+        avgw="$(extract_power_field "${power}" "avgW")"
+        maxw="$(extract_power_field "${power}" "maxW")"
+        dw="$(extract_power_field "${power}" "dW")"
+        gpu="$(extract_power_field "${power}" "gpu%")"
+        mem="$(extract_power_field "${power}" "mem%")"
+      fi
+
+      [[ -z "${e}" ]] && e="n/a"
+      [[ -z "${avgw}" ]] && avgw="n/a"
+      [[ -z "${maxw}" ]] && maxw="n/a"
+      [[ -z "${dw}" ]] && dw="n/a"
+      [[ -z "${gpu}" ]] && gpu="n/a"
+      [[ -z "${mem}" ]] && mem="n/a"
+
+      printf "    Energy: %-6s  avg %-6s  max %-6s  ΔW %-7s  gpu %3s%%  mem %3s%%\n" \
+        "${e}" "${avgw}" "${maxw}" "${dw}" "${gpu}" "${mem}" | tee -a "${LOG_FILE}"
+    fi
+  done
 }
 
 miopen_find_driver() {
@@ -1742,27 +1852,14 @@ if (( RUN_BENCH )); then
       RESULT_TIME=()
       RESULT_METRIC=()
 
-      run_bench_suite "${BENCH_TIMEOUT_S}" "${selected_arr[@]}"
-
-      echo "" | tee -a "${LOG_FILE}"
-      echo "==== gfx1031 test summary ====" | tee -a "${LOG_FILE}"
-      for i in "${!RESULT_LABELS[@]}"; do
-        label="${RESULT_LABELS[$i]}"
-        status="${RESULT_STATUS[$i]}"
-        time="${RESULT_TIME[$i]}"
-        metric="${RESULT_METRIC[$i]}"
-        fmt_s="$(fmt_status "${status}")"
-        fmt_l="$(fmt_label "${label}")"
-        if [[ -n "${metric}" ]]; then
-          printf -- "- %02d) %-36s %s ${C_DIM}(%s)${C_RESET} %s\n" "$((i+1))" "${fmt_l}" "${fmt_s}" "${time}" "${metric}" | tee -a "${LOG_FILE}"
-        else
-          printf -- "- %02d) %-36s %s ${C_DIM}(%s)${C_RESET}\n" "$((i+1))" "${fmt_l}" "${fmt_s}" "${time}" | tee -a "${LOG_FILE}"
-        fi
-      done
-      if (( LOG_ENABLED )); then
-        echo "${C_DIM}Log:${C_RESET} ${LOG_FILE}" | tee -a "${LOG_FILE}"
-      else
-        echo "${C_DIM}Log:${C_RESET} (disabled; re-run with --log [file])" | tee -a "${LOG_FILE}"
+	      run_bench_suite "${BENCH_TIMEOUT_S}" "${selected_arr[@]}"
+	
+	      echo "" | tee -a "${LOG_FILE}"
+	      print_summary_table "==== gfx1031 test summary ===="
+	      if (( LOG_ENABLED )); then
+	        echo "${C_DIM}Log:${C_RESET} ${LOG_FILE}" | tee -a "${LOG_FILE}"
+	      else
+	        echo "${C_DIM}Log:${C_RESET} (disabled; re-run with --log [file])" | tee -a "${LOG_FILE}"
       fi
     done
   else
@@ -1771,20 +1868,7 @@ if (( RUN_BENCH )); then
 fi
 
 echo "" | tee -a "${LOG_FILE}"
-echo "==== gfx1031 test summary ====" | tee -a "${LOG_FILE}"
-for i in "${!RESULT_LABELS[@]}"; do
-  label="${RESULT_LABELS[$i]}"
-  status="${RESULT_STATUS[$i]}"
-  time="${RESULT_TIME[$i]}"
-  metric="${RESULT_METRIC[$i]}"
-  fmt_s="$(fmt_status "${status}")"
-  fmt_l="$(fmt_label "${label}")"
-  if [[ -n "${metric}" ]]; then
-    printf -- "- %02d) %-36s %s ${C_DIM}(%s)${C_RESET} %s\n" "$((i+1))" "${fmt_l}" "${fmt_s}" "${time}" "${metric}" | tee -a "${LOG_FILE}"
-  else
-    printf -- "- %02d) %-36s %s ${C_DIM}(%s)${C_RESET}\n" "$((i+1))" "${fmt_l}" "${fmt_s}" "${time}" | tee -a "${LOG_FILE}"
-  fi
-done
+print_summary_table "==== gfx1031 test summary ===="
 
 if (( LOG_ENABLED )); then
   echo "${C_DIM}Log:${C_RESET} ${LOG_FILE}" | tee -a "${LOG_FILE}"
