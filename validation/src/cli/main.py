@@ -9,7 +9,62 @@ from cli.prompts import confirm
 from core.config import load_config
 from core.context import Context
 from core.reporting.summary import print_summary
+from core.tree import detect_build_dirs, detect_default_build_dir
 from steps.plan import build_plan, run_plan
+
+
+def _print_download_plan(cfg: dict) -> None:
+    prof = str(cfg.get("run", {}).get("profile") or "full")
+    repo_root = Path(__file__).resolve().parents[3]
+    build_dirs = cfg.get("run", {}).get("build_dirs") or []
+    if not build_dirs:
+        if bool(cfg.get("run", {}).get("all_build_dirs", False)):
+            build_dirs = detect_build_dirs(repo_root)
+        else:
+            build_dirs = [detect_default_build_dir(repo_root)]
+
+    steps_cfg = cfg.get("steps", {}) or {}
+    wl = cfg.get("workloads", {}) or {}
+
+    lines: list[str] = []
+    lines.append(f"Validation profile: {prof}")
+    lines.append(f"Build dirs: {', '.join(build_dirs)}")
+    lines.append("")
+    lines.append("May download/build (if enabled):")
+
+    def on(k: str) -> bool:
+        return bool(steps_cfg.get(k, True))
+
+    if on("llama_cpp_docker"):
+        url = str((wl.get("llama_cpp", {}) or {}).get("model_url", "") or "").strip()
+        lines.append(f"- llama.cpp (docker image) + GGUF model: {url or '(model_url not set)'}")
+    if on("ollama"):
+        model = str((wl.get("ollama", {}) or {}).get("model", "") or "").strip()
+        lines.append(f"- Ollama (download or docker) + model: {model or '(model not set)'}")
+    if on("open_interpreter"):
+        lines.append("- Open Interpreter (pip install)")
+    if on("whisper"):
+        model = str((wl.get("whisper", {}) or {}).get("model", "") or "").strip()
+        tgt = (wl.get("whisper", {}) or {}).get("audio_target_s", 0)
+        lines.append(f"- Whisper (pip install) + model: {model or '(default)'} (audio_target_s={tgt})")
+    if on("mfem_hip"):
+        ref = str((wl.get("mfem", {}) or {}).get("ref", "") or "").strip()
+        lines.append(f"- MFEM source clone + HIP build (ref={ref or 'master'})")
+    if on("pytorch"):
+        pkgs = (wl.get("pytorch", {}) or {}).get("packages", [])
+        lines.append(f"- PyTorch (pip install ROCm wheels): {pkgs or '(packages not set)'}")
+    if on("petsc_hip"):
+        ref = str((wl.get("petsc", {}) or {}).get("ref", "") or "").strip()
+        lines.append(f"- PETSc source clone + HIP build (ref={ref or 'release'})")
+
+    # Size policy hint.
+    max_gb = cfg.get("run", {}).get("max_download_gb", 0)
+    max_one = cfg.get("run", {}).get("max_single_download_gb", 0)
+    if max_gb or max_one:
+        lines.append("")
+        lines.append(f"Download limits: max_total={max_gb}GB, max_single={max_one}GB (best-effort)")
+
+    print("\n".join(lines))
 
 
 def _cmd_validate(argv: list[str]) -> int:
@@ -58,8 +113,9 @@ def _cmd_validate(argv: list[str]) -> int:
 
     downloads_enabled = bool(cfg["run"].get("downloads_enabled", True))
     if downloads_enabled and bool(cfg["run"].get("ask_before_downloads", True)) and not args.yes:
+        _print_download_plan(cfg)
         ok = confirm(
-            "Proceed with full validation? This may download/build third-party components (potentially multiple GB).",
+            "Proceed?",
             default_yes=True,
         )
         if not ok:

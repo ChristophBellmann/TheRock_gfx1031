@@ -127,9 +127,9 @@ python3 validation/scripts/validate.py
 The validation scripts auto-create and manage a repo-local Python venv under `validation/workspace/` (no manual activation required).
 
 Validation profiles:
-- `quick` (default): ROCm env + power baseline + `rocminfo` + HIP compile+run (no downloads)
+- `all` (default): enables everything (ROCm benches + MIOpen + all workloads incl. PyTorch + PETSc) and prompts once before downloads
+- `quick`: ROCm env + power baseline + `rocminfo` + HIP compile+run (no downloads)
 - `full`: adds representative workloads (docker/pip/build) and prompts once before downloads
-- `all`: enables *everything* (ROCm benches + MIOpen + all workloads incl. PyTorch + PETSc)
 - Focused: `llama_cpp`, `ollama`, `whisper`, `mfem`, `pytorch`, `petsc`
 
 Examples:

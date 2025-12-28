@@ -14,9 +14,14 @@ This suite includes small **sample inputs** under `validation/src/assets/samples
 
 ## Quick start
 
-Default (no args): quick suite with **power metrics** (no downloads, no logs):
+Default (no args): **full suite (`all` profile)** with power metrics, prompts once before downloads/builds:
 ```bash
 python3 validation/scripts/validate.py
+```
+
+Run the lightweight ROCm-only checks (no downloads):
+```bash
+python3 validation/scripts/validate.py --profile quick --no-downloads
 ```
 
 ## Validation modes / CLI overview
