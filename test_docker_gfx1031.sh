@@ -29,12 +29,12 @@ usage() {
   cat <<'EOF'
 Usage: test_docker_gfx1031.sh [options]
 
-Runs repo-local sanity/benches against the in-tree dist under <builddir>/dist/rocm:
+Runs repo-local benchmarks (bench suite 1–9; power optional) against the in-tree dist under <builddir>/dist/rocm:
 - on the host
 - in a ROCm dev docker image (mounted repo + /dev/kfd,/dev/dri)
 
 Default behavior:
-  - bench (suite 1-9; skips missing tools) with power enabled
+  - bench-only (suite 1-9; skips missing tools) with power enabled
   - run host + docker
   - print a small comparison table
   - keep no log files (captures output to temp and deletes)
@@ -114,10 +114,11 @@ if [[ -z "${BUILD_DIR}" ]]; then
 fi
 
 bench_args=()
+# For perf comparison, we want stable 1–9 IDs without rocminfo/hipinfo shifting
+# the numbering. `test_gfx1031.sh --bench-only` provides that.
+bench_args+=(--bench-only)
 if (( BENCH_LITE )); then
   bench_args+=(--bench-lite)
-else
-  bench_args+=(--bench)
 fi
 if [[ "${MODE}" == "full" ]]; then
   bench_args+=(--full)
@@ -222,10 +223,10 @@ run_docker() {
 }
 
 extract_tflops() {
-  local bench="$1"
+  local id="$1"
   local file="$2"
   local line
-  line="$(extract_row_line "${bench}" "${file}")"
+  line="$(rg -n "^${id}  " "${file}" | tail -n 1 || true)"
   [[ -z "${line}" ]] && { echo ""; return 0; }
   echo "${line}" | awk '
     {
@@ -235,28 +236,11 @@ extract_tflops() {
     }'
 }
 
-extract_row_line() {
-  local bench="$1"
-  local file="$2"
-  awk -v bench="${bench}" '
-    $1 ~ /^[0-9][0-9]$/ && index($0, bench) > 0 { print; exit }
-  ' "${file}" 2>/dev/null || true
-}
-
-extract_row_id() {
-  local bench="$1"
+extract_status_by_id() {
+  local id="$1"
   local file="$2"
   local line
-  line="$(extract_row_line "${bench}" "${file}")"
-  [[ -z "${line}" ]] && { echo ""; return 0; }
-  echo "${line}" | awk '{print $1}'
-}
-
-extract_row_status() {
-  local bench="$1"
-  local file="$2"
-  local line
-  line="$(extract_row_line "${bench}" "${file}")"
+  line="$(rg -n "^${id}  " "${file}" | tail -n 1 || true)"
   [[ -z "${line}" ]] && { echo ""; return 0; }
   echo "${line}" | awk '
     {
@@ -266,11 +250,11 @@ extract_row_status() {
     }'
 }
 
-extract_row_time_s() {
-  local bench="$1"
+extract_time_by_id() {
+  local id="$1"
   local file="$2"
   local line
-  line="$(extract_row_line "${bench}" "${file}")"
+  line="$(rg -n "^${id}  " "${file}" | tail -n 1 || true)"
   [[ -z "${line}" ]] && { echo ""; return 0; }
   echo "${line}" | awk '
     {
@@ -280,17 +264,16 @@ extract_row_time_s() {
     }'
 }
 
-extract_row_perf_text() {
-  local bench="$1"
+extract_perf_by_id() {
+  local id="$1"
   local file="$2"
   local line
-  line="$(extract_row_line "${bench}" "${file}")"
+  line="$(rg -n "^${id}  " "${file}" | tail -n 1 || true)"
   [[ -z "${line}" ]] && { echo ""; return 0; }
   echo "${line}" | awk '
     {
       for(i=2;i<=NF;i++){
         if($i ~ /^(OK|FAIL|SKIP)$/ && $(i+1) ~ /^[0-9]+\.[0-9]{3}s$/){
-          # PERF starts at i+2
           out=""
           for(j=i+2;j<=NF;j++){
             if(out!=""){ out=out " " }
@@ -387,49 +370,40 @@ if (( COMPARE )) && (( DO_HOST )) && (( DO_DOCKER )); then
   echo "- mode     : $( ((BENCH_LITE)) && echo "bench-lite (1-2)" || echo "bench (1-9)" )"
   echo ""
 
-  benches=()
-  if (( BENCH_LITE )); then
-    benches+=(
-      "rocBLAS GEMM f32"
-      "hipBLAS GEMM f32"
-    )
-  else
-    benches+=(
-      "rocBLAS GEMM f32"
-      "hipBLAS GEMM f32"
-      "rocSOLVER geqrf_strided_batched"
-      "hipSOLVER (tiny solver)"
-      "rocSPARSE axpyi"
-      "hipSPARSE axpyi"
-      "rocFFT complex fwd 1024 (single)"
-      "dyna-rocFFT complex fwd 1024 (single)"
-      "rocRAND generate (philox, uniform-float)"
-    )
+  bench_names=()
+  bench_names+=("rocBLAS GEMM f32")
+  bench_names+=("hipBLAS GEMM f32")
+  if (( ! BENCH_LITE )); then
+    bench_names+=("rocSOLVER geqrf_strided_batched (d)")
+    bench_names+=("hipSOLVER (tiny solver)")
+    bench_names+=("rocSPARSE axpyi (d)")
+    bench_names+=("hipSPARSE axpyi (d)")
+    bench_names+=("rocFFT complex fwd (262144, batch=4, d)")
+    bench_names+=("dyna-rocFFT complex fwd (262144, batch=4, d)")
+    bench_names+=("rocRAND generate (philox, uniform-float)")
   fi
 
   printf "%-3s %-38s %-5s %-9s %-30s  %-5s %-9s %-30s\n" "ID" "bench" "hST" "hTIME" "hPERF" "dST" "dTIME" "dPERF"
   printf "%s\n" "---------------------------------------------------------------------------------------------------------------------------"
   i=1
-  for bench in "${benches[@]}"; do
-    hst="$(extract_row_status "${bench}" "${host_cap}")"
-    dst="$(extract_row_status "${bench}" "${docker_cap}")"
-    htime="$(extract_row_time_s "${bench}" "${host_cap}")"
-    dtime="$(extract_row_time_s "${bench}" "${docker_cap}")"
-    hperf="$(extract_row_perf_text "${bench}" "${host_cap}")"
-    dperf="$(extract_row_perf_text "${bench}" "${docker_cap}")"
-    # Prefer fixed numbering 1-9 (bench menu) regardless of actual summary IDs.
+  for bench in "${bench_names[@]}"; do
+    id="$(printf "%02d" "${i}")"
+    hst="$(extract_status_by_id "${id}" "${host_cap}")"
+    dst="$(extract_status_by_id "${id}" "${docker_cap}")"
+    htime="$(extract_time_by_id "${id}" "${host_cap}")"
+    dtime="$(extract_time_by_id "${id}" "${docker_cap}")"
+    hperf="$(extract_perf_by_id "${id}" "${host_cap}")"
+    dperf="$(extract_perf_by_id "${id}" "${docker_cap}")"
     printf "%-3s %-38.38s %-5s %-9s %-30.30s  %-5s %-9s %-30.30s\n" \
-      "$(printf "%02d" "${i}")" "${bench}" "${hst:-n/a}" "${htime:-n/a}" "${hperf:-}" "${dst:-n/a}" "${dtime:-n/a}" "${dperf:-}"
+      "${id}" "${bench}" "${hst:-n/a}" "${htime:-n/a}" "${hperf:-}" "${dst:-n/a}" "${dtime:-n/a}" "${dperf:-}"
 
     # Power line (if available)
-    hid="$(extract_row_id "${bench}" "${host_cap}")"
-    did="$(extract_row_id "${bench}" "${docker_cap}")"
-    hwh="$(extract_energy_wh "${hid}" "${host_cap}")"
-    dwh="$(extract_energy_wh "${did}" "${docker_cap}")"
-    hw="$(extract_energy_avgw "${hid}" "${host_cap}")"
-    dw="$(extract_energy_avgw "${did}" "${docker_cap}")"
-    hgpu="$(extract_energy_gpu "${hid}" "${host_cap}")"
-    dgpu="$(extract_energy_gpu "${did}" "${docker_cap}")"
+    hwh="$(extract_energy_wh "${id}" "${host_cap}")"
+    dwh="$(extract_energy_wh "${id}" "${docker_cap}")"
+    hw="$(extract_energy_avgw "${id}" "${host_cap}")"
+    dw="$(extract_energy_avgw "${id}" "${docker_cap}")"
+    hgpu="$(extract_energy_gpu "${id}" "${host_cap}")"
+    dgpu="$(extract_energy_gpu "${id}" "${docker_cap}")"
     if [[ -n "${hwh}${dwh}${hw}${dw}${hgpu}${dgpu}" ]]; then
       printf "    %-38s  hWh %-7s hW %-6s hGPU %-4s   dWh %-7s dW %-6s dGPU %-4s\n" \
         "power" "${hwh:-n/a}" "${hw:-n/a}" "${hgpu:-n/a}%" "${dwh:-n/a}" "${dw:-n/a}" "${dgpu:-n/a}%"
