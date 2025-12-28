@@ -79,9 +79,8 @@ print_formula_line() {
   # - operators/symbols:   #E5C07B (229,192,123)
   # - numbers/units:       #D19A66 (209,154,102)
   # - brackets/indices:    #7F848E (127,132,142)
-  FORMULA="${formula}" awk '
+  printf '%s\n' "${formula}" | awk '
     BEGIN{
-      s=ENVIRON["FORMULA"]
       RST="\033[0m"
       KW="\033[38;2;97;175;239m"
       ID="\033[38;2;198;120;221m"
@@ -98,6 +97,7 @@ print_formula_line() {
     function isword(c){ return c ~ /[A-Za-z0-9_-]/ }
     function emit(col, tok){ printf("%s%s%s", col, tok, RST) }
     {
+      s=$0
       i=1
       n=length(s)
       while(i<=n){
@@ -159,7 +159,7 @@ print_bench_desc() {
 }
 
 fmt_sci() {
-  # args: number -> "m×10^e" (one decimal place)
+  # args: number -> "m.e" scientific notation (one decimal place), e.g. 1.7e11
   local value="$1"
   awk -v v="${value}" '
     BEGIN{
@@ -171,7 +171,7 @@ fmt_sci() {
       # normalize mantissa to [1,10)
       while(m>=10){ m/=10; e++ }
       while(m<1){ m*=10; e-- }
-      printf("%.1f×10^%d\n", m, e)
+      printf("%.1fe%d\n", m, e)
     }'
 }
 
