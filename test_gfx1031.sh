@@ -1399,20 +1399,12 @@ fi
 # If power sampling is enabled, prefer a sustained load so avgW/gpu% are meaningful.
 # Only adjust if BENCH_ITERS is still at the default.
 if (( RUN_POWER )); then
-  # For bench-lite we want sustained load (5-10s) to make power/gpu% sampling reliable.
-  # For the full bench set, keep default iteration scaling to avoid excessively long runs.
-  if (( BENCH_LITE )); then
-    if [[ "${MODE}" == "quick" && "${BENCH_ITERS}" == "10" ]]; then
-      BENCH_ITERS="2400"
-    elif [[ "${MODE}" == "full" && "${BENCH_ITERS}" == "20" ]]; then
-      BENCH_ITERS="400"
-    fi
-  else
-    if [[ "${MODE}" == "quick" && "${BENCH_ITERS}" == "10" ]]; then
-      BENCH_ITERS="40"
-    elif [[ "${MODE}" == "full" && "${BENCH_ITERS}" == "20" ]]; then
-      BENCH_ITERS="40"
-    fi
+  # For GEMM we want sustained load (~5s) to make power/gpu% sampling reliable.
+  # Other bench clients ignore BENCH_ITERS, so this mainly affects rocBLAS/hipBLAS.
+  if [[ "${MODE}" == "quick" && "${BENCH_ITERS}" == "10" ]]; then
+    BENCH_ITERS="2400"
+  elif [[ "${MODE}" == "full" && "${BENCH_ITERS}" == "20" ]]; then
+    BENCH_ITERS="400"
   fi
 fi
 

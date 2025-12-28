@@ -10,7 +10,7 @@ BUILD_DIR="${BUILD_DIR:-build-stage2}"
 IMAGE="${IMAGE:-rocm/dev-ubuntu-24.04:latest}"
 
 MODE="quick"            # quick|full
-BENCH_LITE=1            # default
+BENCH_LITE=0            # default: run full bench suite (1-9)
 POWER=1                 # default: on (sanity check needs it)
 INSTALL_DEPS=1          # default: on for benches in container
 NO_TTY=0
@@ -33,7 +33,7 @@ Runs repo-local sanity/benches against the in-tree dist under <builddir>/dist/ro
 - in a ROCm dev docker image (mounted repo + /dev/kfd,/dev/dri)
 
 Default behavior:
-  - bench-lite (rocBLAS+hipBLAS) with power enabled
+  - bench (suite 1-9; skips missing tools) with power enabled
   - run host + docker
   - print a small comparison table
   - keep no log files (captures output to temp and deletes)
@@ -44,8 +44,8 @@ Options:
   --build-dir <dir>   Override build dir
   --image <image>     Docker image (default: rocm/dev-ubuntu-24.04:latest)
 
-  --bench             Run full bench set (default: bench-lite)
-  --bench-lite        Run BLAS GEMM benches only (default)
+  --bench             Run full bench set (suite 1-9) (default)
+  --bench-lite        Run BLAS GEMM benches only
   --full              Use longer benchmark sizes (passes --full)
 
   --no-power          Disable sysfs power sampling
@@ -254,6 +254,60 @@ print(m.group(1) if m else "")
 PY
 }
 
+extract_result_line() {
+  local label="$1"
+  local file="$2"
+  python3 - "${label}" "${file}" <<'PY'
+import re,sys
+label=sys.argv[1]
+path=sys.argv[2]
+try:
+    lines=open(path,'r',encoding='utf-8',errors='replace').read().splitlines()
+except FileNotFoundError:
+    print("")
+    raise SystemExit(0)
+
+# Prefer summary lines which look like:
+# - 03) bench: rocFFT ... OK (123ms) ms=0.012
+last=""
+for ln in lines:
+    if ln.strip().startswith("- ") and label in ln:
+        last=ln
+if not last:
+    print("")
+    raise SystemExit(0)
+print(last)
+PY
+}
+
+parse_status_metric() {
+  local label="$1"
+  local file="$2"
+  python3 - "${label}" "${file}" <<'PY'
+import re,sys
+label=sys.argv[1]
+path=sys.argv[2]
+try:
+    lines=open(path,'r',encoding='utf-8',errors='replace').read().splitlines()
+except FileNotFoundError:
+    print("n/a|")
+    raise SystemExit(0)
+last=""
+for ln in lines:
+    if ln.strip().startswith("- ") and label in ln:
+        last=ln
+if not last:
+    print("n/a|")
+    raise SystemExit(0)
+
+m=re.search(r"\)\s*(.*)$", last)
+metric=(m.group(1).strip() if m else "")
+ms=re.search(r"\s(OK|FAIL|SKIP)\s", " "+last+" ")
+status=ms.group(1) if ms else "n/a"
+print(status + "|" + metric)
+PY
+}
+
 fmt_pct() {
   local a="$1"
   local b="$2"
@@ -310,13 +364,31 @@ if (( COMPARE )) && (( DO_HOST )) && (( DO_DOCKER )); then
   host_hipblas_gpu="$(extract_kv "bench: hipBLAS GEMM f32" "gpu%" "${host_cap}")"
   docker_hipblas_gpu="$(extract_kv "bench: hipBLAS GEMM f32" "gpu%" "${docker_cap}")"
 
-  printf "%-22s %10s %10s %10s  %9s %9s  %7s %7s\n" "bench" "hostTF" "dockTF" "ΔTF" "hostW" "dockW" "hGPU%" "dGPU%"
-  printf "%-22s %10s %10s %10s  %9s %9s  %7s %7s\n" \
+  printf "%-34s %10s %10s %10s  %9s %9s  %7s %7s\n" "bench" "hostTF" "dockTF" "ΔTF" "hostW" "dockW" "hGPU%" "dGPU%"
+  printf "%-34s %10s %10s %10s  %9s %9s  %7s %7s\n" \
     "rocBLAS GEMM f32" "${host_rocblas:-n/a}" "${docker_rocblas:-n/a}" "$(fmt_pct "${host_rocblas}" "${docker_rocblas}")" \
     "${host_rocblas_avgw:-n/a}" "${docker_rocblas_avgw:-n/a}" "${host_rocblas_gpu:-n/a}" "${docker_rocblas_gpu:-n/a}"
-  printf "%-22s %10s %10s %10s  %9s %9s  %7s %7s\n" \
+  printf "%-34s %10s %10s %10s  %9s %9s  %7s %7s\n" \
     "hipBLAS GEMM f32" "${host_hipblas:-n/a}" "${docker_hipblas:-n/a}" "$(fmt_pct "${host_hipblas}" "${docker_hipblas}")" \
     "${host_hipblas_avgw:-n/a}" "${docker_hipblas_avgw:-n/a}" "${host_hipblas_gpu:-n/a}" "${docker_hipblas_gpu:-n/a}"
+
+  echo ""
+  echo "==== bench suite status (3-9) ===="
+  printf "%-34s %-5s %-5s  %s\n" "bench" "host" "dock" "metric (host | docker)"
+  for lbl in \
+    "bench: rocSOLVER geqrf_strided_batched (s)" \
+    "bench: hipSOLVER (tiny solver)" \
+    "bench: rocSPARSE axpyi (s)" \
+    "bench: hipSPARSE axpyi (s)" \
+    "bench: rocFFT complex fwd 1024 (single)" \
+    "bench: dyna-rocFFT complex fwd 1024 (single)" \
+    "bench: rocRAND generate (philox, uniform-float)"; do
+    hs="$(parse_status_metric "${lbl}" "${host_cap}")"
+    ds="$(parse_status_metric "${lbl}" "${docker_cap}")"
+    hst="${hs%%|*}"; hmet="${hs#*|}"
+    dst="${ds%%|*}"; dmet="${ds#*|}"
+    printf "%-34s %-5s %-5s  %s\n" "${lbl#bench: }" "${hst}" "${dst}" "${hmet:-} | ${dmet:-}"
+  done
 fi
 
 if (( KEEP_LOGS )); then

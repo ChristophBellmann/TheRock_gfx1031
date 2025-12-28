@@ -585,11 +585,11 @@ If you want a quick sanity check that performance is comparable between your hos
 run:
 
 ```bash
-# Default: bench-lite (rocBLAS + hipBLAS GEMM), Stage-2.
+# Default: bench suite (1–9; skips missing tools), Stage-2.
 ./test_docker_gfx1031.sh
 
-# Full bench set (can take longer):
-./test_docker_gfx1031.sh --bench
+# Bench-lite (rocBLAS + hipBLAS GEMM only):
+./test_docker_gfx1031.sh --bench-lite
 
 # Override docker image (useful for glibc compatibility):
 ./test_docker_gfx1031.sh --image rocm/dev-ubuntu-24.04:latest
@@ -599,7 +599,7 @@ This prints a side-by-side TFLOPS/power/gpu% comparison. By default it keeps no 
 
 Notes:
 - The container run installs a minimal runtime dep (`libgfortran5`) because some bench clients link it dynamically. Disable via `./test_docker_gfx1031.sh --no-install-deps`.
-- By default, `test_docker_gfx1031.sh` enables `--power`. For bench-lite, `test_gfx1031.sh` increases GEMM iterations so each run is ~5s (better power/gpu% signal). Disable via `./test_docker_gfx1031.sh --no-power`.
+- By default, `test_docker_gfx1031.sh` enables `--power`. GEMM iterations are increased automatically so each BLAS run is ~5s (better power/gpu% signal). Disable via `./test_docker_gfx1031.sh --no-power`.
 
 ### Optional: Upstream test suites (ctest / gtest clients)
 
