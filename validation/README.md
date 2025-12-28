@@ -79,6 +79,10 @@ python3 validation/scripts/whisper_validate.py
 python3 validation/scripts/mfem_validate.py
 ```
 
+MFEM notes:
+- The HIP CMake package sometimes ends up with an empty `HIP_PLATFORM` during early configure in external projects; the validator pins `-DHIP_PLATFORM=amd`.
+- MFEM examples are often excluded from the default build target; the validator builds `ex1` explicitly and falls back to smaller runtime parameters if a HIP OOM occurs.
+
 llama.cpp options:
 - Default (strict GPU inference via `llama-bench`): `python3 validation/scripts/llama_cpp_validate.py`
 - Smoke-only (no model download / no inference): `python3 validation/scripts/llama_cpp_validate.py --smoke`

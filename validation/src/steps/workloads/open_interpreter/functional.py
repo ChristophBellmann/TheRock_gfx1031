@@ -16,6 +16,9 @@ def step_open_interpreter(ctx: Context, cfg: dict[str, Any], build_dir: str, roc
     if meta is not None and meta.status != "OK":
         return StepResult(build_dir, "Open Interpreter (pip) smoke", meta.status, meta.duration, meta.metric)
 
-    interp = which("interpreter", env) or str(Path(sys.executable).resolve().parent / "interpreter")
+    # Prefer PATH lookup, but fall back to the current venv bin dir.
+    # Do NOT call `.resolve()` on sys.executable: in a venv it's commonly a symlink
+    # to the system python, which would drop us out of the venv and break lookup.
+    interp = which("interpreter", env) or str(Path(sys.executable).parent / "interpreter")
     r = run_cmd(ctx.repo_root, env, [interp, "--help"], 20, log)
     return StepResult(build_dir, "Open Interpreter (pip) smoke", "OK" if r.rc == 0 else "FAIL", fmt_duration(r.dur_ms), "interpreter --help" if r.rc == 0 else f"rc={r.rc}")
