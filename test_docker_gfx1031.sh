@@ -3,6 +3,9 @@ set -euo pipefail
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
+# Allow piping into tools like `head` without reporting failures on SIGPIPE.
+trap 'exit 0' PIPE
+
 BUILD_DIR="${BUILD_DIR:-build-stage2}"
 IMAGE="${IMAGE:-rocm/dev-ubuntu-24.04:latest}"
 
@@ -113,6 +116,9 @@ if [[ "${MODE}" == "full" ]]; then
 fi
 if (( POWER )); then
   bench_args+=(--power)
+else
+  # `test_gfx1031.sh` defaults power to ON. If the user disabled it here, be explicit.
+  bench_args+=(--no-power)
 fi
 
 ts="$(date +%Y%m%d-%H%M%S)"
@@ -141,7 +147,7 @@ if [[ -n "${LOG_PATH}" ]]; then
 fi
 
 run_host() {
-  echo "== host run =="
+  echo "== host run (local) =="
   local rc=0
   set +e
   ./test_gfx1031.sh --build-dir "${BUILD_DIR}" "${bench_args[@]}" 2>&1 | tee "${host_cap}"
@@ -157,7 +163,7 @@ fi
 
 run_docker() {
   echo ""
-  echo "== docker run =="
+  echo "== docker run (container) =="
   local rc=0
   set +e
   docker run --rm "${docker_it[@]}" \
@@ -261,6 +267,17 @@ fmt_pct() {
 host_rc=0
 docker_rc=0
 
+echo "==== test_docker_gfx1031 plan ===="
+echo "- build dir : ${BUILD_DIR}"
+echo "- image     : ${IMAGE}"
+echo "- mode      : ${MODE} ($( ((BENCH_LITE)) && echo bench-lite || echo bench ))"
+echo "- power     : $([[ ${POWER} -eq 1 ]] && echo enabled || echo disabled)"
+echo "- host      : $([[ ${DO_HOST} -eq 1 ]] && echo yes || echo no)"
+echo "- docker    : $([[ ${DO_DOCKER} -eq 1 ]] && echo yes || echo no)"
+echo "- compare   : $([[ ${COMPARE} -eq 1 ]] && echo yes || echo no)"
+echo "- logs      : $([[ ${KEEP_LOGS} -eq 1 ]] && echo keep || echo ephemeral)"
+echo ""
+
 if (( DO_HOST )); then
   run_host || host_rc=$?
 fi
@@ -319,4 +336,3 @@ if (( host_rc != 0 )); then
   exit "${host_rc}"
 fi
 exit "${docker_rc}"
-
