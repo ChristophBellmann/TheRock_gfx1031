@@ -1380,17 +1380,43 @@ run_bench_suite() {
 
   # 3) SPARSE
   if bench_selected 5 && command -v rocsparse-bench >/dev/null 2>&1; then
-    run_bench_with_timeout "bench: rocSPARSE axpyi (s)" "${expected_misc}" "${timeout_s}" \
-      rocsparse-bench -f axpyi -n 256 -z 64 -i 1 --iters_inner 1 -v 0 -r s || true
+    # Sustained sparse workload to make power/utilization sampling meaningful.
+    # Note: rocSPARSE uses `-m` for LEVEL-1 vector size in axpyi.
+    local rocsparse_m rocsparse_nnz rocsparse_iters
+    if [[ "${MODE}" == "full" ]]; then
+      rocsparse_m="${ROCSPARSE_M:-2097152}"
+      rocsparse_nnz="${ROCSPARSE_NNZ:-524288}"
+      rocsparse_iters="${ROCSPARSE_ITERS:-90000}"
+    else
+      rocsparse_m="${ROCSPARSE_M:-1048576}"
+      rocsparse_nnz="${ROCSPARSE_NNZ:-262144}"
+      rocsparse_iters="${ROCSPARSE_ITERS:-120000}"
+    fi
+    local expected_sparse="typ. 4-7s"
+    run_bench_with_timeout "bench: rocSPARSE axpyi (d)" "${expected_sparse}" "${timeout_s}" \
+      rocsparse-bench -f axpyi -r d -m "${rocsparse_m}" -z "${rocsparse_nnz}" -i "${rocsparse_iters}" --iters_inner 1 -v 0 || true
   elif bench_selected 5; then
-    add_result "bench: rocSPARSE axpyi (s)" "SKIP" "0s" "rocsparse-bench not in PATH"
+    add_result "bench: rocSPARSE axpyi (d)" "SKIP" "0s" "rocsparse-bench not in PATH"
   fi
 
   if bench_selected 6 && command -v hipsparse-bench >/dev/null 2>&1; then
-    run_bench_with_timeout "bench: hipSPARSE axpyi (s)" "${expected_misc}" "${timeout_s}" \
-      hipsparse-bench -f axpyi -n 256 -z 64 -i 1 --iters_inner 1 -v 0 -r s || true
+    # Sustained sparse workload to make power/utilization sampling meaningful.
+    # Note: hipSPARSE uses `-n` for LEVEL-1 vector size in axpyi.
+    local hipsparse_n hipsparse_nnz hipsparse_iters
+    if [[ "${MODE}" == "full" ]]; then
+      hipsparse_n="${HIPSPARSE_N:-2097152}"
+      hipsparse_nnz="${HIPSPARSE_NNZ:-524288}"
+      hipsparse_iters="${HIPSPARSE_ITERS:-115000}"
+    else
+      hipsparse_n="${HIPSPARSE_N:-1048576}"
+      hipsparse_nnz="${HIPSPARSE_NNZ:-262144}"
+      hipsparse_iters="${HIPSPARSE_ITERS:-165000}"
+    fi
+    local expected_sparse="typ. 4-7s"
+    run_bench_with_timeout "bench: hipSPARSE axpyi (d)" "${expected_sparse}" "${timeout_s}" \
+      hipsparse-bench -f axpyi -r d -n "${hipsparse_n}" -z "${hipsparse_nnz}" -i "${hipsparse_iters}" --iters_inner 1 -v 0 || true
   elif bench_selected 6; then
-    add_result "bench: hipSPARSE axpyi (s)" "SKIP" "0s" "hipsparse-bench not in PATH"
+    add_result "bench: hipSPARSE axpyi (d)" "SKIP" "0s" "hipsparse-bench not in PATH"
   fi
 
   # 4) FFT
