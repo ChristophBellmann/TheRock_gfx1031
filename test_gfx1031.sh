@@ -1605,6 +1605,8 @@ run_bench_suite() {
   local -a selected=("$@")
   local expected_blas="${BENCH_EXPECTED}"
   local expected_misc="${BENCH_EXPECTED_MISC}"
+  local qr_ops="" qr_bytes=""
+  local sparse_ops="" sparse_bytes=""
 
   bench_selected() {
     local idx="$1"
@@ -1687,7 +1689,6 @@ run_bench_suite() {
     fi
     # Approx FLOPs for QR (square): (4/3)·n^3; data ~ 2·n^2 doubles.
     BENCH_META_STATS=""
-    local qr_ops qr_bytes
     qr_ops="$(awk -v n="${rocsolver_m}" -v b="${rocsolver_batch}" -v it="${rocsolver_iters}" 'BEGIN{printf "%.0f", (4.0/3.0)*n*n*n*b*it}')"
     qr_bytes="$(awk -v n="${rocsolver_m}" -v b="${rocsolver_batch}" -v it="${rocsolver_iters}" 'BEGIN{printf "%.0f", 2.0*n*n*8.0*b*it}')"
     BENCH_META_STATS="$(set_bench_meta_stats "${qr_ops}" "FLOP" "${qr_bytes}")"
@@ -1719,12 +1720,12 @@ run_bench_suite() {
     if [[ "${hipsolver_iters}" == "0" ]]; then
       hipsolver_iters=1
     fi
-    # Approx FLOPs for LU (square): (2/3)·n^3; data ~ 2·n^2 doubles.
+    # Use the same ops/data estimate as rocSOLVER geqrf_strided_batched (d),
+    # even though the underlying math differs (requested for consistent reporting).
     BENCH_META_STATS=""
-    local lu_ops lu_bytes
-    lu_ops="$(awk -v n="${hipsolver_m}" -v it="${hipsolver_iters}" 'BEGIN{printf "%.0f", (2.0/3.0)*n*n*n*it}')"
-    lu_bytes="$(awk -v n="${hipsolver_m}" -v it="${hipsolver_iters}" 'BEGIN{printf "%.0f", 2.0*n*n*8.0*it}')"
-    BENCH_META_STATS="$(set_bench_meta_stats "${lu_ops}" "FLOP" "${lu_bytes}")"
+    if [[ -n "${qr_ops}" && -n "${qr_bytes}" ]]; then
+      BENCH_META_STATS="$(set_bench_meta_stats "${qr_ops}" "FLOP" "${qr_bytes}")"
+    fi
     run_bench_with_timeout "bench: hipSOLVER (tiny solver)" "${expected_solver}" "${timeout_s}" \
       hipsolver-bench --perf 1 -f getrf -r d -m "${hipsolver_m}" -n "${hipsolver_m}" -i "${hipsolver_iters}" || true
     BENCH_META_STATS=""
@@ -1733,6 +1734,23 @@ run_bench_suite() {
   fi
 
   # 3) SPARSE
+  # Use the hipSPARSE axpyi parameters as the canonical ops/data estimate for both
+  # rocSPARSE and hipSPARSE (requested for consistent reporting).
+  if (bench_selected 5 || bench_selected 6) && [[ -z "${sparse_ops}" ]]; then
+    local canon_n canon_nnz canon_iters
+    if [[ "${MODE}" == "full" ]]; then
+      canon_n="${HIPSPARSE_N:-2097152}"
+      canon_nnz="${HIPSPARSE_NNZ:-524288}"
+      canon_iters="${HIPSPARSE_ITERS:-115000}"
+    else
+      canon_n="${HIPSPARSE_N:-1048576}"
+      canon_nnz="${HIPSPARSE_NNZ:-262144}"
+      canon_iters="${HIPSPARSE_ITERS:-165000}"
+    fi
+    sparse_ops="$(awk -v nnz="${canon_nnz}" -v it="${canon_iters}" 'BEGIN{printf "%.0f", 2.0*nnz*it}')"
+    sparse_bytes="$(awk -v nnz="${canon_nnz}" -v it="${canon_iters}" 'BEGIN{printf "%.0f", 28.0*nnz*it}')"
+  fi
+
   if bench_selected 5 && command -v rocsparse-bench >/dev/null 2>&1; then
     # Sustained sparse workload to make power/utilization sampling meaningful.
     # Note: rocSPARSE uses `-m` for LEVEL-1 vector size in axpyi.
@@ -1749,10 +1767,11 @@ run_bench_suite() {
     local expected_sparse="typ. 4-7s"
     # AXPYI: ~2 FLOP per nnz (mul+add); data ~ (x val 8B + idx 4B + y read+write 16B)=28B per nnz.
     BENCH_META_STATS=""
-    local ax_ops ax_bytes
-    ax_ops="$(awk -v nnz="${rocsparse_nnz}" -v it="${rocsparse_iters}" 'BEGIN{printf "%.0f", 2.0*nnz*it}')"
-    ax_bytes="$(awk -v nnz="${rocsparse_nnz}" -v it="${rocsparse_iters}" 'BEGIN{printf "%.0f", 28.0*nnz*it}')"
-    BENCH_META_STATS="$(set_bench_meta_stats "${ax_ops}" "FLOP" "${ax_bytes}")"
+    if [[ -n "${sparse_ops}" && -n "${sparse_bytes}" ]]; then
+      BENCH_META_STATS="$(set_bench_meta_stats "${sparse_ops}" "FLOP" "${sparse_bytes}")"
+    else
+      BENCH_META_STATS=""
+    fi
     run_bench_with_timeout "bench: rocSPARSE axpyi (d)" "${expected_sparse}" "${timeout_s}" \
       rocsparse-bench -f axpyi -r d -m "${rocsparse_m}" -z "${rocsparse_nnz}" -i "${rocsparse_iters}" --iters_inner 1 -v 0 || true
     BENCH_META_STATS=""
@@ -1775,10 +1794,11 @@ run_bench_suite() {
     fi
     local expected_sparse="typ. 4-7s"
     BENCH_META_STATS=""
-    local hax_ops hax_bytes
-    hax_ops="$(awk -v nnz="${hipsparse_nnz}" -v it="${hipsparse_iters}" 'BEGIN{printf "%.0f", 2.0*nnz*it}')"
-    hax_bytes="$(awk -v nnz="${hipsparse_nnz}" -v it="${hipsparse_iters}" 'BEGIN{printf "%.0f", 28.0*nnz*it}')"
-    BENCH_META_STATS="$(set_bench_meta_stats "${hax_ops}" "FLOP" "${hax_bytes}")"
+    if [[ -n "${sparse_ops}" && -n "${sparse_bytes}" ]]; then
+      BENCH_META_STATS="$(set_bench_meta_stats "${sparse_ops}" "FLOP" "${sparse_bytes}")"
+    else
+      BENCH_META_STATS=""
+    fi
     run_bench_with_timeout "bench: hipSPARSE axpyi (d)" "${expected_sparse}" "${timeout_s}" \
       hipsparse-bench -f axpyi -r d -n "${hipsparse_n}" -z "${hipsparse_nnz}" -i "${hipsparse_iters}" --iters_inner 1 -v 0 || true
     BENCH_META_STATS=""
