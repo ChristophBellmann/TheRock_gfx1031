@@ -3,6 +3,7 @@ from __future__ import annotations
 import argparse
 import os
 import sys
+from pathlib import Path
 
 from cli.prompts import confirm
 from core.config import load_config
@@ -12,8 +13,17 @@ from steps.plan import build_plan, run_plan
 
 
 def _cmd_validate(argv: list[str]) -> int:
+    profiles_dir = Path(__file__).resolve().parents[2] / "config" / "profiles"
+    available_profiles = sorted({p.stem for p in profiles_dir.glob("*.yaml")})
+    # Default profile is controlled by validation/config/defaults.yaml (run.profile).
+    default_profile = load_config(profile=None).get("run", {}).get("profile") or "full"
+
     ap = argparse.ArgumentParser(prog="validate", description="Repo-local ROCm validation suite.")
-    ap.add_argument("--profile", default=None, help="Config profile (full/quick/airgapped). Default: full.")
+    ap.add_argument(
+        "--profile",
+        default=None,
+        help=f"Config profile (default: {default_profile}). Available: {', '.join(available_profiles)}.",
+    )
     ap.add_argument("--build-dirs", default=None, help="Comma-separated build dirs to validate (default: auto).")
     ap.add_argument("--all-build-dirs", action="store_true", help="Validate all detected build dirs (default: only the preferred one).")
     ap.add_argument("--no-downloads", action="store_true", help="Disable network downloads (third-party steps will SKIP).")
