@@ -161,36 +161,56 @@ print_bench_desc() {
   printf "%s%s%s%s\n" "${indent}" "${C_DIM}" "${desc}" "${C_RESET}" | tee -a "${LOG_FILE}"
 }
 
+LAST_MODEL_KIND="${LAST_MODEL_KIND:-}"
+
 print_ops_data_model() {
   # Emits a short, concrete mathematical model for ops/data based on the bench kind.
   # This is *not* a performance claim; it is a parameter-based accounting sketch.
   local kind="$1"   # GEMM|QR|LU|AXPYI|FFT|RNG
+  local do_full=1
+  if [[ -n "${LAST_MODEL_KIND}" && "${LAST_MODEL_KIND}" == "${kind}" ]]; then
+    do_full=0
+  fi
+
+  if (( do_full == 0 )); then
+    print_bench_desc "- ops/data model: same as the previous ${kind} benchmark above."
+    return 0
+  fi
+
   case "${kind}" in
     GEMM)
+      print_bench_desc "- Interpretation: each output element C[i,j] is a length-k dot product, then scaled (α) and accumulated with the prior C via β."
       print_bench_desc "- ops_FLOP ≈ iters · 2·m·n·k (multiply+add) (optionally + iters·2·m·n for β·C + …; usually negligible)"
       print_bench_desc "- data_B ≈ iters · (sizeof(A)·m·k + sizeof(B)·k·n + sizeof(C)·m·n) (minimum touched bytes; reuse/caches ignored)"
       ;;
     QR)
+      print_bench_desc "- Interpretation: for each matrix in the batch, compute A=Q·R with Qᵀ·Q=I (m×n, m≥n), repeated iters times."
       print_bench_desc "- ops_FLOP ≈ batch · iters · (2·m·n² − (2/3)·n³) (for m≥n, Householder-QR; rough)"
       print_bench_desc "- data_B ≈ batch · (sizeof(A)·m·n + sizeof(tau)·n) (+ workspace, implementation-dependent)"
       ;;
     LU)
+      print_bench_desc "- Interpretation: factor A with partial pivoting into P·A=L·U (P is a permutation), repeated iters times."
       print_bench_desc "- ops_FLOP ≈ iters · (2/3)·n³ (for n×n)"
       print_bench_desc "- data_B ≈ iters · sizeof(A)·n² (+ pivots/workspace)"
       ;;
     AXPYI)
+      print_bench_desc "- Interpretation: stream nnz indexed updates y[i_j] += α·x_j; nnz_eff reflects how many distinct y entries are touched."
       print_bench_desc "- ops_FLOP ≈ iters · 2·nnz (multiply+add)"
       print_bench_desc "- data_B ≈ iters · (sizeof(x)·nnz + sizeof(i)·nnz + sizeof(y)·nnz_eff) (nnz_eff depends on index repeats)"
       ;;
     FFT)
+      print_bench_desc "- Interpretation: compute batched N-point forward DFTs; complexity is Θ(N·log2(N)) per transform (constant depends on the plan/kernels)."
       print_bench_desc "- ops ≈ iters · batch · c·N·log2(N) (constant c is implementation-dependent)"
       print_bench_desc "- data_B ≈ iters · batch · sizeof(complex)·N·(reads+writes) (typically ≈2)"
       ;;
     RNG)
+      print_bench_desc "- Interpretation: generate count i.i.d. samples xᵢ ∼ U(0,1) and write them out, repeated iters times."
       print_bench_desc "- ops_samples = iters · count"
       print_bench_desc "- data_B ≈ iters · count · sizeof(output)"
       ;;
   esac
+
+  LAST_MODEL_KIND="${kind}"
 }
 
 fmt_sci() {
