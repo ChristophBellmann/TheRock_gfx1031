@@ -161,6 +161,38 @@ print_bench_desc() {
   printf "%s%s%s%s\n" "${indent}" "${C_DIM}" "${desc}" "${C_RESET}" | tee -a "${LOG_FILE}"
 }
 
+print_ops_data_model() {
+  # Emits a short, concrete mathematical model for ops/data based on the bench kind.
+  # This is *not* a performance claim; it is a parameter-based accounting sketch.
+  local kind="$1"   # GEMM|QR|LU|AXPYI|FFT|RNG
+  case "${kind}" in
+    GEMM)
+      print_bench_desc "- ops_FLOP ≈ iters · 2·m·n·k (Multiply+Add) (ggf. + iters·2·m·n für β·C + …, meist vernachlässigt)"
+      print_bench_desc "- data_B ≈ iters · (sizeof(A)·m·k + sizeof(B)·k·n + sizeof(C)·m·n) (mindestens gelesen/geschrieben; Reuse/Caches ignoriert)"
+      ;;
+    QR)
+      print_bench_desc "- ops_FLOP ≈ batch · iters · (2·m·n² − (2/3)·n³) (für m≥n, Householder‑QR, grob)"
+      print_bench_desc "- data_B ≈ batch · (sizeof(A)·m·n + sizeof(tau)·n) (+ Workspace, je nach Implementierung)"
+      ;;
+    LU)
+      print_bench_desc "- ops_FLOP ≈ iters · (2/3)·n³ (für n×n)"
+      print_bench_desc "- data_B ≈ iters · sizeof(A)·n² (+ Pivot/Workspace)"
+      ;;
+    AXPYI)
+      print_bench_desc "- ops_FLOP ≈ iters · 2·nnz (mul+add)"
+      print_bench_desc "- data_B ≈ iters · (sizeof(x)·nnz + sizeof(i)·nnz + sizeof(y)·nnz_eff) (nnz_eff hängt von Index‑Wiederholungen ab)"
+      ;;
+    FFT)
+      print_bench_desc "- ops ≈ iters · batch · c·N·log2(N) (Konstante c stark implementierungsabhängig)"
+      print_bench_desc "- data_B ≈ iters · batch · sizeof(complex)·N·(reads+writes) (typisch ≈2)"
+      ;;
+    RNG)
+      print_bench_desc "- ops_samples = iters · count"
+      print_bench_desc "- data_B ≈ iters · count · sizeof(output)"
+      ;;
+  esac
+}
+
 fmt_sci() {
   # args: number -> "m.e" scientific notation (one decimal place), e.g. 1.7e11
   local value="$1"
@@ -1509,7 +1541,14 @@ run_bench_with_timeout() {
     if [[ -n "${anchor}" ]]; then
       print_bench_anchor "${anchor}"
       print_formula_line "${formula}"
-      print_bench_desc "ops/FLOP: estimated total work for this run (counts, not per second). data: estimated total bytes read/written (approx., not B/s)."
+      case "${anchor}" in
+        GEMM) print_ops_data_model "GEMM" ;;
+        QR) print_ops_data_model "QR" ;;
+        LU) print_ops_data_model "LU" ;;
+        AXP) print_ops_data_model "AXPYI" ;;
+        FFT) print_ops_data_model "FFT" ;;
+        RNG) print_ops_data_model "RNG" ;;
+      esac
       print_bench_desc "${desc}"
       if [[ -n "${BENCH_META_STATS:-}" ]]; then
         print_bench_desc "${BENCH_META_STATS}"
