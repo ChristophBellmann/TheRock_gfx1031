@@ -222,16 +222,85 @@ run_docker() {
 }
 
 extract_tflops() {
-  local id="$1"  # "01", "02", ...
+  local bench="$1"
   local file="$2"
   local line
-  line="$(rg -n "^${id}  " "${file}" | tail -n 1 || true)"
-  if [[ -z "${line}" ]]; then
-    echo ""
-    return 0
-  fi
-  # PERF column contains "TFLOPS <val>".
-  echo "${line}" | sed -nE 's/.*TFLOPS[[:space:]]+([0-9.]+).*/\1/p'
+  line="$(extract_row_line "${bench}" "${file}")"
+  [[ -z "${line}" ]] && { echo ""; return 0; }
+  echo "${line}" | awk '
+    {
+      for(i=1;i<=NF;i++){
+        if($i=="TFLOPS" && (i+1)<=NF){ print $(i+1); exit }
+      }
+    }'
+}
+
+extract_row_line() {
+  local bench="$1"
+  local file="$2"
+  awk -v bench="${bench}" '
+    $1 ~ /^[0-9][0-9]$/ && index($0, bench) > 0 { print; exit }
+  ' "${file}" 2>/dev/null || true
+}
+
+extract_row_id() {
+  local bench="$1"
+  local file="$2"
+  local line
+  line="$(extract_row_line "${bench}" "${file}")"
+  [[ -z "${line}" ]] && { echo ""; return 0; }
+  echo "${line}" | awk '{print $1}'
+}
+
+extract_row_status() {
+  local bench="$1"
+  local file="$2"
+  local line
+  line="$(extract_row_line "${bench}" "${file}")"
+  [[ -z "${line}" ]] && { echo ""; return 0; }
+  echo "${line}" | awk '
+    {
+      for(i=2;i<=NF;i++){
+        if($i ~ /^(OK|FAIL|SKIP)$/ && $(i+1) ~ /^[0-9]+\.[0-9]{3}s$/){ print $i; exit }
+      }
+    }'
+}
+
+extract_row_time_s() {
+  local bench="$1"
+  local file="$2"
+  local line
+  line="$(extract_row_line "${bench}" "${file}")"
+  [[ -z "${line}" ]] && { echo ""; return 0; }
+  echo "${line}" | awk '
+    {
+      for(i=2;i<=NF;i++){
+        if($i ~ /^(OK|FAIL|SKIP)$/ && $(i+1) ~ /^[0-9]+\.[0-9]{3}s$/){ print $(i+1); exit }
+      }
+    }'
+}
+
+extract_row_perf_text() {
+  local bench="$1"
+  local file="$2"
+  local line
+  line="$(extract_row_line "${bench}" "${file}")"
+  [[ -z "${line}" ]] && { echo ""; return 0; }
+  echo "${line}" | awk '
+    {
+      for(i=2;i<=NF;i++){
+        if($i ~ /^(OK|FAIL|SKIP)$/ && $(i+1) ~ /^[0-9]+\.[0-9]{3}s$/){
+          # PERF starts at i+2
+          out=""
+          for(j=i+2;j<=NF;j++){
+            if(out!=""){ out=out " " }
+            out=out $j
+          }
+          print out
+          exit
+        }
+      }
+    }'
 }
 
 extract_energy_line() {
@@ -241,7 +310,7 @@ extract_energy_line() {
   awk -v id="${id}" '
     $1 == id {
       getline
-      if ($1 == "Energy:") {
+      if ($1 == "Energy:" || $1 ~ /^[[:space:]]*Energy:$/) {
         print $0
       }
       exit
@@ -271,23 +340,6 @@ extract_energy_gpu() {
   local line
   line="$(extract_energy_line "${id}" "${file}")"
   echo "${line}" | sed -nE 's/.*gpu[[:space:]]+([0-9]+)%.*/\1/p'
-}
-
-extract_status() {
-  local id="$1"
-  local file="$2"
-  local line
-  line="$(rg -n "^${id}  " "${file}" | tail -n 1 || true)"
-  echo "${line}" | sed -nE 's/.*[[:space:]](OK|FAIL|SKIP)[[:space:]].*/\1/p'
-}
-
-extract_perf_text() {
-  local id="$1"
-  local file="$2"
-  local line
-  line="$(rg -n "^${id}  " "${file}" | tail -n 1 || true)"
-  # PERF column begins after the time field "<num>s". Keep it short for printing.
-  echo "${line}" | sed -nE 's/.*[[:space:]][0-9]+\.[0-9]{3}s[[:space:]]+(.+)$/\1/p'
 }
 
 fmt_pct() {
@@ -330,49 +382,61 @@ fi
 
 if (( COMPARE )) && (( DO_HOST )) && (( DO_DOCKER )); then
   echo ""
-  echo "==== perf comparison (${BUILD_DIR}) ===="
-  host_rocblas="$(extract_tflops "01" "${host_cap}")"
-  docker_rocblas="$(extract_tflops "01" "${docker_cap}")"
-  host_hipblas="$(extract_tflops "02" "${host_cap}")"
-  docker_hipblas="$(extract_tflops "02" "${docker_cap}")"
+  echo "==== perf comparison (host vs docker) ===="
+  echo "- build dir: ${BUILD_DIR}"
+  echo "- mode     : $( ((BENCH_LITE)) && echo "bench-lite (1-2)" || echo "bench (1-9)" )"
+  echo ""
 
-  host_rocblas_wh="$(extract_energy_wh "01" "${host_cap}")"
-  docker_rocblas_wh="$(extract_energy_wh "01" "${docker_cap}")"
-  host_rocblas_avgw="$(extract_energy_avgw "01" "${host_cap}")"
-  docker_rocblas_avgw="$(extract_energy_avgw "01" "${docker_cap}")"
-  host_rocblas_gpu="$(extract_energy_gpu "01" "${host_cap}")"
-  docker_rocblas_gpu="$(extract_energy_gpu "01" "${docker_cap}")"
-
-  host_hipblas_wh="$(extract_energy_wh "02" "${host_cap}")"
-  docker_hipblas_wh="$(extract_energy_wh "02" "${docker_cap}")"
-  host_hipblas_avgw="$(extract_energy_avgw "02" "${host_cap}")"
-  docker_hipblas_avgw="$(extract_energy_avgw "02" "${docker_cap}")"
-  host_hipblas_gpu="$(extract_energy_gpu "02" "${host_cap}")"
-  docker_hipblas_gpu="$(extract_energy_gpu "02" "${docker_cap}")"
-
-  printf "%-34s %10s %10s %10s  %8s %8s  %7s %7s  %7s %7s\n" "bench" "hostTF" "dockTF" "ΔTF" "hWh" "dWh" "hW" "dW" "hGPU%" "dGPU%"
-  printf "%-34s %10s %10s %10s  %8s %8s  %7s %7s  %7s %7s\n" \
-    "rocBLAS GEMM f32" "${host_rocblas:-n/a}" "${docker_rocblas:-n/a}" "$(fmt_pct "${host_rocblas}" "${docker_rocblas}")" \
-    "${host_rocblas_wh:-n/a}" "${docker_rocblas_wh:-n/a}" "${host_rocblas_avgw:-n/a}" "${docker_rocblas_avgw:-n/a}" "${host_rocblas_gpu:-n/a}" "${docker_rocblas_gpu:-n/a}"
-  printf "%-34s %10s %10s %10s  %8s %8s  %7s %7s  %7s %7s\n" \
-    "hipBLAS GEMM f32" "${host_hipblas:-n/a}" "${docker_hipblas:-n/a}" "$(fmt_pct "${host_hipblas}" "${docker_hipblas}")" \
-    "${host_hipblas_wh:-n/a}" "${docker_hipblas_wh:-n/a}" "${host_hipblas_avgw:-n/a}" "${docker_hipblas_avgw:-n/a}" "${host_hipblas_gpu:-n/a}" "${docker_hipblas_gpu:-n/a}"
-
-  if (( ! BENCH_LITE )); then
-    echo ""
-    echo "==== bench suite status (3-9) ===="
-    printf "%-34s %-5s %-5s  %s\n" "bench" "host" "dock" "perf (host | docker)"
-    for id in 03 04 05 06 07 08 09; do
-      hst="$(extract_status "${id}" "${host_cap}")"
-      dst="$(extract_status "${id}" "${docker_cap}")"
-      # Use the host bench name as the label.
-      name="$(rg -n "^${id}  " "${host_cap}" | tail -n 1 | sed -nE 's/^[0-9]{2}[[:space:]]+(.*)[[:space:]]+(OK|FAIL|SKIP)[[:space:]].*/\\1/p' || true)"
-      [[ -z "${name}" ]] && name="bench ${id}"
-      hperf="$(extract_perf_text "${id}" "${host_cap}")"
-      dperf="$(extract_perf_text "${id}" "${docker_cap}")"
-      printf "%-34.34s %-5s %-5s  %s\n" "${name}" "${hst:-n/a}" "${dst:-n/a}" "${hperf:-} | ${dperf:-}"
-    done
+  benches=()
+  if (( BENCH_LITE )); then
+    benches+=(
+      "rocBLAS GEMM f32"
+      "hipBLAS GEMM f32"
+    )
+  else
+    benches+=(
+      "rocBLAS GEMM f32"
+      "hipBLAS GEMM f32"
+      "rocSOLVER geqrf_strided_batched"
+      "hipSOLVER (tiny solver)"
+      "rocSPARSE axpyi"
+      "hipSPARSE axpyi"
+      "rocFFT complex fwd 1024 (single)"
+      "dyna-rocFFT complex fwd 1024 (single)"
+      "rocRAND generate (philox, uniform-float)"
+    )
   fi
+
+  printf "%-3s %-38s %-5s %-9s %-30s  %-5s %-9s %-30s\n" "ID" "bench" "hST" "hTIME" "hPERF" "dST" "dTIME" "dPERF"
+  printf "%s\n" "---------------------------------------------------------------------------------------------------------------------------"
+  i=1
+  for bench in "${benches[@]}"; do
+    hst="$(extract_row_status "${bench}" "${host_cap}")"
+    dst="$(extract_row_status "${bench}" "${docker_cap}")"
+    htime="$(extract_row_time_s "${bench}" "${host_cap}")"
+    dtime="$(extract_row_time_s "${bench}" "${docker_cap}")"
+    hperf="$(extract_row_perf_text "${bench}" "${host_cap}")"
+    dperf="$(extract_row_perf_text "${bench}" "${docker_cap}")"
+    # Prefer fixed numbering 1-9 (bench menu) regardless of actual summary IDs.
+    printf "%-3s %-38.38s %-5s %-9s %-30.30s  %-5s %-9s %-30.30s\n" \
+      "$(printf "%02d" "${i}")" "${bench}" "${hst:-n/a}" "${htime:-n/a}" "${hperf:-}" "${dst:-n/a}" "${dtime:-n/a}" "${dperf:-}"
+
+    # Power line (if available)
+    hid="$(extract_row_id "${bench}" "${host_cap}")"
+    did="$(extract_row_id "${bench}" "${docker_cap}")"
+    hwh="$(extract_energy_wh "${hid}" "${host_cap}")"
+    dwh="$(extract_energy_wh "${did}" "${docker_cap}")"
+    hw="$(extract_energy_avgw "${hid}" "${host_cap}")"
+    dw="$(extract_energy_avgw "${did}" "${docker_cap}")"
+    hgpu="$(extract_energy_gpu "${hid}" "${host_cap}")"
+    dgpu="$(extract_energy_gpu "${did}" "${docker_cap}")"
+    if [[ -n "${hwh}${dwh}${hw}${dw}${hgpu}${dgpu}" ]]; then
+      printf "    %-38s  hWh %-7s hW %-6s hGPU %-4s   dWh %-7s dW %-6s dGPU %-4s\n" \
+        "power" "${hwh:-n/a}" "${hw:-n/a}" "${hgpu:-n/a}%" "${dwh:-n/a}" "${dw:-n/a}" "${dgpu:-n/a}%"
+    fi
+    echo ""
+    i=$((i+1))
+  done
 fi
 
 if (( KEEP_LOGS )); then
