@@ -910,7 +910,6 @@ print_run_header() {
 POWER_PATH=""
 GPU_BUSY_PATH=""
 MEM_BUSY_PATH=""
-POWER_BASELINE_AVG_W=""
 POWER_SAMPLER_PID=""
 
 discover_power_sensor() {
@@ -1045,6 +1044,26 @@ power_wrap() {
   tmp="$(mktemp)"
   local ptmp
   ptmp="$(mktemp)"
+
+  # For each test: capture a 5s idle baseline (no GPU load) so dW is meaningful
+  # even when runs are short or bursty.
+  local baseline_avg_w=""
+  if (( RUN_POWER )); then
+    if [[ -z "${POWER_PATH}" ]]; then
+      discover_power_sensor || true
+    fi
+    if [[ -n "${POWER_PATH}" ]]; then
+      local btmp
+      btmp="$(mktemp)"
+      power_sampler_start "${btmp}" "0.2"
+      local bpid="${POWER_SAMPLER_PID}"
+      sleep 5
+      baseline_avg_w="$(power_compute_avg_w "${btmp}")"
+      _="$(power_sampler_stop_and_format "${btmp}" "${bpid}" "")" || true
+      rm -f "${btmp}"
+    fi
+  fi
+
   local start_ms
   start_ms="$(now_ms)"
   power_sampler_start "${ptmp}" "0.2"
@@ -1064,7 +1083,7 @@ power_wrap() {
 
   local power_blob=""
   if [[ -n "${POWER_PATH}" ]]; then
-    power_blob="$(power_sampler_stop_and_format "${ptmp}" "${pid}" "${POWER_BASELINE_AVG_W}")"
+    power_blob="$(power_sampler_stop_and_format "${ptmp}" "${pid}" "${baseline_avg_w}")"
   else
     [[ -n "${pid}" ]] && kill "${pid}" >/dev/null 2>&1 || true
   fi
@@ -1397,19 +1416,8 @@ print_run_header "gfx1031 test run" "${BUILD_DIR}" "${ROCM_PATH}"
 detect_expect_stage
 
 if (( RUN_POWER )); then
-  if discover_power_sensor; then
-    # Measure a short idle baseline (no GPU load). Used for dW deltas.
-    ptmp="$(mktemp)"
-    power_sampler_start "${ptmp}" "0.2"
-    pid="${POWER_SAMPLER_PID}"
-    sleep 5
-    POWER_BASELINE_AVG_W="$(power_compute_avg_w "${ptmp}")"
-    power_blob="$(power_sampler_stop_and_format "${ptmp}" "${pid}" "")"
-    rm -f "${ptmp}"
-    add_result "Power idle baseline" "OK" "5.000s" "${power_blob}"
-  else
-    add_result "Power idle baseline" "SKIP" "0s" "no amdgpu power sensor found in sysfs"
-  fi
+  # Baseline is measured per-test inside power_wrap().
+  discover_power_sensor || true
 fi
 
 if (( RUN_CONSISTENCY )); then
@@ -1452,15 +1460,15 @@ fi
 
 if (( RUN_SANITY )); then
   if command -v rocminfo >/dev/null 2>&1; then
-    run_timed "rocminfo (sanity)" "typ. <1s" rocminfo
+    run_timed "rocminfo" "typ. <1s" rocminfo
   else
-    add_result "rocminfo (sanity)" "SKIP" "0s" "not in PATH"
+    add_result "rocminfo" "SKIP" "0s" "not in PATH"
   fi
 
   if command -v hipinfo >/dev/null 2>&1; then
-    run_timed "hipinfo (sanity)" "typ. <1s" hipinfo
+    run_timed "hipinfo" "typ. <1s" hipinfo
   else
-    add_result "hipinfo (sanity)" "SKIP" "0s" "not in PATH (linux builds typically don't ship hipinfo; core-hipinfo is windows-only)"
+    add_result "hipinfo" "SKIP" "0s" "not in PATH (linux builds typically don't ship hipinfo; core-hipinfo is windows-only)"
   fi
 fi
 
