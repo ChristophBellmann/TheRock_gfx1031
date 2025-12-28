@@ -80,6 +80,7 @@ print_formula_line() {
   # - operators/symbols:   #E5C07B (229,192,123)
   # - numbers/units:       #D19A66 (209,154,102)
   # - brackets/indices:    #7F848E (127,132,142)
+  # - variables A/B/C:     per-variable colors (distinct)
   # IMPORTANT: Keep the tokenizer ASCII-only. Treat any non-ASCII bytes as
   # opaque to avoid corrupting UTF-8 sequences (which would render as �).
   printf '%s\n' "${formula}" | awk '
@@ -90,15 +91,31 @@ print_formula_line() {
       OP="\033[38;2;229;192;123m"
       NUM="\033[38;2;209;154;102m"
       BR="\033[38;2;127;132;142m"
+      VA="\033[38;2;224;108;117m"     # #E06C75 (A)
+      VB="\033[38;2;86;182;194m"      # #56B6C2 (B)
+      VC="\033[38;2;152;195;121m"     # #98C379 (C)
+      VQ="\033[38;2;209;154;102m"     # #D19A66 (Q/R/L/U/P/x/y)
+      VV="\033[38;2;229;192;123m"     # #E5C07B (m/n/k/N/nnz/iters/batch/...)
       # simple keyword set
       kw["GEMM"]=1; kw["FFT"]=1; kw["QR"]=1; kw["LU"]=1; kw["RNG"]=1; kw["AXP"]=1
       kw["factorization"]=1; kw["forward"]=1; kw["batched"]=1; kw["Philox"]=1; kw["engine"]=1
+      kw["sizeof"]=1; kw["log2"]=1
     }
     function isop(c){ return index("=+-*/^,;:", c) > 0 }
     function isbr(c){ return index("()[]{}", c) > 0 }
     function isnum(c){ return c ~ /[0-9.]/ }
     function isword(c){ return c ~ /[A-Za-z0-9_-]/ }
     function emit(col, tok){ printf("%s%s%s", col, tok, RST) }
+    function var_color(tok){
+      if(tok=="A") return VA
+      if(tok=="B") return VB
+      if(tok=="C") return VC
+      if(tok=="Q"||tok=="R"||tok=="L"||tok=="U"||tok=="P") return VQ
+      if(tok=="x"||tok=="y") return VQ
+      if(tok=="m"||tok=="n"||tok=="k"||tok=="N"||tok=="i"||tok=="j") return VV
+      if(tok=="nnz"||tok=="batch"||tok=="iters"||tok=="count"||tok=="nnz_eff") return VV
+      return ""
+    }
     {
       s=$0
       i=1
@@ -106,7 +123,8 @@ print_formula_line() {
       while(i<=n){
         c=substr(s,i,1)
         # Non-ASCII byte => part of UTF-8 sequence, print as-is.
-        if (c !~ /^[\x00-\x7F]$/) { printf("%s", c); i++; continue }
+        # Use octal escapes (portable across awk variants; avoids \xNN pitfalls).
+        if (c !~ /^[\001-\177]$/) { printf("%s", c); i++; continue }
         if(c ~ /[[:space:]]/){ printf("%s", c); i++; continue }
         if(isbr(c)){ emit(BR, c); i++; continue }
         if(isop(c)){ emit(OP, c); i++; continue }
@@ -122,7 +140,10 @@ print_formula_line() {
           tok=c
           i++
           while(i<=n && isword(substr(s,i,1))){ tok=tok substr(s,i,1); i++ }
-          if(tok in kw){ emit(KW, tok) } else { emit(ID, tok) }
+          vc=var_color(tok)
+          if(vc!=""){ emit(vc, tok) }
+          else if(tok in kw){ emit(KW, tok) }
+          else { emit(ID, tok) }
           continue
         }
         # fallback
@@ -153,12 +174,104 @@ print_bench_anchor() {
 }
 
 print_bench_desc() {
+  # args: desc [indent] [style]
+  # style: plain|dim
   local desc="$1"
   local indent="${2:-         }"
+  local style="${3:-plain}"
   if [[ -z "${desc}" ]]; then
     return 0
   fi
-  printf "%s%s%s%s\n" "${indent}" "${C_DIM}" "${desc}" "${C_RESET}" | tee -a "${LOG_FILE}"
+  local prefix=""
+  if [[ "${style}" == "dim" ]]; then
+    prefix="${C_DIM}"
+  fi
+  printf "%s%s%s%s\n" "${indent}" "${prefix}" "${desc}" "${C_RESET}" | tee -a "${LOG_FILE}"
+}
+
+print_colorized_text() {
+  # args: text [indent] [style]
+  # Token-based colorization using the same palette as formulas, extended with
+  # per-variable colors for A/B/C/Q/R/L/U/P/x/y and common size symbols.
+  local text="$1"
+  local indent="${2:-         }"
+  local style="${3:-plain}"
+
+  if (( ! COLOR_ENABLED )); then
+    print_bench_desc "${text}" "${indent}" "${style}"
+    return 0
+  fi
+
+  local dim_prefix=""
+  if [[ "${style}" == "dim" ]]; then
+    dim_prefix="${C_DIM}"
+  fi
+
+  printf '%s\n' "${text}" | awk -v dim="${dim_prefix}" '
+    BEGIN{
+      RST="\033[0m"
+      KW="\033[38;2;97;175;239m"         # #61AFEF
+      ID="\033[38;2;198;120;221m"        # #C678DD
+      OP="\033[38;2;229;192;123m"        # #E5C07B
+      NUM="\033[38;2;209;154;102m"       # #D19A66
+      BR="\033[38;2;127;132;142m"        # #7F848E
+      VA="\033[38;2;224;108;117m"        # #E06C75 (A)
+      VB="\033[38;2;86;182;194m"         # #56B6C2 (B)
+      VC="\033[38;2;152;195;121m"        # #98C379 (C)
+      VQ="\033[38;2;209;154;102m"        # #D19A66 (Q/R/L/U/P)
+      VV="\033[38;2;229;192;123m"        # #E5C07B (m/n/k/N/nnz/batch/iters/count)
+
+      kw["ops"]=1; kw["data"]=1; kw["ops_FLOP"]=1; kw["data_B"]=1; kw["ops_samples"]=1
+      kw["sizeof"]=1; kw["log2"]=1; kw["reads"]=1; kw["writes"]=1
+      kw["iters"]=1; kw["batch"]=1; kw["nnz"]=1; kw["count"]=1
+    }
+    function isop(c){ return index("=+-*/^,;:<>", c) > 0 }
+    function isbr(c){ return index("()[]{}", c) > 0 }
+    function isnum(c){ return c ~ /[0-9.]/ }
+    function isword(c){ return c ~ /[A-Za-z0-9_]/ }
+    function emit(col, tok){ printf("%s%s%s", col, tok, RST) }
+    function emit_dim(col, tok){ printf("%s%s%s%s", dim, col, tok, RST) }
+    function emit_any(col, tok){ if(dim!=""){ emit_dim(col, tok) } else { emit(col, tok) } }
+    function var_color(tok){
+      if(tok=="A") return VA
+      if(tok=="B") return VB
+      if(tok=="C") return VC
+      if(tok=="Q"||tok=="R"||tok=="L"||tok=="U"||tok=="P") return VQ
+      if(tok=="x"||tok=="y") return VQ
+      if(tok=="m"||tok=="n"||tok=="k"||tok=="N"||tok=="i"||tok=="j") return VV
+      if(tok=="nnz"||tok=="batch"||tok=="iters"||tok=="count"||tok=="nnz_eff") return VV
+      return ""
+    }
+    {
+      s=$0
+      i=1
+      n=length(s)
+      while(i<=n){
+        c=substr(s,i,1)
+        # Non-ASCII byte => part of UTF-8 sequence, print as-is.
+        if (c !~ /^[\001-\177]$/) { printf("%s", c); i++; continue }
+        if(c ~ /[[:space:]]/){ printf("%s", c); i++; continue }
+        if(isbr(c)){ emit_any(BR, c); i++; continue }
+        if(isop(c)){ emit_any(OP, c); i++; continue }
+        if(isnum(c)){
+          tok=c
+          i++
+          while(i<=n && isnum(substr(s,i,1))){ tok=tok substr(s,i,1); i++ }
+          emit_any(NUM, tok); continue
+        }
+        if(isword(c)){
+          tok=c
+          i++
+          while(i<=n && isword(substr(s,i,1))){ tok=tok substr(s,i,1); i++ }
+          vc=var_color(tok)
+          if(vc!=""){ emit_any(vc, tok); continue }
+          if(tok in kw){ emit_any(KW, tok) } else { emit_any(ID, tok) }
+          continue
+        }
+        printf("%s", c); i++
+      }
+      printf("\n")
+    }' | sed "s/^/${indent}/" | tee -a "${LOG_FILE}"
 }
 
 LAST_MODEL_KIND="${LAST_MODEL_KIND:-}"
@@ -173,40 +286,40 @@ print_ops_data_model() {
   fi
 
   if (( do_full == 0 )); then
-    print_bench_desc "- ops/data model: same as the previous ${kind} benchmark above."
+    print_colorized_text "- ops/data model: same as the previous ${kind} benchmark above." "         " "dim"
     return 0
   fi
 
   case "${kind}" in
     GEMM)
-      print_bench_desc "- Interpretation: each output element C[i,j] is a length-k dot product, then scaled (α) and accumulated with the prior C via β."
-      print_bench_desc "- ops_FLOP ≈ iters · 2·m·n·k (multiply+add) (optionally + iters·2·m·n for β·C + …; usually negligible)"
-      print_bench_desc "- data_B ≈ iters · (sizeof(A)·m·k + sizeof(B)·k·n + sizeof(C)·m·n) (minimum touched bytes; reuse/caches ignored)"
+      print_colorized_text "- Interpretation: each output element C[i,j] is a length-k dot product, then scaled (α) and accumulated with the prior C via β."
+      print_colorized_text "- ops_FLOP ≈ iters · 2·m·n·k (multiply+add) (optionally + iters·2·m·n for β·C + …; usually negligible)"
+      print_colorized_text "- data_B ≈ iters · (sizeof(A)·m·k + sizeof(B)·k·n + sizeof(C)·m·n) (minimum touched bytes; reuse/caches ignored)"
       ;;
     QR)
-      print_bench_desc "- Interpretation: for each matrix in the batch, compute A=Q·R with Qᵀ·Q=I (m×n, m≥n), repeated iters times."
-      print_bench_desc "- ops_FLOP ≈ batch · iters · (2·m·n² − (2/3)·n³) (for m≥n, Householder-QR; rough)"
-      print_bench_desc "- data_B ≈ batch · (sizeof(A)·m·n + sizeof(tau)·n) (+ workspace, implementation-dependent)"
+      print_colorized_text "- Interpretation: for each matrix in the batch, compute A=Q·R with Qᵀ·Q=I (m×n, m≥n), repeated iters times."
+      print_colorized_text "- ops_FLOP ≈ batch · iters · (2·m·n² − (2/3)·n³) (for m≥n, Householder-QR; rough)"
+      print_colorized_text "- data_B ≈ batch · (sizeof(A)·m·n + sizeof(tau)·n) (+ workspace, implementation-dependent)"
       ;;
     LU)
-      print_bench_desc "- Interpretation: factor A with partial pivoting into P·A=L·U (P is a permutation), repeated iters times."
-      print_bench_desc "- ops_FLOP ≈ iters · (2/3)·n³ (for n×n)"
-      print_bench_desc "- data_B ≈ iters · sizeof(A)·n² (+ pivots/workspace)"
+      print_colorized_text "- Interpretation: factor A with partial pivoting into P·A=L·U (P is a permutation), repeated iters times."
+      print_colorized_text "- ops_FLOP ≈ iters · (2/3)·n³ (for n×n)"
+      print_colorized_text "- data_B ≈ iters · sizeof(A)·n² (+ pivots/workspace)"
       ;;
     AXPYI)
-      print_bench_desc "- Interpretation: stream nnz indexed updates y[i_j] += α·x_j; nnz_eff reflects how many distinct y entries are touched."
-      print_bench_desc "- ops_FLOP ≈ iters · 2·nnz (multiply+add)"
-      print_bench_desc "- data_B ≈ iters · (sizeof(x)·nnz + sizeof(i)·nnz + sizeof(y)·nnz_eff) (nnz_eff depends on index repeats)"
+      print_colorized_text "- Interpretation: stream nnz indexed updates y[i_j] += α·x_j; nnz_eff reflects how many distinct y entries are touched."
+      print_colorized_text "- ops_FLOP ≈ iters · 2·nnz (multiply+add)"
+      print_colorized_text "- data_B ≈ iters · (sizeof(x)·nnz + sizeof(i)·nnz + sizeof(y)·nnz_eff) (nnz_eff depends on index repeats)"
       ;;
     FFT)
-      print_bench_desc "- Interpretation: compute batched N-point forward DFTs; complexity is Θ(N·log2(N)) per transform (constant depends on the plan/kernels)."
-      print_bench_desc "- ops ≈ iters · batch · c·N·log2(N) (constant c is implementation-dependent)"
-      print_bench_desc "- data_B ≈ iters · batch · sizeof(complex)·N·(reads+writes) (typically ≈2)"
+      print_colorized_text "- Interpretation: compute batched N-point forward DFTs; complexity is Θ(N·log2(N)) per transform (constant depends on the plan/kernels)."
+      print_colorized_text "- ops ≈ iters · batch · c·N·log2(N) (constant c is implementation-dependent)"
+      print_colorized_text "- data_B ≈ iters · batch · sizeof(complex)·N·(reads+writes) (typically ≈2)"
       ;;
     RNG)
-      print_bench_desc "- Interpretation: generate count i.i.d. samples xᵢ ∼ U(0,1) and write them out, repeated iters times."
-      print_bench_desc "- ops_samples = iters · count"
-      print_bench_desc "- data_B ≈ iters · count · sizeof(output)"
+      print_colorized_text "- Interpretation: generate count i.i.d. samples xᵢ ∼ U(0,1) and write them out, repeated iters times."
+      print_colorized_text "- ops_samples = iters · count"
+      print_colorized_text "- data_B ≈ iters · count · sizeof(output)"
       ;;
   esac
 
@@ -1571,7 +1684,7 @@ run_bench_with_timeout() {
       esac
       print_bench_desc "${desc}"
       if [[ -n "${BENCH_META_STATS:-}" ]]; then
-        print_bench_desc "${BENCH_META_STATS}"
+        print_colorized_text "${BENCH_META_STATS}"
       fi
     fi
   fi
