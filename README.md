@@ -530,7 +530,13 @@ Notes:
 
 Note: `./test_gfx1031.sh --bench` runs the full “quick” bench suite (skipping missing tools) and reports key throughput metrics when available. Use `./test_gfx1031.sh --bench-lite` to run only rocBLAS+hipBLAS GEMM.
 
-`hipinfo` note: On Linux, TheRock does not typically ship a `hipinfo` executable (the `core-hipinfo` artifact is windows-only). Use `rocminfo` + `./test_gfx1031.sh --consistency --expect-stage2` to validate the HIP toolchain/device libs instead.
+`hipinfo` note: This branch builds `hipInfo` from `hip-tests` on Linux and installs a `hipinfo` symlink for convenience. If it’s missing in your `dist/rocm/bin`, rebuild/install the `core-hipinfo` artifact.
+
+To build/install it (Stage‑2):
+```bash
+./build_gfx1031.sh build --stage2 artifact-core-hipinfo
+./build_gfx1031.sh build --stage2 dist-rocm
+```
 
 ### Phase 1 vs Phase 2 (rocprofiler-systems)
 

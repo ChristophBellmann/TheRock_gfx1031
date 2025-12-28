@@ -1465,7 +1465,7 @@ if (( RUN_SANITY )); then
   if command -v hipinfo >/dev/null 2>&1; then
     run_timed "hipinfo" "typ. <1s" hipinfo
   else
-    add_result "hipinfo" "SKIP" "0s" "not in PATH (linux builds typically don't ship hipinfo; core-hipinfo is windows-only)"
+    add_result "hipinfo" "SKIP" "0s" "not in PATH (build/install `core-hipinfo` to add it)"
   fi
 fi
 

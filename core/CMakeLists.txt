@@ -178,10 +178,14 @@ if(THEROCK_ENABLE_HIP_RUNTIME)
       libhiprtc-builtins.so
       libhiprtc.so
   )
-  if(WIN32)
-    ##############################################################################
-    # hipInfo (from hip-tests)
-    ##############################################################################
+  ##############################################################################
+  # hipInfo (from hip-tests)
+  #
+  # Upstream focuses on hipInfo.exe for Windows, but the utility is also useful
+  # on Linux for quick HIP runtime/device introspection. We build it on Linux
+  # and install a `hipinfo` symlink for convenience.
+  ##############################################################################
+  if(WIN32 OR CMAKE_SYSTEM_NAME STREQUAL "Linux")
     therock_cmake_subproject_declare(hipInfo
       EXTERNAL_SOURCE_DIR "hipInfo"
       BINARY_DIR "${CMAKE_CURRENT_BINARY_DIR}/hipInfo"

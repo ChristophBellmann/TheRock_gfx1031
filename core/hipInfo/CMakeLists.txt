@@ -22,3 +22,10 @@ target_link_libraries(hipInfo PRIVATE hip::host)
 
 include(GNUInstallDirs)
 install(TARGETS hipInfo RUNTIME DESTINATION ${CMAKE_INSTALL_BINDIR})
+
+# On Linux, install a lowercase alias for compatibility with scripts expecting `hipinfo`.
+if(UNIX AND NOT APPLE)
+  install(
+    CODE "execute_process(COMMAND \"${CMAKE_COMMAND}\" -E create_symlink hipInfo \"${CMAKE_INSTALL_FULL_BINDIR}/hipinfo\")"
+  )
+endif()
