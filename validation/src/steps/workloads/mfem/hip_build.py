@@ -312,6 +312,13 @@ int main(int argc, char **argv)
                     for k in ("order", "refine", "pa", "ndofs", "iters", "seconds"):
                         if k in kv:
                             metric += f" {k}={kv[k]}"
+                    try:
+                        iters = float(kv.get("iters", "0") or 0)
+                        secs = float(kv.get("seconds", "0") or 0)
+                        if iters > 0 and secs > 0:
+                            metric += f" apply/s={iters/secs:.1f}"
+                    except Exception:
+                        pass
                     metric = append_power(metric, sampler_a, baseline_w=baseline_avg_w(cfg, build_dir))
                     if sampler_a is not None:
                         gpu = sampler_a.avg_gpu_busy()

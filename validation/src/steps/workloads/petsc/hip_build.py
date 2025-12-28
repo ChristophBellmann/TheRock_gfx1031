@@ -163,6 +163,7 @@ int main(int argc, char **argv) {
   PetscCall(PetscPrintf(PETSC_COMM_WORLD, "n %d\n", (int)n));
   PetscCall(PetscPrintf(PETSC_COMM_WORLD, "iters %d\n", (int)iters));
   PetscCall(PetscPrintf(PETSC_COMM_WORLD, "seconds %g\n", (double)(t1 - t0)));
+  PetscCall(PetscPrintf(PETSC_COMM_WORLD, "matmult_per_s %g\n", (double)iters / (double)(t1 - t0)));
 
   PetscCall(VecDestroy(&x));
   PetscCall(VecDestroy(&y));
@@ -252,7 +253,24 @@ int main(int argc, char **argv) {
                 if tok.startswith("mat="):
                     mat_str = tok.split("=", 1)[1]
             break
+    # Pull a few useful metrics from stdout if present.
+    iters_s = ""
+    seconds_s = ""
+    matmult_s = ""
+    for line in out.splitlines():
+        if line.startswith("iters "):
+            iters_s = line.split(" ", 1)[1].strip()
+        elif line.startswith("seconds "):
+            seconds_s = line.split(" ", 1)[1].strip()
+        elif line.startswith("matmult_per_s "):
+            matmult_s = line.split(" ", 1)[1].strip()
     metric = f"spmv m×n={size_str} wall={wall_s:.2f}s vec=hip mat={mat_str}"
+    if iters_s:
+        metric += f" iters={iters_s}"
+    if seconds_s:
+        metric += f" seconds={seconds_s}"
+    if matmult_s:
+        metric += f" matmult/s={float(matmult_s):.1f}"
     metric = append_power(metric, sampler, baseline_w=baseline_avg_w(cfg, build_dir))
 
     if sampler is not None:

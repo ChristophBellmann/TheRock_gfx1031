@@ -59,6 +59,8 @@ if kind=="audio":
     flops = runs * 2.0 * B * 128 * L * 64 * 33
     print("GPU_OK")
     print("kind", "audio")
+    print("shape", f"{{B}}x{{C}}x{{L}}")
+    print("dtype", "fp16")
     print("runs", runs)
     print("seconds", dt)
     print("tflops_est", flops/dt/1e12)
@@ -80,6 +82,8 @@ else:
     flops = runs * 2.0 * B * 64 * (T*H*W) * 32 * 27
     print("GPU_OK")
     print("kind", "video")
+    print("shape", f"{{B}}x{{C}}x{{T}}x{{H}}x{{W}}")
+    print("dtype", "fp16")
     print("runs", runs)
     print("seconds", dt)
     print("tflops_est", flops/dt/1e12)
@@ -149,6 +153,15 @@ def _step_pytorch_conv(ctx: Context, cfg: dict[str, Any], build_dir: str, rocm_d
         metric += f" hsa_override={run_env['HSA_OVERRIDE_GFX_VERSION']}"
     if tflops:
         metric += f" tflops_est={float(tflops):.2f}"
+    m = re.search(r"^shape\s+(.+)$", out, re.MULTILINE)
+    if m:
+        metric += f" shape={m.group(1).strip()}"
+    m = re.search(r"^runs\s+(\S+)$", out, re.MULTILINE)
+    runs = float(m.group(1)) if m else 0.0
+    m = re.search(r"^seconds\s+(\S+)$", out, re.MULTILINE)
+    secs = float(m.group(1)) if m else 0.0
+    if runs > 0 and secs > 0:
+        metric += f" it/s={runs/secs:.2f}"
 
     metric = append_power(metric, sampler, baseline_w=baseline_avg_w(cfg, build_dir))
 

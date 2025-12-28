@@ -228,6 +228,7 @@ print("best_of", best_of)
 print("runs", runs)
 print("seconds", dt)
 print("text_len", text_len)
+print("words", len(((result.get("text","") or "")).strip().split()))
 """
 
     def run_one(sampler):
@@ -254,10 +255,30 @@ print("text_len", text_len)
     metric = f"{model_name} transcribe (audio={audio_path.name}) rocm_env={'in-tree' if use_in_tree else 'system'} wall={wall_s:.2f}s"
     if repeats > 1 and audio_target_s and audio_target_s > 0:
         metric += f" audio_target_s={int(audio_target_s)} repeats={repeats}"
-    for key in ("model", "beam_size", "best_of", "runs", "seconds", "text_len"):
+    for key in ("model", "beam_size", "best_of", "runs", "seconds", "text_len", "words"):
         m = re.search(rf"^{key}\s+(\S+)$", out, re.MULTILINE)
         if m:
             metric += f" {key}={m.group(1)}"
+
+    # Derived metrics (best-effort): words/s and real-time factor (RTF).
+    try:
+        seconds_m = re.search(r"^seconds\s+(\S+)$", out, re.MULTILINE)
+        words_m = re.search(r"^words\s+(\S+)$", out, re.MULTILINE)
+        if seconds_m and words_m:
+            sec = float(seconds_m.group(1))
+            w = float(words_m.group(1))
+            if sec > 0:
+                metric += f" w/s={w/sec:.2f}"
+    except Exception:
+        pass
+    try:
+        dur = _ffprobe_duration_s(env, audio_path)
+        seconds_m = re.search(r"^seconds\s+(\S+)$", out, re.MULTILINE)
+        if dur and dur > 0 and seconds_m:
+            sec = float(seconds_m.group(1))
+            metric += f" audio_s={dur:.1f} rtf={sec/dur:.3f}"
+    except Exception:
+        pass
 
     metric = append_power(metric, sampler, baseline_w=baseline_avg_w(cfg, build_dir))
 
