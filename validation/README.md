@@ -56,6 +56,11 @@ Some workload steps have **optional functional modes** which are disabled unless
   - Strict inference mode (must run GPU inference) is the default: `python3 validation/scripts/llama_cpp_validate.py`.
   - Smoke-only mode (no model download / no inference): `python3 validation/scripts/llama_cpp_validate.py --smoke`.
 
+### llama.cpp vs Ollama (why both)
+
+- **llama.cpp** is a low-level inference engine that runs GGUF models directly. In this repo’s validation it runs **inside Docker** via the `rocm/llama.cpp` wrapper image and we measure `pp_tok/s` + `tg_tok/s` via `llama-bench`.
+- **Ollama** is a higher-level runtime/serving layer (model management + HTTP API). It can use a GPU backend when available and we measure `tok/s`, `ttft`, `avg_tok` via its API. In this repo’s validation, Ollama runs in **docker ROCm** when the host `ollama` binary lacks a ROCm backend (`workloads.ollama.use_docker: auto`).
+
 Tip: run just the Ollama workload:
 ```bash
 python3 validation/scripts/validate.py --profile ollama --yes --power --log
