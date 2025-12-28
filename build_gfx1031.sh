@@ -82,6 +82,7 @@ Shared options:
   -h, --help              Show this help
 
 Configure options:
+  --all                   Run configure for both Stage-1 and Stage-2 (still requires separate bootstrap/build)
   --clean                 Remove BUILD_DIR before configuring (default)
   --no-clean              Do not remove BUILD_DIR before configuring
   --no-check-clean        Skip "build dir must be empty" check
@@ -303,6 +304,7 @@ DO_CLEAN=1
 CHECK_CLEAN=1
 EXTRA_CMAKE_ARGS=()
 SUBPROJECTS=()
+CONFIGURE_ALL=0
 
 # First pass: allow --config anywhere.
 argv=("$@")
@@ -405,6 +407,14 @@ while [[ $# -gt 0 ]]; do
       CHECK_CLEAN=0
       shift
       ;;
+    --all)
+      if [[ "${cmd}" != "configure" ]]; then
+        echo "Option --all is only valid for: ./build_gfx1031.sh configure" >&2
+        exit 2
+      fi
+      CONFIGURE_ALL=1
+      shift
+      ;;
     --)
       shift
       if [[ "${cmd}" == "configure" ]]; then
@@ -424,6 +434,36 @@ while [[ $# -gt 0 ]]; do
       ;;
   esac
 done
+
+# Special helper: configure both Stage-1 and Stage-2 in sequence.
+# This only configures; it does not bootstrap or build.
+if [[ "${cmd}" == "configure" && ${CONFIGURE_ALL} -eq 1 ]]; then
+  cfg_args=(--config "${CONFIG_FILE}")
+  if (( DO_CLEAN )); then cfg_args+=(--clean); else cfg_args+=(--no-clean); fi
+  if (( CHECK_CLEAN == 0 )); then cfg_args+=(--no-check-clean); fi
+  if [[ -n "${STAGE1_BUILD_DIR}" ]]; then cfg_args+=(--stage1-build-dir "${STAGE1_BUILD_DIR}"); fi
+
+  echo "Configuring Stage-1..." | tee -a "${LOG_FILE}"
+  if (( ${#EXTRA_CMAKE_ARGS[@]} > 0 )); then
+    "${ROOT}/build_gfx1031.sh" configure --stage1 "${cfg_args[@]}" -- "${EXTRA_CMAKE_ARGS[@]}"
+  else
+    "${ROOT}/build_gfx1031.sh" configure --stage1 "${cfg_args[@]}"
+  fi
+
+  echo "" | tee -a "${LOG_FILE}"
+  echo "Configuring Stage-2..." | tee -a "${LOG_FILE}"
+  if (( ${#EXTRA_CMAKE_ARGS[@]} > 0 )); then
+    "${ROOT}/build_gfx1031.sh" configure --stage2 "${cfg_args[@]}" -- "${EXTRA_CMAKE_ARGS[@]}"
+  else
+    "${ROOT}/build_gfx1031.sh" configure --stage2 "${cfg_args[@]}"
+  fi
+
+  echo "" | tee -a "${LOG_FILE}"
+  echo "Configure-all complete. Next:" | tee -a "${LOG_FILE}"
+  echo "  ./build_gfx1031.sh bootstrap --stage1 && ./build_gfx1031.sh build --stage1" | tee -a "${LOG_FILE}"
+  echo "  ./build_gfx1031.sh bootstrap --stage2 && ./build_gfx1031.sh build --stage2" | tee -a "${LOG_FILE}"
+  exit 0
+fi
 
 # Per-builddir lock (prevents concurrent runs touching the same BUILD_DIR).
 mkdir -p "${ROOT}/.locks"

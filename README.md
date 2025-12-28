@@ -51,6 +51,7 @@ see `./build_gfx1031.sh --help`
   - `build.build_dir: build`
   - the enabled `features.*` set (i.e. it configures the “full” gfx1031 stack as selected in the YAML)
 - To make Stage‑2 the default, either run `./build_gfx1031.sh configure --stage2` (recommended) or change the YAML defaults to `build.stage: 2` and `build.build_dir: build-stage2`.
+- If you want to configure both stages in one go (still configure-only): `./build_gfx1031.sh configure --all`.
 
 ## workflow 
 
