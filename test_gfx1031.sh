@@ -66,7 +66,7 @@ fi
 
 print_formula_line() {
   local formula="$1"
-  local indent="    "
+  local indent="${2:-         }"
 
   if (( ! COLOR_ENABLED )); then
     echo "${indent}${formula}" | tee -a "${LOG_FILE}"
@@ -151,6 +151,35 @@ for m in token_re.finditer(s):
 
 print("".join(out))
 PY
+}
+
+print_bench_header() {
+  local label="$1"
+  local expected="$2"
+  local w=44
+  # Ensure a blank line between bench blocks for scanability.
+  if [[ -n "${BENCH_HEADER_COUNT:-}" && "${BENCH_HEADER_COUNT}" -gt 0 ]]; then
+    echo "" | tee -a "${LOG_FILE}"
+  fi
+  BENCH_HEADER_COUNT=$(( ${BENCH_HEADER_COUNT:-0} + 1 ))
+  # One-line, dominant header: marker, bold bench name, dim expected.
+  printf "%s==>%s %s%-*s%s %s(expected: %s)%s\n" \
+    "${C_CYAN}" "${C_RESET}" "${C_BOLD}" "${w}" "$(fmt_label "${label}")" "${C_RESET}" \
+    "${C_DIM}" "${expected}" "${C_RESET}" | tee -a "${LOG_FILE}"
+}
+
+print_bench_anchor() {
+  local anchor="$1"
+  printf "    %s%s:%s\n" "${C_CYAN}" "${anchor}" "${C_RESET}" | tee -a "${LOG_FILE}"
+}
+
+print_bench_desc() {
+  local desc="$1"
+  local indent="${2:-         }"
+  if [[ -z "${desc}" ]]; then
+    return 0
+  fi
+  printf "%s%s%s%s\n" "${indent}" "${C_DIM}" "${desc}" "${C_RESET}" | tee -a "${LOG_FILE}"
 }
 
 usage() {
@@ -556,9 +585,9 @@ print_summary_table() {
     printf "%02d  %-30.30s  %-4s  %6.3fs  %-18.18s\n" \
       "${id}" "${name}" "${status}" "${seconds}" "${perf}" | tee -a "${LOG_FILE}"
 
-    # Bench rows get a second line with energy/utilization fields (or n/a).
-    if [[ "${label}" == bench:* ]]; then
-      local e avgw maxw dw gpu mem
+    # Bench rows get a second line with energy/utilization fields (if power is enabled and available).
+    if [[ "${label}" == bench:* ]] && (( RUN_POWER )) && [[ -n "${power}" ]]; then
+      local e="" avgw="" maxw="" dw="" gpu="" mem=""
       if [[ -n "${power}" ]]; then
         e="$(extract_power_field "${power}" "E")"
         avgw="$(extract_power_field "${power}" "avgW")"
@@ -1400,33 +1429,49 @@ run_bench_with_timeout() {
   local cmd=("$@")
   local tmp
   tmp="$(mktemp)"
-  echo "${C_CYAN}==>${C_RESET} $(fmt_label "${label}") ${C_DIM}(expected: ${expected})${C_RESET}" | tee -a "${LOG_FILE}"
-  # After the benchmark header, print a short math-oriented description of what
-  # is computed so users can interpret the benchmark at a glance.
+  print_bench_header "${label}" "${expected}"
+  # Math anchor + formula + short plain-language description (quiet) to make
+  # it obvious what is computed without reading surrounding docs.
   if [[ "${label}" == bench:* ]]; then
+    local anchor=""
     local formula=""
+    local desc=""
     case "${label}" in
       "bench: rocBLAS GEMM f32"|"bench: hipBLAS GEMM f32")
-        formula="GEMM:  C ← α·A·B + β·C  (A∈ℝ^{m×k}, B∈ℝ^{k×n}, C∈ℝ^{m×n})"
+        anchor="GEMM"
+        formula="C ← α·A·B + β·C   (A∈ℝ^{m×k}, B∈ℝ^{k×n}, C∈ℝ^{m×n})"
+        desc="Dense matrix multiply-accumulate (BLAS-3), i.e. a core building block for ML/linear algebra."
         ;;
       bench:\ rocSOLVER\ geqrf_strided_batched*)
-        formula="QR factorization:  A = Q·R,  with  Qᵀ·Q = I  (batched across inputs)"
+        anchor="QR"
+        formula="A = Q·R,   Qᵀ·Q = I"
+        desc="Batched QR factorization (LAPACK-style) used in least squares and orthogonalization."
         ;;
       bench:\ hipSOLVER*)
-        formula="LU factorization (partial pivoting):  P·A = L·U"
+        anchor="LU"
+        formula="P·A = L·U"
+        desc="LU factorization with partial pivoting, used to solve linear systems A·x=b."
         ;;
       bench:\ rocSPARSE\ axpyi*|bench:\ hipSPARSE\ axpyi*)
-        formula="Sparse AXPYI:  ∀j∈[0,nnz):  y[iⱼ] ← y[iⱼ] + α·xⱼ"
+        anchor="AXP"
+        formula="∀j∈[0,nnz):  y[iⱼ] ← y[iⱼ] + α·xⱼ"
+        desc="Sparse vector update at indexed positions (Level-1 sparse BLAS), stressing scattered memory writes."
         ;;
       bench:\ rocFFT\ complex\ fwd*|bench:\ dyna-rocFFT\ complex\ fwd*)
-        formula="FFT (forward):  Xₖ = ∑ₙ₌₀^{N−1} xₙ · e^{−2π i k n / N}  (batched)"
+        anchor="FFT"
+        formula="Xₖ = ∑ₙ₌₀^{N−1} xₙ · e^{−2π i k n / N}"
+        desc="Batched complex forward FFT, a key primitive for signal processing and spectral methods."
         ;;
       bench:\ rocRAND\ generate*)
-        formula="RNG:  xᵢ ∼ U(0,1)  (Philox engine; uniform-float distribution)"
+        anchor="RNG"
+        formula="xᵢ ∼ U(0,1)"
+        desc="GPU random number generation (Philox), producing uniform floats for sampling and stochastic algorithms."
         ;;
     esac
-    if [[ -n "${formula}" ]]; then
+    if [[ -n "${anchor}" ]]; then
+      print_bench_anchor "${anchor}"
       print_formula_line "${formula}"
+      print_bench_desc "${desc}"
     fi
   fi
   if (( RUN_POWER )) && [[ -n "${POWER_PATH}" ]]; then
