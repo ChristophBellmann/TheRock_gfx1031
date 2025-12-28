@@ -64,11 +64,6 @@ else
   C_CYAN=""
 fi
 
-HAVE_PY=0
-if command -v python3 >/dev/null 2>&1; then
-  HAVE_PY=1
-fi
-
 print_formula_line() {
   local formula="$1"
   local indent="${2:-         }"
@@ -77,85 +72,61 @@ print_formula_line() {
     echo "${indent}${formula}" | tee -a "${LOG_FILE}"
     return 0
   fi
-  if (( ! HAVE_PY )); then
-    echo "${indent}${formula}" | tee -a "${LOG_FILE}"
-    return 0
-  fi
 
   # Token-based, calm Truecolor palette (works best in dark themes).
-  # - keywords/functions:  #61AFEF
-  # - identifiers:         #C678DD
-  # - operators/symbols:   #E5C07B
-  # - numbers/units:       #D19A66
-  # - brackets/indices:    #7F848E
-  FORMULA="${formula}" python3 - <<'PY' | sed "s/^/${indent}/" | tee -a "${LOG_FILE}"
-import os, re
-
-s = os.environ.get("FORMULA", "")
-
-def esc(hexrgb: str) -> str:
-    hexrgb = hexrgb.lstrip("#")
-    r = int(hexrgb[0:2], 16)
-    g = int(hexrgb[2:4], 16)
-    b = int(hexrgb[4:6], 16)
-    return f"\x1b[38;2;{r};{g};{b}m"
-
-RST = "\x1b[0m"
-COL_KW = esc("#61AFEF")
-COL_ID = esc("#C678DD")
-COL_OP = esc("#E5C07B")
-COL_NUM = esc("#D19A66")
-COL_BR = esc("#7F848E")
-
-# "Keywords" includes math/procedure words so the formula reads like a structured statement.
-KEYWORDS = {
-    "GEMM", "FFT", "QR", "LU", "RNG", "AXPYI", "Sparse",
-    "factorization", "forward", "batched", "engine", "distribution",
-    "Philox", "uniform-float", "uniform", "double", "single",
-}
-
-BRACKETS = set("()[]{}⟨⟩")
-
-# Split into tokens while keeping separators.
-token_re = re.compile(
-    r"(?P<kw>[A-Za-z][A-Za-z0-9_-]*)"
-    r"|(?P<num>\b\d+(?:\.\d+)?\b)"
-    r"|(?P<unit>\b(?:ms|GB/s|TFLOPS|GFLOPS|Ws|W|s)\b)"
-    r"|(?P<br>[\(\)\[\]\{\}⟨⟩])"
-    r"|(?P<op>[=+\-−*/·×^←→∑∈∼,;:])"
-    r"|(?P<ws>\s+)"
-    r"|(?P<other>.)",
-    re.UNICODE,
-)
-
-out = []
-for m in token_re.finditer(s):
-    kind = m.lastgroup
-    tok = m.group(0)
-    if kind == "ws":
-        out.append(tok)
-    elif kind == "br":
-        out.append(f"{COL_BR}{tok}{RST}")
-    elif kind == "op":
-        out.append(f"{COL_OP}{tok}{RST}")
-    elif kind in ("num", "unit"):
-        out.append(f"{COL_NUM}{tok}{RST}")
-    elif kind == "kw":
-        if tok in KEYWORDS:
-            out.append(f"{COL_KW}{tok}{RST}")
-        else:
-            out.append(f"{COL_ID}{tok}{RST}")
-    else:
-        # Cover unicode identifiers like α, β, subscripts, ℝ, etc.
-        if tok.isalpha() or tok in {"α", "β", "π", "i", "ℝ", "ℂ", "ℤ", "ℚ", "ℕ"}:
-            out.append(f"{COL_ID}{tok}{RST}")
-        elif tok in BRACKETS:
-            out.append(f"{COL_BR}{tok}{RST}")
-        else:
-            out.append(tok)
-
-print("".join(out))
-PY
+  # - keywords/functions:  #61AFEF (97,175,239)
+  # - identifiers:         #C678DD (198,120,221)
+  # - operators/symbols:   #E5C07B (229,192,123)
+  # - numbers/units:       #D19A66 (209,154,102)
+  # - brackets/indices:    #7F848E (127,132,142)
+  FORMULA="${formula}" awk '
+    BEGIN{
+      s=ENVIRON["FORMULA"]
+      RST="\033[0m"
+      KW="\033[38;2;97;175;239m"
+      ID="\033[38;2;198;120;221m"
+      OP="\033[38;2;229;192;123m"
+      NUM="\033[38;2;209;154;102m"
+      BR="\033[38;2;127;132;142m"
+      # simple keyword set
+      kw["GEMM"]=1; kw["FFT"]=1; kw["QR"]=1; kw["LU"]=1; kw["RNG"]=1; kw["AXP"]=1
+      kw["factorization"]=1; kw["forward"]=1; kw["batched"]=1; kw["Philox"]=1; kw["engine"]=1
+    }
+    function isop(c){ return index("=+-−*/·×^←→∑∈∼,;:", c) > 0 }
+    function isbr(c){ return index("()[]{}⟨⟩", c) > 0 }
+    function isnum(c){ return c ~ /[0-9.]/ }
+    function isword(c){ return c ~ /[A-Za-z0-9_-]/ }
+    function emit(col, tok){ printf("%s%s%s", col, tok, RST) }
+    {
+      i=1
+      n=length(s)
+      while(i<=n){
+        c=substr(s,i,1)
+        if(c ~ /[[:space:]]/){ printf("%s", c); i++; continue }
+        if(isbr(c)){ emit(BR, c); i++; continue }
+        if(isop(c)){ emit(OP, c); i++; continue }
+        # numbers/units
+        if(isnum(c)){
+          tok=c
+          i++
+          while(i<=n && isnum(substr(s,i,1))){ tok=tok substr(s,i,1); i++ }
+          emit(NUM, tok); continue
+        }
+        # words/identifiers
+        if(isword(c)){
+          tok=c
+          i++
+          while(i<=n && isword(substr(s,i,1))){ tok=tok substr(s,i,1); i++ }
+          if(tok in kw){ emit(KW, tok) } else { emit(ID, tok) }
+          continue
+        }
+        # greek/common identifiers and symbols (αβπiℝ etc)
+        if(index("αβπiℝℂℤℚℕ", c)>0){ emit(ID, c); i++; continue }
+        # fallback
+        printf("%s", c); i++
+      }
+      printf("\n")
+    }' | sed "s/^/${indent}/" | tee -a "${LOG_FILE}"
 }
 
 print_bench_header() {
@@ -190,25 +161,18 @@ print_bench_desc() {
 fmt_sci() {
   # args: number -> "m×10^e" (one decimal place)
   local value="$1"
-  if (( ! COLOR_ENABLED )) && ! command -v python3 >/dev/null 2>&1; then
-    echo "${value}"
-    return 0
-  fi
-  if ! command -v python3 >/dev/null 2>&1; then
-    echo "${value}"
-    return 0
-  fi
-  SCI_VALUE="${value}" python3 - <<'PY'
-import math, os
-
-v = float(os.environ.get("SCI_VALUE", "0") or "0")
-if v == 0.0:
-    print("0")
-else:
-    e = int(math.floor(math.log10(abs(v))))
-    m = v / (10 ** e)
-    print(f"{m:.1f}×10^{e}")
-PY
+  awk -v v="${value}" '
+    BEGIN{
+      v=v+0.0
+      if(v==0.0){ print "0"; exit }
+      a=(v<0?-v:v)
+      e=int(log(a)/log(10))
+      m=v/(10^e)
+      # normalize mantissa to [1,10)
+      while(m>=10){ m/=10; e++ }
+      while(m<1){ m*=10; e-- }
+      printf("%.1f×10^%d\n", m, e)
+    }'
 }
 
 set_bench_meta_stats() {
@@ -216,25 +180,7 @@ set_bench_meta_stats() {
   local ops="$1"
   local ops_unit="$2"
   local bytes="$3"
-  if (( ! HAVE_PY )); then
-    echo ""
-    return 0
-  fi
-  META_OPS="${ops}" META_UNIT="${ops_unit}" META_BYTES="${bytes}" python3 - <<'PY'
-import math, os
-
-def sci(v: float) -> str:
-    if v == 0.0:
-        return "0"
-    e = int(math.floor(math.log10(abs(v))))
-    m = v / (10 ** e)
-    return f"{m:.1f}×10^{e}"
-
-ops = float(os.environ["META_OPS"])
-unit = os.environ["META_UNIT"]
-bs = float(os.environ["META_BYTES"])
-print(f"ops ≈ {sci(ops)} {unit};  data ≈ {sci(bs)} B")
-PY
+  printf "ops ≈ %s %s;  data ≈ %s B" "$(fmt_sci "${ops}")" "${ops_unit}" "$(fmt_sci "${bytes}")"
 }
 
 status_color() {
@@ -1517,7 +1463,11 @@ run_bench_with_timeout() {
       "bench: rocBLAS GEMM f32"|"bench: hipBLAS GEMM f32")
         anchor="GEMM"
         formula="C ← α·A·B + β·C   (A∈ℝ^{m×k}, B∈ℝ^{k×n}, C∈ℝ^{m×n})"
-        desc="Dense BLAS-3 matrix multiply-accumulate; high arithmetic intensity. Exercises FMA throughput and memory hierarchy under sustained load."
+        if [[ "${label}" == "bench: rocBLAS GEMM f32" ]]; then
+          desc="Dense BLAS-3 matrix multiply-accumulate; high arithmetic intensity. Exercises FMA throughput and the memory hierarchy under sustained load."
+        else
+          desc="Same as rocBLAS GEMM, but invoked through the hipBLAS API layer."
+        fi
         ;;
       bench:\ rocSOLVER\ geqrf_strided_batched*)
         anchor="QR"
@@ -1532,12 +1482,20 @@ run_bench_with_timeout() {
       bench:\ rocSPARSE\ axpyi*|bench:\ hipSPARSE\ axpyi*)
         anchor="AXP"
         formula="∀j∈[0,nnz):  y[iⱼ] ← y[iⱼ] + α·xⱼ"
-        desc="Sparse indexed AXPY (scatter-add into y). Stresses irregular gather/scatter and bandwidth/latency under a sustained update stream."
+        if [[ "${label}" == bench:\ rocSPARSE* ]]; then
+          desc="Sparse indexed AXPY (scatter-add into y). Stresses irregular gather/scatter and bandwidth/latency under a sustained update stream."
+        else
+          desc="Same as rocSPARSE AXPYI, but invoked through the hipSPARSE API layer."
+        fi
         ;;
       bench:\ rocFFT\ complex\ fwd*|bench:\ dyna-rocFFT\ complex\ fwd*)
         anchor="FFT"
         formula="Xₖ = ∑ₙ₌₀^{N−1} xₙ · e^{−2π i k n / N}"
-        desc="Batched complex-to-complex forward FFT. Exercises radix kernels, twiddle-factor math, and global memory traffic typical for signal/spectral workloads."
+        if [[ "${label}" == bench:\ rocFFT* ]]; then
+          desc="Batched complex-to-complex forward FFT. Exercises radix kernels, twiddle-factor math, and global memory traffic typical for signal/spectral workloads."
+        else
+          desc="Same as rocFFT forward FFT, but loaded via the dynamic-loader client (runtime library selection)."
+        fi
         ;;
       bench:\ rocRAND\ generate*)
         anchor="RNG"
@@ -1663,17 +1621,10 @@ run_bench_suite() {
   if bench_selected 1 && command -v rocblas-bench >/dev/null 2>&1; then
     BENCH_META_STATS=""
     # FLOP count: 2·m·n·k per GEMM. Approx. bytes: A(mk)+B(kn)+C(read+write,2mn).
-    if (( HAVE_PY )); then
-      BENCH_META_STATS="$(set_bench_meta_stats "$(python3 - <<PY
-m=${BENCH_SIZE}; n=${BENCH_SIZE}; k=${BENCH_SIZE}; it=${BENCH_ITERS}
-print(2*m*n*k*it)
-PY
-)" "FLOP" "$(python3 - <<PY
-m=${BENCH_SIZE}; n=${BENCH_SIZE}; k=${BENCH_SIZE}; it=${BENCH_ITERS}
-print((m*k + k*n + 2*m*n)*4*it)
-PY
-)")"
-    fi
+    local gemm_ops gemm_bytes
+    gemm_ops="$(awk -v n="${BENCH_SIZE}" -v it="${BENCH_ITERS}" 'BEGIN{printf "%.0f", 2.0*n*n*n*it}')"
+    gemm_bytes="$(awk -v n="${BENCH_SIZE}" -v it="${BENCH_ITERS}" 'BEGIN{printf "%.0f", (n*n + n*n + 2.0*n*n)*4.0*it}')"
+    BENCH_META_STATS="$(set_bench_meta_stats "${gemm_ops}" "FLOP" "${gemm_bytes}")"
     run_bench_with_timeout "bench: rocBLAS GEMM f32" "${expected_blas}" "${timeout_s}" \
       rocblas-bench -f gemm -r f32_r -m "${BENCH_SIZE}" -n "${BENCH_SIZE}" -k "${BENCH_SIZE}" \
       --alpha 1 --beta 0 --iters "${BENCH_ITERS}" || true
@@ -1684,17 +1635,15 @@ PY
 
   if bench_selected 2 && command -v hipblas-bench >/dev/null 2>&1; then
     BENCH_META_STATS=""
-    if (( HAVE_PY )); then
-      BENCH_META_STATS="$(set_bench_meta_stats "$(python3 - <<PY
-m=${BENCH_SIZE}; n=${BENCH_SIZE}; k=${BENCH_SIZE}; it=${BENCH_ITERS}
-print(2*m*n*k*it)
-PY
-)" "FLOP" "$(python3 - <<PY
-m=${BENCH_SIZE}; n=${BENCH_SIZE}; k=${BENCH_SIZE}; it=${BENCH_ITERS}
-print((m*k + k*n + 2*m*n)*4*it)
-PY
-)")"
+    # If rocBLAS was skipped, compute GEMM stats here.
+    local gemm_ops_h gemm_bytes_h
+    gemm_ops_h="${gemm_ops:-}"
+    gemm_bytes_h="${gemm_bytes:-}"
+    if [[ -z "${gemm_ops_h}" || -z "${gemm_bytes_h}" ]]; then
+      gemm_ops_h="$(awk -v n="${BENCH_SIZE}" -v it="${BENCH_ITERS}" 'BEGIN{printf "%.0f", 2.0*n*n*n*it}')"
+      gemm_bytes_h="$(awk -v n="${BENCH_SIZE}" -v it="${BENCH_ITERS}" 'BEGIN{printf "%.0f", (n*n + n*n + 2.0*n*n)*4.0*it}')"
     fi
+    BENCH_META_STATS="$(set_bench_meta_stats "${gemm_ops_h}" "FLOP" "${gemm_bytes_h}")"
     run_bench_with_timeout "bench: hipBLAS GEMM f32" "${expected_blas}" "${timeout_s}" \
       hipblas-bench -f gemm -r f32_r -m "${BENCH_SIZE}" -n "${BENCH_SIZE}" -k "${BENCH_SIZE}" \
       --alpha 1 --beta 0 --iters "${BENCH_ITERS}" || true
@@ -1735,17 +1684,10 @@ PY
     fi
     # Approx FLOPs for QR (square): (4/3)·n^3; data ~ 2·n^2 doubles.
     BENCH_META_STATS=""
-    if (( HAVE_PY )); then
-      BENCH_META_STATS="$(set_bench_meta_stats "$(python3 - <<PY
-n=${rocsolver_m}; b=${rocsolver_batch}; it=${rocsolver_iters}
-print((4.0/3.0)*(n**3)*b*it)
-PY
-)" "FLOP" "$(python3 - <<PY
-n=${rocsolver_m}; b=${rocsolver_batch}; it=${rocsolver_iters}
-print(2.0*(n**2)*8*b*it)
-PY
-)")"
-    fi
+    local qr_ops qr_bytes
+    qr_ops="$(awk -v n="${rocsolver_m}" -v b="${rocsolver_batch}" -v it="${rocsolver_iters}" 'BEGIN{printf "%.0f", (4.0/3.0)*n*n*n*b*it}')"
+    qr_bytes="$(awk -v n="${rocsolver_m}" -v b="${rocsolver_batch}" -v it="${rocsolver_iters}" 'BEGIN{printf "%.0f", 2.0*n*n*8.0*b*it}')"
+    BENCH_META_STATS="$(set_bench_meta_stats "${qr_ops}" "FLOP" "${qr_bytes}")"
     run_bench_with_timeout "bench: rocSOLVER geqrf_strided_batched (d)" "${expected_solver}" "${timeout_s}" \
       rocsolver-bench -f geqrf_strided_batched -r d -m "${rocsolver_m}" --batch_count "${rocsolver_batch}" --perf 1 -i "${rocsolver_iters}" || true
     BENCH_META_STATS=""
@@ -1776,17 +1718,10 @@ PY
     fi
     # Approx FLOPs for LU (square): (2/3)·n^3; data ~ 2·n^2 doubles.
     BENCH_META_STATS=""
-    if (( HAVE_PY )); then
-      BENCH_META_STATS="$(set_bench_meta_stats "$(python3 - <<PY
-n=${hipsolver_m}; it=${hipsolver_iters}
-print((2.0/3.0)*(n**3)*it)
-PY
-)" "FLOP" "$(python3 - <<PY
-n=${hipsolver_m}; it=${hipsolver_iters}
-print(2.0*(n**2)*8*it)
-PY
-)")"
-    fi
+    local lu_ops lu_bytes
+    lu_ops="$(awk -v n="${hipsolver_m}" -v it="${hipsolver_iters}" 'BEGIN{printf "%.0f", (2.0/3.0)*n*n*n*it}')"
+    lu_bytes="$(awk -v n="${hipsolver_m}" -v it="${hipsolver_iters}" 'BEGIN{printf "%.0f", 2.0*n*n*8.0*it}')"
+    BENCH_META_STATS="$(set_bench_meta_stats "${lu_ops}" "FLOP" "${lu_bytes}")"
     run_bench_with_timeout "bench: hipSOLVER (tiny solver)" "${expected_solver}" "${timeout_s}" \
       hipsolver-bench --perf 1 -f getrf -r d -m "${hipsolver_m}" -n "${hipsolver_m}" -i "${hipsolver_iters}" || true
     BENCH_META_STATS=""
@@ -1811,17 +1746,10 @@ PY
     local expected_sparse="typ. 4-7s"
     # AXPYI: ~2 FLOP per nnz (mul+add); data ~ (x val 8B + idx 4B + y read+write 16B)=28B per nnz.
     BENCH_META_STATS=""
-    if (( HAVE_PY )); then
-      BENCH_META_STATS="$(set_bench_meta_stats "$(python3 - <<PY
-nnz=${rocsparse_nnz}; it=${rocsparse_iters}
-print(2.0*nnz*it)
-PY
-)" "FLOP" "$(python3 - <<PY
-nnz=${rocsparse_nnz}; it=${rocsparse_iters}
-print(28.0*nnz*it)
-PY
-)")"
-    fi
+    local ax_ops ax_bytes
+    ax_ops="$(awk -v nnz="${rocsparse_nnz}" -v it="${rocsparse_iters}" 'BEGIN{printf "%.0f", 2.0*nnz*it}')"
+    ax_bytes="$(awk -v nnz="${rocsparse_nnz}" -v it="${rocsparse_iters}" 'BEGIN{printf "%.0f", 28.0*nnz*it}')"
+    BENCH_META_STATS="$(set_bench_meta_stats "${ax_ops}" "FLOP" "${ax_bytes}")"
     run_bench_with_timeout "bench: rocSPARSE axpyi (d)" "${expected_sparse}" "${timeout_s}" \
       rocsparse-bench -f axpyi -r d -m "${rocsparse_m}" -z "${rocsparse_nnz}" -i "${rocsparse_iters}" --iters_inner 1 -v 0 || true
     BENCH_META_STATS=""
@@ -1844,17 +1772,10 @@ PY
     fi
     local expected_sparse="typ. 4-7s"
     BENCH_META_STATS=""
-    if (( HAVE_PY )); then
-      BENCH_META_STATS="$(set_bench_meta_stats "$(python3 - <<PY
-nnz=${hipsparse_nnz}; it=${hipsparse_iters}
-print(2.0*nnz*it)
-PY
-)" "FLOP" "$(python3 - <<PY
-nnz=${hipsparse_nnz}; it=${hipsparse_iters}
-print(28.0*nnz*it)
-PY
-)")"
-    fi
+    local hax_ops hax_bytes
+    hax_ops="$(awk -v nnz="${hipsparse_nnz}" -v it="${hipsparse_iters}" 'BEGIN{printf "%.0f", 2.0*nnz*it}')"
+    hax_bytes="$(awk -v nnz="${hipsparse_nnz}" -v it="${hipsparse_iters}" 'BEGIN{printf "%.0f", 28.0*nnz*it}')"
+    BENCH_META_STATS="$(set_bench_meta_stats "${hax_ops}" "FLOP" "${hax_bytes}")"
     run_bench_with_timeout "bench: hipSPARSE axpyi (d)" "${expected_sparse}" "${timeout_s}" \
       hipsparse-bench -f axpyi -r d -n "${hipsparse_n}" -z "${hipsparse_nnz}" -i "${hipsparse_iters}" --iters_inner 1 -v 0 || true
     BENCH_META_STATS=""
@@ -1880,27 +1801,10 @@ PY
     local expected_fft="typ. 4-8s"
     # FFT: approx ~5·N·log2(N) complex-ops per transform. Data ~ 2·N complex64 (16B) per transform.
     BENCH_META_STATS=""
-    if (( HAVE_PY )); then
-      BENCH_META_STATS="$(python3 - <<PY
-import math
-
-N=${rocfft_len}
-B=${rocfft_batch}
-T=${rocfft_ntrial}
-ops = 5.0 * N * math.log2(N) * B * T
-bytes_ = 2.0 * N * 16.0 * B * T
-
-def sci(v: float) -> str:
-    if v == 0.0:
-        return "0"
-    e = int(math.floor(math.log10(abs(v))))
-    m = v / (10 ** e)
-    return f"{m:.1f}×10^{e}"
-
-print(f"ops ≈ {sci(ops)} op;  data ≈ {sci(bytes_)} B")
-PY
-)"
-    fi
+    local fft_ops fft_bytes
+    fft_ops="$(awk -v n="${rocfft_len}" -v b="${rocfft_batch}" -v t="${rocfft_ntrial}" 'BEGIN{printf "%.0f", 5.0*n*(log(n)/log(2.0))*b*t}')"
+    fft_bytes="$(awk -v n="${rocfft_len}" -v b="${rocfft_batch}" -v t="${rocfft_ntrial}" 'BEGIN{printf "%.0f", 2.0*n*16.0*b*t}')"
+    BENCH_META_STATS="$(set_bench_meta_stats "${fft_ops}" "op" "${fft_bytes}")"
     run_bench_with_timeout "bench: rocFFT complex fwd (${rocfft_len}, batch=${rocfft_batch}, d)" "${expected_fft}" "${timeout_s}" \
       bash -lc "set -euo pipefail; rocfft-bench --length ${rocfft_len} --precision double -t 0 -b ${rocfft_batch} -N ${rocfft_ntrial} >/dev/null; rocfft-bench --length ${rocfft_len} --precision double -t 0 -b ${rocfft_batch} -N 2" || true
     BENCH_META_STATS=""
@@ -1924,27 +1828,10 @@ PY
       fi
       local expected_fft="typ. 4-8s"
       BENCH_META_STATS=""
-      if (( HAVE_PY )); then
-        BENCH_META_STATS="$(python3 - <<PY
-import math
-
-N=${rocfft_len}
-B=${rocfft_batch}
-T=${rocfft_ntrial}
-ops = 5.0 * N * math.log2(N) * B * T
-bytes_ = 2.0 * N * 16.0 * B * T
-
-def sci(v: float) -> str:
-    if v == 0.0:
-        return "0"
-    e = int(math.floor(math.log10(abs(v))))
-    m = v / (10 ** e)
-    return f"{m:.1f}×10^{e}"
-
-print(f"ops ≈ {sci(ops)} op;  data ≈ {sci(bytes_)} B")
-PY
-)"
-      fi
+      local dfft_ops dfft_bytes
+      dfft_ops="$(awk -v n="${rocfft_len}" -v b="${rocfft_batch}" -v t="${rocfft_ntrial}" 'BEGIN{printf "%.0f", 5.0*n*(log(n)/log(2.0))*b*t}')"
+      dfft_bytes="$(awk -v n="${rocfft_len}" -v b="${rocfft_batch}" -v t="${rocfft_ntrial}" 'BEGIN{printf "%.0f", 2.0*n*16.0*b*t}')"
+      BENCH_META_STATS="$(set_bench_meta_stats "${dfft_ops}" "op" "${dfft_bytes}")"
       run_bench_with_timeout "bench: dyna-rocFFT complex fwd (${rocfft_len}, batch=${rocfft_batch}, d)" "${expected_fft}" "${timeout_s}" \
         bash -lc "set -euo pipefail; dyna-rocfft-bench --lib '${lib}' --length ${rocfft_len} --precision double -t 0 -b ${rocfft_batch} -N ${rocfft_ntrial} >/dev/null; dyna-rocfft-bench --lib '${lib}' --length ${rocfft_len} --precision double -t 0 -b ${rocfft_batch} -N 2" || true
       BENCH_META_STATS=""
@@ -1971,26 +1858,10 @@ PY
     local expected_rng="typ. 4-7s"
     # RNG: count generated values and output bytes (float32).
     BENCH_META_STATS=""
-    if (( HAVE_PY )); then
-      BENCH_META_STATS="$(python3 - <<PY
-import math
-
-sz=${rocrand_size}
-tr=${rocrand_trials}
-vals = float(sz) * float(tr)
-bytes_ = vals * 4.0
-
-def sci(v: float) -> str:
-    if v == 0.0:
-        return "0"
-    e = int(math.floor(math.log10(abs(v))))
-    m = v / (10 ** e)
-    return f"{m:.1f}×10^{e}"
-
-print(f"ops ≈ {sci(vals)} samples;  data ≈ {sci(bytes_)} B")
-PY
-)"
-    fi
+    local rng_samples rng_bytes
+    rng_samples="$(awk -v sz="${rocrand_size}" -v tr="${rocrand_trials}" 'BEGIN{printf "%.0f", 1.0*sz*tr}')"
+    rng_bytes="$(awk -v sz="${rocrand_size}" -v tr="${rocrand_trials}" 'BEGIN{printf "%.0f", 1.0*sz*tr*4.0}')"
+    BENCH_META_STATS="$(set_bench_meta_stats "${rng_samples}" "samples" "${rng_bytes}")"
     run_bench_with_timeout "bench: rocRAND generate (philox, uniform-float)" "${expected_rng}" "${timeout_s}" \
       benchmark_rocrand_generate --size "${rocrand_size}" --trials "${rocrand_trials}" --dis uniform-float --engine philox --format csv || true
     BENCH_META_STATS=""
