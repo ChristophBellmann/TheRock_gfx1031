@@ -1325,29 +1325,26 @@ run_bench_suite() {
     # Target: ~5s wall-time on gfx1031 (RX 6700 XT).
     local rocsolver_m rocsolver_batch rocsolver_iters
     if [[ "${MODE}" == "full" ]]; then
-      rocsolver_m="${ROC_SOLVER_M:-1536}"
+      rocsolver_m="${ROC_SOLVER_M:-4096}"
       rocsolver_batch="${ROC_SOLVER_BATCH:-16}"
-      rocsolver_iters="${ROC_SOLVER_ITERS:-60}"
+      rocsolver_iters="${ROC_SOLVER_ITERS:-1}"
     else
-      rocsolver_m="${ROC_SOLVER_M:-1024}"
+      rocsolver_m="${ROC_SOLVER_M:-3072}"
       rocsolver_batch="${ROC_SOLVER_BATCH:-16}"
-      rocsolver_iters="${ROC_SOLVER_ITERS:-100}"
+      rocsolver_iters="${ROC_SOLVER_ITERS:-1}"
     fi
     local expected_solver
     if [[ "${MODE}" == "full" ]]; then
-      expected_solver="typ. 5-10s"
+      expected_solver="typ. 7-12s"
     else
       expected_solver="typ. 4-7s"
     fi
-    # NOTE: rocsolver-bench treats `-i 0` as "run 0 iters" and can emit NaNs.
-    # If the caller sets ROC_SOLVER_ITERS=0, omit -i and let the client default.
-    local -a rocsolver_cmd
-    rocsolver_cmd=(rocsolver-bench -f geqrf_strided_batched -r s -m "${rocsolver_m}" --batch_count "${rocsolver_batch}" --perf 1)
-    if [[ "${rocsolver_iters}" != "0" ]]; then
-      rocsolver_cmd+=(-i "${rocsolver_iters}")
+    # rocsolver-bench can return NaNs for `-i 0`, so clamp to 1.
+    if [[ "${rocsolver_iters}" == "0" ]]; then
+      rocsolver_iters=1
     fi
     run_bench_with_timeout "bench: rocSOLVER geqrf_strided_batched (s)" "${expected_solver}" "${timeout_s}" \
-      "${rocsolver_cmd[@]}" || true
+      rocsolver-bench -f geqrf_strided_batched -r s -m "${rocsolver_m}" --batch_count "${rocsolver_batch}" --perf 1 -i "${rocsolver_iters}" || true
   elif bench_selected 3; then
     add_result "bench: rocSOLVER geqrf_strided_batched (s)" "SKIP" "0s" "rocsolver-bench not in PATH"
   fi
@@ -1357,11 +1354,11 @@ run_bench_suite() {
     # Target: ~5s wall-time on gfx1031 (RX 6700 XT).
     local hipsolver_m hipsolver_iters
     if [[ "${MODE}" == "full" ]]; then
-      hipsolver_m="${HIP_SOLVER_M:-8192}"
-      hipsolver_iters="${HIP_SOLVER_ITERS:-10}"
+      hipsolver_m="${HIP_SOLVER_M:-12288}"
+      hipsolver_iters="${HIP_SOLVER_ITERS:-1}"
     else
-      hipsolver_m="${HIP_SOLVER_M:-7168}"
-      hipsolver_iters="${HIP_SOLVER_ITERS:-22}"
+      hipsolver_m="${HIP_SOLVER_M:-10240}"
+      hipsolver_iters="${HIP_SOLVER_ITERS:-1}"
     fi
     local expected_solver
     if [[ "${MODE}" == "full" ]]; then
@@ -1369,15 +1366,12 @@ run_bench_suite() {
     else
       expected_solver="typ. 4-7s"
     fi
-    # NOTE: hipsolver-bench returns NaNs for `-i 0`. If HIP_SOLVER_ITERS=0,
-    # omit -i and let the client default.
-    local -a hipsolver_cmd
-    hipsolver_cmd=(hipsolver-bench --perf 1 -f getrf -m "${hipsolver_m}" -n "${hipsolver_m}")
-    if [[ "${hipsolver_iters}" != "0" ]]; then
-      hipsolver_cmd+=(-i "${hipsolver_iters}")
+    # hipsolver-bench can return NaNs for `-i 0`, so clamp to 1.
+    if [[ "${hipsolver_iters}" == "0" ]]; then
+      hipsolver_iters=1
     fi
     run_bench_with_timeout "bench: hipSOLVER (tiny solver)" "${expected_solver}" "${timeout_s}" \
-      "${hipsolver_cmd[@]}" || true
+      hipsolver-bench --perf 1 -f getrf -m "${hipsolver_m}" -n "${hipsolver_m}" -i "${hipsolver_iters}" || true
   elif bench_selected 4; then
     add_result "bench: hipSOLVER (tiny solver)" "SKIP" "0s" "hipsolver-bench not in PATH"
   fi
