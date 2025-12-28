@@ -47,9 +47,8 @@ see `./build_gfx1031.sh --help`
 ### Default behavior (no CLI options)
 
 - `./build_gfx1031.sh configure` uses the defaults from `config_gfx1031.yaml`:
-  - `build.stage: 1`
-  - `build.build_dir: build`
-  - the enabled `features.*` set (i.e. it configures the “full” gfx1031 stack as selected in the YAML)
+  - it configures **Stage‑1 first** (toolchain stage) using the enabled `features.*` set from the YAML
+  - if the Stage‑1 toolchain is already built, it also configures **Stage‑2**
 - To make Stage‑2 the default, either run `./build_gfx1031.sh configure --stage2` (recommended) or change the YAML defaults to `build.stage: 2` and `build.build_dir: build-stage2`.
 - If you want to configure both stages in one go (still configure-only): `./build_gfx1031.sh configure --all`.
 
@@ -57,6 +56,18 @@ see `./build_gfx1031.sh --help`
 
 Stage‑1 builds an in-tree toolchain using system clang.
 Stage‑2 reconfigures in a **fresh build dir**.
+
+### One-command build (default)
+
+After a fresh clone, the intended minimal workflow is:
+
+```bash
+./build_gfx1031.sh configure
+./build_gfx1031.sh build
+```
+
+`build` (without options) builds the full pipeline needed for `test_gfx1031.sh` and `validation/`:
+Stage‑1 bootstrap+build, then Stage‑2 configure+bootstrap+build.
 
 ### Stage‑1 (toolchain bootstrap)
 

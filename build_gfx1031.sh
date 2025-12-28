@@ -20,6 +20,13 @@ PATCH_COMPILER_PROJECTS="${PATCH_COMPILER_PROJECTS:-}"
 DETACH=0
 WAIT_LOCK=0
 
+# Track whether the user explicitly selected a stage/build dir via environment
+# variables before we load config defaults.
+ENV_BUILD_DIR_SET=0
+ENV_STAGE_SET=0
+if [[ -n "${BUILD_DIR}" ]]; then ENV_BUILD_DIR_SET=1; fi
+if [[ -n "${STAGE}" ]]; then ENV_STAGE_SET=1; fi
+
 # Fallback defaults if config YAML doesn't set them.
 DEFAULT_THEROCK_AMDGPU_TARGETS="gfx1031"
 DEFAULT_BUILD_DIR="build"
@@ -305,6 +312,9 @@ CHECK_CLEAN=1
 EXTRA_CMAKE_ARGS=()
 SUBPROJECTS=()
 CONFIGURE_ALL=0
+BUILD_ALL=0
+USER_SELECTED_BUILD_DIR=0
+USER_SELECTED_STAGE=0
 
 # First pass: allow --config anywhere.
 argv=("$@")
@@ -368,15 +378,20 @@ while [[ $# -gt 0 ]]; do
     --stage1)
       BUILD_DIR="build-stage1"
       STAGE=1
+      USER_SELECTED_BUILD_DIR=1
+      USER_SELECTED_STAGE=1
       shift
       ;;
     --stage2)
       BUILD_DIR="build-stage2"
       STAGE=2
+      USER_SELECTED_BUILD_DIR=1
+      USER_SELECTED_STAGE=1
       shift
       ;;
     --build-dir)
       BUILD_DIR="${2:-}"
+      USER_SELECTED_BUILD_DIR=1
       shift 2
       ;;
     --stage1-build-dir)
@@ -435,6 +450,24 @@ while [[ $# -gt 0 ]]; do
   esac
 done
 
+# Default behavior in this fork:
+# - `configure` without explicit stage/build-dir configures Stage-1 and then,
+#   if the Stage-1 toolchain already exists, also configures Stage-2.
+# - `build` without explicit stage/build-dir builds everything needed for tests
+#   and validation: Stage-1 bootstrap+build, then Stage-2 configure+bootstrap+build.
+if [[ ${ENV_BUILD_DIR_SET} -eq 0 && ${ENV_STAGE_SET} -eq 0 && ${USER_SELECTED_BUILD_DIR} -eq 0 && ${USER_SELECTED_STAGE} -eq 0 ]]; then
+  if [[ "${cmd}" == "configure" ]]; then
+    CONFIGURE_ALL=1
+  elif [[ "${cmd}" == "build" && ${#SUBPROJECTS[@]} -eq 0 ]]; then
+    BUILD_ALL=1
+  fi
+fi
+
+stage1_toolchain_ok() {
+  local stage1_llvm_bin="${ROOT}/${STAGE1_BUILD_DIR}/compiler/amd-llvm/dist/lib/llvm/bin"
+  [[ -x "${stage1_llvm_bin}/clang" && -x "${stage1_llvm_bin}/clang++" && -x "${stage1_llvm_bin}/lld" ]]
+}
+
 # Special helper: configure both Stage-1 and Stage-2 in sequence.
 # This only configures; it does not bootstrap or build.
 if [[ "${cmd}" == "configure" && ${CONFIGURE_ALL} -eq 1 ]]; then
@@ -450,6 +483,15 @@ if [[ "${cmd}" == "configure" && ${CONFIGURE_ALL} -eq 1 ]]; then
     "${ROOT}/build_gfx1031.sh" configure --stage1 "${cfg_args[@]}"
   fi
 
+  if ! stage1_toolchain_ok; then
+    echo "" | tee -a "${LOG_FILE}"
+    echo "Stage-1 toolchain not built yet; skipping Stage-2 configure for now." | tee -a "${LOG_FILE}"
+    echo "Next:" | tee -a "${LOG_FILE}"
+    echo "  ./build_gfx1031.sh bootstrap --stage1 && ./build_gfx1031.sh build --stage1" | tee -a "${LOG_FILE}"
+    echo "  ./build_gfx1031.sh configure --stage2 && ./build_gfx1031.sh bootstrap --stage2 && ./build_gfx1031.sh build --stage2" | tee -a "${LOG_FILE}"
+    exit 0
+  fi
+
   echo "" | tee -a "${LOG_FILE}"
   echo "Configuring Stage-2..." | tee -a "${LOG_FILE}"
   if (( ${#EXTRA_CMAKE_ARGS[@]} > 0 )); then
@@ -462,6 +504,38 @@ if [[ "${cmd}" == "configure" && ${CONFIGURE_ALL} -eq 1 ]]; then
   echo "Configure-all complete. Next:" | tee -a "${LOG_FILE}"
   echo "  ./build_gfx1031.sh bootstrap --stage1 && ./build_gfx1031.sh build --stage1" | tee -a "${LOG_FILE}"
   echo "  ./build_gfx1031.sh bootstrap --stage2 && ./build_gfx1031.sh build --stage2" | tee -a "${LOG_FILE}"
+  exit 0
+fi
+
+if [[ "${cmd}" == "build" && ${BUILD_ALL} -eq 1 ]]; then
+  echo "Building full pipeline (Stage-1 -> Stage-2)..." | tee -a "${LOG_FILE}"
+
+  # Stage-1: configure if needed, then bootstrap + build.
+  if [[ ! -f "${ROOT}/build-stage1/build.ninja" ]]; then
+    "${ROOT}/build_gfx1031.sh" configure --stage1 --config "${CONFIG_FILE}"
+  fi
+  if [[ ! -f "${ROOT}/build-stage1/${BOOTSTRAP_OK_MARKER_NAME}" ]]; then
+    "${ROOT}/build_gfx1031.sh" bootstrap --stage1 --config "${CONFIG_FILE}"
+  fi
+  "${ROOT}/build_gfx1031.sh" build --stage1 --config "${CONFIG_FILE}"
+
+  if ! stage1_toolchain_ok; then
+    echo "ERROR: Stage-1 toolchain missing after Stage-1 build; cannot proceed to Stage-2 configure." >&2
+    exit 1
+  fi
+
+  # Stage-2: configure now that Stage-1 toolchain exists, then bootstrap + build.
+  if [[ ! -f "${ROOT}/build-stage2/build.ninja" ]]; then
+    "${ROOT}/build_gfx1031.sh" configure --stage2 --config "${CONFIG_FILE}"
+  fi
+  if [[ ! -f "${ROOT}/build-stage2/${BOOTSTRAP_OK_MARKER_NAME}" ]]; then
+    "${ROOT}/build_gfx1031.sh" bootstrap --stage2 --config "${CONFIG_FILE}"
+  fi
+  "${ROOT}/build_gfx1031.sh" build --stage2 --config "${CONFIG_FILE}"
+
+  echo "Full build complete. Next:" | tee -a "${LOG_FILE}"
+  echo "  ./test_gfx1031.sh --stage2" | tee -a "${LOG_FILE}"
+  echo "  python3 validation/scripts/validate.py" | tee -a "${LOG_FILE}"
   exit 0
 fi
 
