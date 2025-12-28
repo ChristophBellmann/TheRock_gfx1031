@@ -11,32 +11,15 @@ It focuses on:
 
 Upstream project: `ROCm/TheRock` (this repo adds gfx103X-focused defaults, scripts, and validation).
 
-## What you get
+## Quick start
 
-- A full in-tree ROCm distribution under:
-  - `build-stage2/dist/rocm` (recommended)
-  - `build-stage1/dist/rocm` (bootstrap/toolchain stage)
-- A guided workflow that is intended to work on a **fresh clone**:
   - `build_gfx1031.sh` (configure/bootstrap/build/rebuild)
   - `monitor_gfx1031.sh` (build status snapshots / polling)
   - `test_gfx1031.sh` (sanity + consistency + benchmarks + MIOpen checks)
   - `test_docker_gfx1031.sh` (host vs docker comparison)
   - `validation/` (Python “usability & workloads” validation)
 
-## Design constraints (why the scripts exist)
-
-This build is intentionally strict about:
-- **No /opt/rocm fallback**: configure sets `ROCM_PATH/HIP_*` roots to the in-tree dist to prevent accidental system ROCm usage.
-- **No compiler switching inside one build dir**: Stage‑1 and Stage‑2 use **separate** build directories.
-- **Bootstrapping**: `bootstrap` prepares early sysdeps/dist artifacts so later parallel configures can reliably resolve `find_package(...)` without races.
-
 ## System requirements
-
-### Hardware
-- GPU: AMD RDNA2 **gfx1031** (or other gfx103X in this branch).
-- VRAM: 12GB recommended for LLM/vision/audio workloads.
-- RAM: 32GB recommended (build scripts default to `MemoryHigh=28G`, `MemoryMax=31G`).
-- Disk: **hundreds of GB** free space are typical for full source builds + caches.
 
 ### Kernel / driver / permissions
 - Ensure the ROCm kernel interfaces are present:
@@ -52,8 +35,6 @@ Minimum tooling expected on the host:
 - `lld` recommended
 - standard build essentials (`make`, `g++`, `pkg-config`, etc.)
 
-If you need an Ubuntu/Mint-style dependency list, see `BUILD_EXPERIENCE_NOTES.md`.
-
 ## Configuration
 
 Edit `config_gfx1031.yaml` (tracked in git) to:
@@ -61,12 +42,20 @@ Edit `config_gfx1031.yaml` (tracked in git) to:
 - select targets (`THEROCK_AMDGPU_TARGETS`, default `gfx1031`),
 - control memory limits, jobs, and patch/fetch behavior.
 
-Environment variables override config where appropriate (see `./build_gfx1031.sh --help`).
+see `./build_gfx1031.sh --help`
 
-## Recommended workflow (Stage‑1 / Stage‑2)
+### Default behavior (no CLI options)
 
-Stage‑1 builds an in-tree toolchain using system clang (with `LLVM_ENABLE_WERROR=OFF` to reduce avoidable build aborts).
-Stage‑2 reconfigures in a **fresh build dir** and uses the Stage‑1 toolchain to avoid falling back to `/usr/lib/llvm-*`.
+- `./build_gfx1031.sh configure` uses the defaults from `config_gfx1031.yaml`:
+  - `build.stage: 1`
+  - `build.build_dir: build`
+  - the enabled `features.*` set (i.e. it configures the “full” gfx1031 stack as selected in the YAML)
+- To make Stage‑2 the default, either run `./build_gfx1031.sh configure --stage2` (recommended) or change the YAML defaults to `build.stage: 2` and `build.build_dir: build-stage2`.
+
+## workflow 
+
+Stage‑1 builds an in-tree toolchain using system clang.
+Stage‑2 reconfigures in a **fresh build dir**.
 
 ### Stage‑1 (toolchain bootstrap)
 
@@ -86,23 +75,14 @@ Stage‑2 reconfigures in a **fresh build dir** and uses the Stage‑1 toolchain
 
 Notes:
 - `configure` is **clean by default** (removes the build dir). Use `--no-clean` only if you know the build dir is consistent.
-- `build` uses a per-build-dir lock (`.locks/`) to prevent accidental concurrent builds. Use `--wait` if you want to wait for an existing lock.
+- `build` uses a per-build-dir lock (`.locks/`) to prevent accidental concurrent builds.
 
 ## Monitoring builds
 
 `monitor_gfx1031.sh` prints a build snapshot (systemd unit + log tail). It exits automatically when the unit is no longer active.
 
 ```bash
-./monitor_gfx1031.sh --once
-./monitor_gfx1031.sh --interval 30
-```
-
-If you used `--detach`, the build runs as a user unit (derived from `BUILD_DIR`):
-- `therock-gfx1031-<builddir>-build.service`
-
-Stop a detached build:
-```bash
-systemctl --user stop "therock-gfx1031-build-stage2-build.service"
+./monitor_gfx1031.sh
 ```
 
 ## Testing (on host): `test_gfx1031.sh`
@@ -111,34 +91,9 @@ systemctl --user stop "therock-gfx1031-build-stage2-build.service"
 1) **Build validation**: sanity + consistency checks (paths, toolchain expectations, basic tools).
 2) **GPU micro-benchmarks**: sustained ~5s loads to verify acceleration (power/utilization makes CPU fallback obvious).
 
-Defaults:
-- Power sampling: **ON** (includes a 5s idle baseline).
-- Logging: **OFF** (enable with `--log`).
-- Benchmarks: **OFF** unless you opt in; interactive bench menu is the default when run without args in a TTY.
-
-Common usage:
 ```bash
-# Interactive bench menu (TTY default)
 ./test_gfx1031.sh
-
-# Consistency checks (strict for Stage‑2)
-./test_gfx1031.sh --consistency --expect-stage2 --stage2
-
-# Bench suite (1–9), quick mode
-./test_gfx1031.sh --bench-only --stage2
-
-# Longer benches
-./test_gfx1031.sh --bench-only --full --stage2
-
-# MIOpen / composable_kernel checks
-./test_gfx1031.sh --miopen --stage2
-./test_gfx1031.sh --miopen-smoke --stage2
 ```
-
-Bench outputs include:
-- a short math block (formula + brief interpretation),
-- estimated operation/data volume in e-notation (for context),
-- fixed-column summaries with power/utilization metrics (when enabled).
 
 ## Docker comparison: `test_docker_gfx1031.sh`
 
@@ -146,35 +101,18 @@ This script runs the same bench suite against the in-tree dist:
 - on the **host**
 - inside a **ROCm docker image** with `/dev/kfd` and `/dev/dri` passed through
 
-and prints a compact host vs docker comparison.
-
 ```bash
 ./test_docker_gfx1031.sh
-./test_docker_gfx1031.sh --bench-lite
-./test_docker_gfx1031.sh --full
-./test_docker_gfx1031.sh --docker-only --shell
 ```
-
-If docker numbers show as `n/a`, it usually indicates parsing issues or that the container run didn’t execute the bench tool; keep logs with `--keep-logs` and inspect the captured output.
 
 ## Validation suite (apps + ROCm usability): `validation/`
 
-The validation suite proves that the in-tree ROCm stack is usable **before** any system install:
-- It activates `<builddir>/dist/rocm` explicitly (no `/opt/rocm`).
-- It runs sustained GPU tests with optional power sampling.
-- Optional “workload” steps download/build/run representative apps and **fail** if they fall back to CPU.
+The validation suite proves that the in-tree ROCm stack is usable **before** any system install.
+It runs sustained GPU tests with optional power sampling.
 
 Start here:
 ```bash
 python3 validation/scripts/validate.py
-```
-
-Profiles:
-```bash
-python3 validation/scripts/validate.py --profile quick
-python3 validation/scripts/validate.py --profile full --yes
-python3 validation/scripts/validate.py --profile pytorch --yes --power
-python3 validation/scripts/validate.py --profile petsc --yes --power --log
 ```
 
 See `validation/README.md` for full details, configuration, and per-workload one-shot validators.
