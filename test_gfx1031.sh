@@ -3,7 +3,8 @@ set -euo pipefail
 
 # Ensure numeric parsing/formatting uses '.' as decimal separator regardless of
 # user locale (important for printf/awk when emitting table-like output).
-export LC_ALL=C
+# Do NOT force LC_ALL=C because that breaks UTF-8 output (formulas).
+export LC_NUMERIC=C
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 LOG_ENABLED=0
@@ -79,6 +80,8 @@ print_formula_line() {
   # - operators/symbols:   #E5C07B (229,192,123)
   # - numbers/units:       #D19A66 (209,154,102)
   # - brackets/indices:    #7F848E (127,132,142)
+  # IMPORTANT: Keep the tokenizer ASCII-only. Treat any non-ASCII bytes as
+  # opaque to avoid corrupting UTF-8 sequences (which would render as �).
   printf '%s\n' "${formula}" | awk '
     BEGIN{
       RST="\033[0m"
@@ -91,8 +94,8 @@ print_formula_line() {
       kw["GEMM"]=1; kw["FFT"]=1; kw["QR"]=1; kw["LU"]=1; kw["RNG"]=1; kw["AXP"]=1
       kw["factorization"]=1; kw["forward"]=1; kw["batched"]=1; kw["Philox"]=1; kw["engine"]=1
     }
-    function isop(c){ return index("=+-−*/·×^←→∑∈∼,;:", c) > 0 }
-    function isbr(c){ return index("()[]{}⟨⟩", c) > 0 }
+    function isop(c){ return index("=+-*/^,;:", c) > 0 }
+    function isbr(c){ return index("()[]{}", c) > 0 }
     function isnum(c){ return c ~ /[0-9.]/ }
     function isword(c){ return c ~ /[A-Za-z0-9_-]/ }
     function emit(col, tok){ printf("%s%s%s", col, tok, RST) }
@@ -102,6 +105,8 @@ print_formula_line() {
       n=length(s)
       while(i<=n){
         c=substr(s,i,1)
+        # Non-ASCII byte => part of UTF-8 sequence, print as-is.
+        if (c !~ /^[\x00-\x7F]$/) { printf("%s", c); i++; continue }
         if(c ~ /[[:space:]]/){ printf("%s", c); i++; continue }
         if(isbr(c)){ emit(BR, c); i++; continue }
         if(isop(c)){ emit(OP, c); i++; continue }
@@ -120,8 +125,6 @@ print_formula_line() {
           if(tok in kw){ emit(KW, tok) } else { emit(ID, tok) }
           continue
         }
-        # greek/common identifiers and symbols (αβπiℝ etc)
-        if(index("αβπiℝℂℤℚℕ", c)>0){ emit(ID, c); i++; continue }
         # fallback
         printf("%s", c); i++
       }
