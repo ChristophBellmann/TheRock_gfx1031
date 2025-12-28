@@ -628,7 +628,7 @@ print_summary_table() {
       [[ -z "${gpu}" ]] && gpu="n/a"
       [[ -z "${mem}" ]] && mem="n/a"
 
-      printf "    Energy: %-6s  avg %-6s  max %-6s  ΔW %-7s  gpu %3s%%  mem %3s%%\n" \
+      printf "    Energy: %-8s  avg %-6s  max %-6s  ΔW %-7s  gpu %3s%%  mem %3s%%\n" \
         "${e}" "${avgw}" "${maxw}" "${dw}" "${gpu}" "${mem}" | tee -a "${LOG_FILE}"
     fi
     # One blank line per ID block for scanability.
@@ -1248,7 +1248,7 @@ power_sampler_stop_and_format() {
     kill -KILL "${pid}" >/dev/null 2>&1 || true
   fi
   awk -v base="${baseline_avg_w:-}" '
-  function fmt_ws(v){ if(v=="") return "  n/a"; return sprintf("%4.0fWs", v) }
+  function fmt_wh(v){ if(v=="") return "   n/a"; return sprintf("%.3fWh", v/3600.0) }
   function fmt_w(v){ if(v=="") return "   n/a"; return sprintf("%6.1fW", v) }
   function fmt_dw(v){ if(v=="") return "   n/a"; return sprintf("%+6.1fW", v) }
   function fmt_pct(v){ if(v=="") return "n/a"; return sprintf("%3.0f", v) }
@@ -1277,7 +1277,7 @@ power_sampler_stop_and_format() {
     if(n_gpu>0){ gpu_avg=sum_gpu/n_gpu }
     if(n_mem>0){ mem_avg=sum_mem/n_mem }
     if(n<2){ e="" }
-    printf("E=%s  avgW=%s  dW=%s  maxW=%s  gpu%%=%s  mem%%=%s", fmt_ws(e), fmt_w(avg), fmt_dw(dw), fmt_w(max_p), fmt_pct(gpu_avg), fmt_pct(mem_avg))
+    printf("E=%s  avgW=%s  dW=%s  maxW=%s  gpu%%=%s  mem%%=%s", fmt_wh(e), fmt_w(avg), fmt_dw(dw), fmt_w(max_p), fmt_pct(gpu_avg), fmt_pct(mem_avg))
   }' "${out_file}"
 }
 
