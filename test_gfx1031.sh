@@ -182,6 +182,20 @@ print_bench_desc() {
   printf "%s%s%s%s\n" "${indent}" "${C_DIM}" "${desc}" "${C_RESET}" | tee -a "${LOG_FILE}"
 }
 
+status_color() {
+  local status="$1"
+  if (( ! COLOR_ENABLED )); then
+    echo ""
+    return 0
+  fi
+  case "${status}" in
+    OK) echo "${C_GREEN}" ;;
+    FAIL) echo "${C_RED}" ;;
+    SKIP) echo "${C_YELLOW}" ;;
+    *) echo "" ;;
+  esac
+}
+
 usage() {
   cat <<'EOF_USAGE'
 Usage: test_gfx1031.sh [options]
@@ -582,8 +596,14 @@ print_summary_table() {
       perf="$(normalize_perf "${perf}")"
     fi
 
-    printf "%02d  %-30.30s  %-4s  %6.3fs  %-18.18s\n" \
-      "${id}" "${name}" "${status}" "${seconds}" "${perf}" | tee -a "${LOG_FILE}"
+    local st_c
+    st_c="$(status_color "${status}")"
+    # Print in segments so ANSI escapes don't affect column alignment.
+    printf "%02d  " "${id}" | tee -a "${LOG_FILE}"
+    printf "%s%-30.30s%s" "${C_BOLD}" "${name}" "${C_RESET}" | tee -a "${LOG_FILE}"
+    printf "  " | tee -a "${LOG_FILE}"
+    printf "%s%-4s%s" "${st_c}" "${status}" "${C_RESET}" | tee -a "${LOG_FILE}"
+    printf "  %6.3fs  %-18.18s\n" "${seconds}" "${perf}" | tee -a "${LOG_FILE}"
 
     # Bench rows get a second line with energy/utilization fields (if power is enabled and available).
     if [[ "${label}" == bench:* ]] && (( RUN_POWER )) && [[ -n "${power}" ]]; then
@@ -607,6 +627,8 @@ print_summary_table() {
       printf "    Energy: %-6s  avg %-6s  max %-6s  ΔW %-7s  gpu %3s%%  mem %3s%%\n" \
         "${e}" "${avgw}" "${maxw}" "${dw}" "${gpu}" "${mem}" | tee -a "${LOG_FILE}"
     fi
+    # One blank line per ID block for scanability.
+    echo "" | tee -a "${LOG_FILE}"
   done
 }
 
