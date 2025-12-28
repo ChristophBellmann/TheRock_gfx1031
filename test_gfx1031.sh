@@ -372,6 +372,11 @@ usage() {
   cat <<'EOF_USAGE'
 Usage: test_gfx1031.sh [options]
 
+Default behavior:
+  - If invoked with no args in an interactive terminal (TTY): opens the interactive bench menu (1–9).
+  - Otherwise: runs sanity checks only (no benchmarks).
+  - Power sampling is ON by default (5s idle baseline + per-test energy/utilization).
+
 Options:
   --quick        Select quick benchmark sizes (default mode)
   --full         Select longer benchmark sizes (bigger sizes / more iters)
@@ -396,14 +401,19 @@ Options:
   --stage1       Use BUILD_DIR=build-stage1
   --stage2       Use BUILD_DIR=build-stage2
   --build-dir <dir>
-                Override build directory (default: build)
+                Override build directory (default: auto; prefers build-stage2, then build, then build-stage1)
   -h, --help     Show this help
 
 Environment overrides:
   BENCH_SIZE       override GEMM size (default 2048 quick, 4096 full)
   BENCH_ITERS      override iterations (default 10 quick, 20 full)
   TEST_LOG         override log file (only used if --log is set)
-  BUILD_DIR        build directory name (auto: if multiple exist, tests build-stage2, build, build-stage1)
+  BUILD_DIR        force a specific build directory (disables auto-multi-builddir loop)
+  TEST_GFX1031_SINGLE
+                  set to 1 to disable auto-multi-builddir loop
+  TEST_SKIP_VENV   set to 1 to skip activating .venv (useful in containers)
+  NO_COLOR         disable colored output
+  FORCE_COLOR      force colored output even when logging
   STAGE1_BUILD_DIR Stage-1 build dir for Stage-2 expectations (default: build-stage1)
 EOF_USAGE
 }
