@@ -12,7 +12,8 @@ RUN_SANITY=1
 RUN_BENCH=0
 RUN_MIOPEN=0
 RUN_MIOPEN_SMOKE=0
-RUN_POWER=0
+# Default: power sampling enabled (per-test 5s idle baseline + dW).
+RUN_POWER=1
 BUILD_DIR="${BUILD_DIR:-}"
 RUN_CONSISTENCY=0
 CONSISTENCY_DEEP=0
@@ -67,6 +68,7 @@ Options:
   --quick        Select quick benchmark sizes (default mode)
   --full         Select longer benchmark sizes (bigger sizes / more iters)
   --power        Sample GPU power/utilization via sysfs during sanity/bench (adds baseline + per-test metrics)
+  --no-power     Disable power sampling (override default)
   --bench        Run performance benchmarks (in addition to sanity)
   --bench-lite   Run only the lightweight BLAS GEMM benchmarks (rocBLAS + hipBLAS)
   --bench-menu   Interactive bench menu (select 1-9; 0=all; q=quit)
@@ -134,6 +136,10 @@ while [[ $# -gt 0 ]]; do
       ;;
     --power)
       RUN_POWER=1
+      shift
+      ;;
+    --no-power)
+      RUN_POWER=0
       shift
       ;;
     --bench)
