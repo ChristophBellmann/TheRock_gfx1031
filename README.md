@@ -563,21 +563,21 @@ depending on host `/opt/rocm`), you can mount the repo into an ROCm dev image an
 Recommended helper:
 
 ```bash
-# Sanity inside container + drop into an interactive shell afterwards:
-./run_rocm_container.sh --stage2
+# Docker-only sanity:
+./test_docker_gfx1031.sh --docker-only --stage2 --no-compare
 
-# Benchmarks (if built) inside container:
-./run_rocm_container.sh --stage2 --bench
+# Docker-only benchmarks (if built):
+./test_docker_gfx1031.sh --docker-only --stage2 --bench
 
-# Exit after tests (no shell):
-./run_rocm_container.sh --stage2 --no-shell
+# Drop into an interactive shell afterwards:
+./test_docker_gfx1031.sh --docker-only --stage2 --shell
 ```
 
 Notes:
 - The container run passes through `/dev/kfd` and `/dev/dri` and adds the `video`/`render` groups.
 - `./test_gfx1031.sh` automatically **skips** activating the repo `.venv` when it detects a container (to avoid ABI mismatches). Override with `THEROCK_FORCE_VENV=1` or disable explicitly with `TEST_SKIP_VENV=1`.
 - Your in-tree `dist/rocm` is linked against your host userland (glibc/libstdc++). If the container base is too old, you can get errors like `GLIBC_2.38 not found`.
-  In that case, use a newer ROCm dev image (e.g. Ubuntu 24.04): `./run_rocm_container.sh --image rocm/dev-ubuntu-24.04:latest ...`.
+  In that case, use a newer ROCm dev image (e.g. Ubuntu 24.04): `./test_docker_gfx1031.sh --image rocm/dev-ubuntu-24.04:latest ...`.
 
 ### Optional: compare performance (host vs container)
 
@@ -586,20 +586,20 @@ run:
 
 ```bash
 # Default: bench-lite (rocBLAS + hipBLAS GEMM), Stage-2.
-./compare_perf_gfx1031.sh
+./test_docker_gfx1031.sh
 
 # Full bench set (can take longer):
-./compare_perf_gfx1031.sh --bench
+./test_docker_gfx1031.sh --bench
 
 # Override docker image (useful for glibc compatibility):
-./compare_perf_gfx1031.sh --image rocm/dev-ubuntu-24.04:latest
+./test_docker_gfx1031.sh --image rocm/dev-ubuntu-24.04:latest
 ```
 
-This writes logs under `./perf_compare/<timestamp>/` and prints a side-by-side TFLOPS comparison.
+This prints a side-by-side TFLOPS/power/gpu% comparison. By default it keeps no logs; add `--keep-logs` (or `--out <dir>`) to keep captured output.
 
 Notes:
-- The container run installs a minimal runtime dep (`libgfortran5`) because some bench clients link it dynamically. Disable via `./compare_perf_gfx1031.sh --no-install-deps`.
-- By default, `compare_perf_gfx1031.sh` enables `--power` and prints avgW + gpu% next to TFLOPS. Disable via `./compare_perf_gfx1031.sh --no-power`.
+- The container run installs a minimal runtime dep (`libgfortran5`) because some bench clients link it dynamically. Disable via `./test_docker_gfx1031.sh --no-install-deps`.
+- By default, `test_docker_gfx1031.sh` enables `--power`. For bench-lite, `test_gfx1031.sh` increases GEMM iterations so each run is ~5s (better power/gpu% signal). Disable via `./test_docker_gfx1031.sh --no-power`.
 
 ### Optional: Upstream test suites (ctest / gtest clients)
 
