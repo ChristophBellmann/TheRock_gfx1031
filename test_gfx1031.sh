@@ -815,8 +815,8 @@ Bench menu (gfx1031):
   4) hipSOLVER (default) tiny solver
   5) rocSPARSE axpyi (s)
   6) hipSPARSE axpyi (s)
-  7) rocFFT complex fwd 1024 (single)
-  8) dyna-rocFFT complex fwd 1024 (single)
+  7) rocFFT complex fwd (sustained)
+  8) dyna-rocFFT complex fwd (sustained)
   9) rocRAND generate (philox, uniform-float)
 
 Enter one number (e.g. 2) or a list (e.g. 1,2,7). Use 'q' to quit.
@@ -1421,23 +1421,48 @@ run_bench_suite() {
 
   # 4) FFT
   if bench_selected 7 && command -v rocfft-bench >/dev/null 2>&1; then
-    run_bench_with_timeout "bench: rocFFT complex fwd 1024 (single)" "${expected_misc}" "${timeout_s}" \
-      rocfft-bench --length 1024 --precision single -t 0 -N 2 || true
+    # rocfft-bench reports per-sample timings and a single run is too short for
+    # power/utilization sampling. Run a long profile silently, then a small one
+    # to print metrics.
+    local rocfft_len rocfft_batch rocfft_ntrial
+    if [[ "${MODE}" == "full" ]]; then
+      rocfft_len="${ROCFFT_LEN:-524288}"
+      rocfft_batch="${ROCFFT_BATCH:-4}"
+      rocfft_ntrial="${ROCFFT_NTRIAL:-3000}"
+    else
+      rocfft_len="${ROCFFT_LEN:-262144}"
+      rocfft_batch="${ROCFFT_BATCH:-4}"
+      rocfft_ntrial="${ROCFFT_NTRIAL:-8000}"
+    fi
+    local expected_fft="typ. 4-8s"
+    run_bench_with_timeout "bench: rocFFT complex fwd (${rocfft_len}, batch=${rocfft_batch}, d)" "${expected_fft}" "${timeout_s}" \
+      bash -lc "set -euo pipefail; rocfft-bench --length ${rocfft_len} --precision double -t 0 -b ${rocfft_batch} -N ${rocfft_ntrial} >/dev/null; rocfft-bench --length ${rocfft_len} --precision double -t 0 -b ${rocfft_batch} -N 2" || true
   elif bench_selected 7; then
-    add_result "bench: rocFFT complex fwd 1024 (single)" "SKIP" "0s" "rocfft-bench not in PATH"
+    add_result "bench: rocFFT complex fwd (sustained)" "SKIP" "0s" "rocfft-bench not in PATH"
   fi
 
   if bench_selected 8 && command -v dyna-rocfft-bench >/dev/null 2>&1; then
     local lib
     lib="$(ls -1 "${ROCM_PATH}/lib/librocfft.so"* 2>/dev/null | head -n 1 || true)"
     if [[ -n "${lib}" ]]; then
-      run_bench_with_timeout "bench: dyna-rocFFT complex fwd 1024 (single)" "${expected_misc}" "${timeout_s}" \
-        dyna-rocfft-bench --lib "${lib}" --length 1024 --precision single -t 0 -N 2 || true
+      local rocfft_len rocfft_batch rocfft_ntrial
+      if [[ "${MODE}" == "full" ]]; then
+        rocfft_len="${ROCFFT_LEN:-524288}"
+        rocfft_batch="${ROCFFT_BATCH:-4}"
+        rocfft_ntrial="${ROCFFT_NTRIAL:-3000}"
+      else
+        rocfft_len="${ROCFFT_LEN:-262144}"
+        rocfft_batch="${ROCFFT_BATCH:-4}"
+        rocfft_ntrial="${ROCFFT_NTRIAL:-8000}"
+      fi
+      local expected_fft="typ. 4-8s"
+      run_bench_with_timeout "bench: dyna-rocFFT complex fwd (${rocfft_len}, batch=${rocfft_batch}, d)" "${expected_fft}" "${timeout_s}" \
+        bash -lc "set -euo pipefail; dyna-rocfft-bench --lib '${lib}' --length ${rocfft_len} --precision double -t 0 -b ${rocfft_batch} -N ${rocfft_ntrial} >/dev/null; dyna-rocfft-bench --lib '${lib}' --length ${rocfft_len} --precision double -t 0 -b ${rocfft_batch} -N 2" || true
     else
-      add_result "bench: dyna-rocFFT complex fwd 1024 (single)" "SKIP" "0s" "librocfft.so not found under ${ROCM_PATH}/lib"
+      add_result "bench: dyna-rocFFT complex fwd (sustained)" "SKIP" "0s" "librocfft.so not found under ${ROCM_PATH}/lib"
     fi
   elif bench_selected 8; then
-    add_result "bench: dyna-rocFFT complex fwd 1024 (single)" "SKIP" "0s" "dyna-rocfft-bench not in PATH"
+    add_result "bench: dyna-rocFFT complex fwd (sustained)" "SKIP" "0s" "dyna-rocfft-bench not in PATH"
   fi
 
   # 5) RNG
