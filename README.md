@@ -467,6 +467,20 @@ The script auto-activates the in-tree ROCm environment from `<builddir>/dist/roc
 ./test_gfx1031.sh --log my_run.log --bench
 ```
 
+**Output format (what to expect):**
+
+- Each benchmark prints a 1-line header plus a short “math block”:
+  - an anchor label (e.g. `GEMM:`, `QR:`, `FFT:`)
+  - the core formula (Unicode, readable)
+  - a short scientific description
+  - an `ops ≈ …` / `data ≈ …` estimate in **e-notation** (e.g. `4.1e13 FLOP`, `1.6e11 B`) based on the actual parameters used
+- The summary is a fixed-column table with consistent spacing and colors:
+  - status color: `OK` (green), `SKIP` (yellow), `FAIL` (red)
+  - for benches with power enabled, a second line shows:
+    - `Energy: <Wh>` (watt-hours; `Wh = Ws / 3600`)
+    - `avg/max/ΔW` in watts
+    - average `gpu%` / `mem%`
+
 **Build/toolchain consistency checks (recommended after reconfigure / rebuild):**
 
 ```bash
