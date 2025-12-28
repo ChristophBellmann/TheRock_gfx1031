@@ -1509,6 +1509,7 @@ run_bench_with_timeout() {
     if [[ -n "${anchor}" ]]; then
       print_bench_anchor "${anchor}"
       print_formula_line "${formula}"
+      print_bench_desc "ops/FLOP: estimated total work for this run (counts, not per second). data: estimated total bytes read/written (approx., not B/s)."
       print_bench_desc "${desc}"
       if [[ -n "${BENCH_META_STATS:-}" ]]; then
         print_bench_desc "${BENCH_META_STATS}"
