@@ -91,7 +91,7 @@ Default behavior (no --stage*/--build-dir and no explicit targets):
 Quick start (fresh clone):
   ./build_gfx1031.sh configure
   ./build_gfx1031.sh build
-  ./test_gfx1031.sh --stage2
+  ./test_gfx1031.sh            # auto-selects build-stage2 if present
   python3 validation/scripts/validate.py
 
 Shared options:
