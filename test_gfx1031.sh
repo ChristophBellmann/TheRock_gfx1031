@@ -60,6 +60,95 @@ else
   C_CYAN=""
 fi
 
+print_formula_line() {
+  local formula="$1"
+  local indent="    "
+
+  if (( ! COLOR_ENABLED )); then
+    echo "${indent}${formula}" | tee -a "${LOG_FILE}"
+    return 0
+  fi
+  if ! command -v python3 >/dev/null 2>&1; then
+    echo "${indent}${formula}" | tee -a "${LOG_FILE}"
+    return 0
+  fi
+
+  # Token-based, calm Truecolor palette (works best in dark themes).
+  # - keywords/functions:  #61AFEF
+  # - identifiers:         #C678DD
+  # - operators/symbols:   #E5C07B
+  # - numbers/units:       #D19A66
+  # - brackets/indices:    #7F848E
+  FORMULA="${formula}" python3 - <<'PY' | sed "s/^/${indent}/" | tee -a "${LOG_FILE}"
+import os, re
+
+s = os.environ.get("FORMULA", "")
+
+def esc(hexrgb: str) -> str:
+    hexrgb = hexrgb.lstrip("#")
+    r = int(hexrgb[0:2], 16)
+    g = int(hexrgb[2:4], 16)
+    b = int(hexrgb[4:6], 16)
+    return f"\x1b[38;2;{r};{g};{b}m"
+
+RST = "\x1b[0m"
+COL_KW = esc("#61AFEF")
+COL_ID = esc("#C678DD")
+COL_OP = esc("#E5C07B")
+COL_NUM = esc("#D19A66")
+COL_BR = esc("#7F848E")
+
+# "Keywords" includes math/procedure words so the formula reads like a structured statement.
+KEYWORDS = {
+    "GEMM", "FFT", "QR", "LU", "RNG", "AXPYI", "Sparse",
+    "factorization", "forward", "batched", "engine", "distribution",
+    "Philox", "uniform-float", "uniform", "double", "single",
+}
+
+BRACKETS = set("()[]{}⟨⟩")
+
+# Split into tokens while keeping separators.
+token_re = re.compile(
+    r"(?P<kw>[A-Za-z][A-Za-z0-9_-]*)"
+    r"|(?P<num>\b\d+(?:\.\d+)?\b)"
+    r"|(?P<unit>\b(?:ms|GB/s|TFLOPS|GFLOPS|Ws|W|s)\b)"
+    r"|(?P<br>[\(\)\[\]\{\}⟨⟩])"
+    r"|(?P<op>[=+\-−*/·×^←→∑∈∼,;:])"
+    r"|(?P<ws>\s+)"
+    r"|(?P<other>.)",
+    re.UNICODE,
+)
+
+out = []
+for m in token_re.finditer(s):
+    kind = m.lastgroup
+    tok = m.group(0)
+    if kind == "ws":
+        out.append(tok)
+    elif kind == "br":
+        out.append(f"{COL_BR}{tok}{RST}")
+    elif kind == "op":
+        out.append(f"{COL_OP}{tok}{RST}")
+    elif kind in ("num", "unit"):
+        out.append(f"{COL_NUM}{tok}{RST}")
+    elif kind == "kw":
+        if tok in KEYWORDS:
+            out.append(f"{COL_KW}{tok}{RST}")
+        else:
+            out.append(f"{COL_ID}{tok}{RST}")
+    else:
+        # Cover unicode identifiers like α, β, subscripts, ℝ, etc.
+        if tok.isalpha() or tok in {"α", "β", "π", "i", "ℝ", "ℂ", "ℤ", "ℚ", "ℕ"}:
+            out.append(f"{COL_ID}{tok}{RST}")
+        elif tok in BRACKETS:
+            out.append(f"{COL_BR}{tok}{RST}")
+        else:
+            out.append(tok)
+
+print("".join(out))
+PY
+}
+
 usage() {
   cat <<'EOF_USAGE'
 Usage: test_gfx1031.sh [options]
@@ -1227,7 +1316,7 @@ run_bench_with_timeout() {
         ;;
     esac
     if [[ -n "${formula}" ]]; then
-      echo "    ${C_DIM}${formula}${C_RESET}" | tee -a "${LOG_FILE}"
+      print_formula_line "${formula}"
     fi
   fi
   if (( RUN_POWER )) && [[ -n "${POWER_PATH}" ]]; then
