@@ -210,8 +210,7 @@ print_colorized_text() {
   printf '%s\n' "${text}" | awk -v dim="${dim_prefix}" '
     BEGIN{
       RST="\033[0m"
-      KW="\033[38;2;97;175;239m"         # #61AFEF
-      ID="\033[38;2;198;120;221m"        # #C678DD
+      KW="\033[38;2;97;175;239m"         # #61AFEF (reserve for math-ish keywords)
       OP="\033[38;2;229;192;123m"        # #E5C07B
       NUM="\033[38;2;209;154;102m"       # #D19A66
       BR="\033[38;2;127;132;142m"        # #7F848E
@@ -221,15 +220,17 @@ print_colorized_text() {
       VQ="\033[38;2;209;154;102m"        # #D19A66 (Q/R/L/U/P)
       VV="\033[38;2;229;192;123m"        # #E5C07B (m/n/k/N/nnz/batch/iters/count)
 
-      kw["ops"]=1; kw["data"]=1; kw["ops_FLOP"]=1; kw["data_B"]=1; kw["ops_samples"]=1
-      kw["sizeof"]=1; kw["log2"]=1; kw["reads"]=1; kw["writes"]=1
-      kw["iters"]=1; kw["batch"]=1; kw["nnz"]=1; kw["count"]=1
+      # Keep coloring focused on math symbols/variables. Only a few "math-ish"
+      # words are highlighted to help scanning.
+      kw["ops_FLOP"]=1; kw["data_B"]=1; kw["ops_samples"]=1
+      kw["sizeof"]=1; kw["log2"]=1
     }
     function isop(c){ return index("=+-*/^,;:<>", c) > 0 }
     function isbr(c){ return index("()[]{}", c) > 0 }
     function isnum(c){ return c ~ /[0-9.]/ }
     function isword(c){ return c ~ /[A-Za-z0-9_]/ }
     function emit(col, tok){ printf("%s%s%s", col, tok, RST) }
+    function emit_dim_plain(tok){ printf("%s%s%s", dim, tok, RST) }
     function emit_dim(col, tok){ printf("%s%s%s%s", dim, col, tok, RST) }
     function emit_any(col, tok){ if(dim!=""){ emit_dim(col, tok) } else { emit(col, tok) } }
     function var_color(tok){
@@ -265,7 +266,9 @@ print_colorized_text() {
           while(i<=n && isword(substr(s,i,1))){ tok=tok substr(s,i,1); i++ }
           vc=var_color(tok)
           if(vc!=""){ emit_any(vc, tok); continue }
-          if(tok in kw){ emit_any(KW, tok) } else { emit_any(ID, tok) }
+          if(tok in kw){ emit_any(KW, tok); continue }
+          # Default: do not color normal words; keep emphasis on symbols/vars.
+          if(dim!=""){ emit_dim_plain(tok) } else { printf("%s", tok) }
           continue
         }
         printf("%s", c); i++
@@ -317,7 +320,7 @@ print_ops_data_model() {
       print_colorized_text "- data_B ≈ iters · batch · sizeof(complex)·N·(reads+writes) (typically ≈2)"
       ;;
     RNG)
-      print_colorized_text "- Interpretation: generate count i.i.d. samples xᵢ ∼ U(0,1) and write them out, repeated iters times."
+      print_colorized_text "- Interpretation: generate count independent, identically distributed samples xᵢ ∼ U(0,1) and write them out, repeated iters times."
       print_colorized_text "- ops_samples = iters · count"
       print_colorized_text "- data_B ≈ iters · count · sizeof(output)"
       ;;
