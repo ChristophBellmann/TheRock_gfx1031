@@ -2,12 +2,9 @@
 
 # TheRock_gfx1031 (ROCm 7.11, RDNA2 gfx103X)
 
-This repository is a **custom TheRock branch** that builds a **repo-local ROCm/HIP stack** optimized for **RDNA2 gfx103X** (tested on **Radeon RX 6700 XT / gfx1031**) and validates it **without** installing anything system-wide (no `/opt/rocm` required).
-
-It focuses on:
-- **Reproducible builds** (single entry script + pinned config).
-- **Toolchain hygiene** (avoid “system ROCm” leakage and LLVM/ABI mixing).
-- **Usability proof** via on-host tests and a Python validation suite with power/utilization checks.
+This repository is a custom TheRock branch that builds a repo-local ROCm/HIP stack.
+For **RDNA2 gfx103X**, tested on **Radeon RX 6700 XT / gfx1031**.
+Validation runs without installing anything system-wide (no `/opt/rocm` required).
 
 Upstream project: `ROCm/TheRock` (this repo adds gfx103X-focused defaults, scripts, and validation).
 
@@ -28,12 +25,12 @@ Upstream project: `ROCm/TheRock` (this repo adds gfx103X-focused defaults, scrip
   - membership in `video` and `render` groups is commonly required.
 
 ### Build tools (host)
-Minimum tooling expected on the host:
+
 - `python3` with `venv` support
 - `cmake`, `ninja`
-- `clang` / `clang++` (this repo uses **Clang 18** on the host)
-- `lld` recommended
-- standard build essentials (`make`, `g++`, `pkg-config`, etc.)
+- `clang` / `clang++` (Clang 18 on the host)
+- `lld` 
+- `make`, `g++`, `pkg-config`
 
 ## Configuration
 
