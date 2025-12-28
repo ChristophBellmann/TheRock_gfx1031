@@ -1325,17 +1325,19 @@ run_bench_suite() {
     # Target: ~5s wall-time on gfx1031 (RX 6700 XT).
     local rocsolver_m rocsolver_batch rocsolver_iters
     if [[ "${MODE}" == "full" ]]; then
-      rocsolver_m="${ROC_SOLVER_M:-4096}"
+      # Double precision tends to be more compute-heavy and results in a more
+      # sustained load than tiny single-precision runs.
+      rocsolver_m="${ROC_SOLVER_M:-3072}"
       rocsolver_batch="${ROC_SOLVER_BATCH:-16}"
       rocsolver_iters="${ROC_SOLVER_ITERS:-1}"
     else
-      rocsolver_m="${ROC_SOLVER_M:-3072}"
-      rocsolver_batch="${ROC_SOLVER_BATCH:-16}"
+      rocsolver_m="${ROC_SOLVER_M:-2560}"
+      rocsolver_batch="${ROC_SOLVER_BATCH:-17}"
       rocsolver_iters="${ROC_SOLVER_ITERS:-1}"
     fi
     local expected_solver
     if [[ "${MODE}" == "full" ]]; then
-      expected_solver="typ. 7-12s"
+      expected_solver="typ. 5-10s"
     else
       expected_solver="typ. 4-7s"
     fi
@@ -1343,10 +1345,10 @@ run_bench_suite() {
     if [[ "${rocsolver_iters}" == "0" ]]; then
       rocsolver_iters=1
     fi
-    run_bench_with_timeout "bench: rocSOLVER geqrf_strided_batched (s)" "${expected_solver}" "${timeout_s}" \
-      rocsolver-bench -f geqrf_strided_batched -r s -m "${rocsolver_m}" --batch_count "${rocsolver_batch}" --perf 1 -i "${rocsolver_iters}" || true
+    run_bench_with_timeout "bench: rocSOLVER geqrf_strided_batched (d)" "${expected_solver}" "${timeout_s}" \
+      rocsolver-bench -f geqrf_strided_batched -r d -m "${rocsolver_m}" --batch_count "${rocsolver_batch}" --perf 1 -i "${rocsolver_iters}" || true
   elif bench_selected 3; then
-    add_result "bench: rocSOLVER geqrf_strided_batched (s)" "SKIP" "0s" "rocsolver-bench not in PATH"
+    add_result "bench: rocSOLVER geqrf_strided_batched (d)" "SKIP" "0s" "rocsolver-bench not in PATH"
   fi
 
   if bench_selected 4 && command -v hipsolver-bench >/dev/null 2>&1; then
@@ -1354,10 +1356,10 @@ run_bench_suite() {
     # Target: ~5s wall-time on gfx1031 (RX 6700 XT).
     local hipsolver_m hipsolver_iters
     if [[ "${MODE}" == "full" ]]; then
-      hipsolver_m="${HIP_SOLVER_M:-12288}"
+      hipsolver_m="${HIP_SOLVER_M:-10240}"
       hipsolver_iters="${HIP_SOLVER_ITERS:-1}"
     else
-      hipsolver_m="${HIP_SOLVER_M:-10240}"
+      hipsolver_m="${HIP_SOLVER_M:-8704}"
       hipsolver_iters="${HIP_SOLVER_ITERS:-1}"
     fi
     local expected_solver
@@ -1371,7 +1373,7 @@ run_bench_suite() {
       hipsolver_iters=1
     fi
     run_bench_with_timeout "bench: hipSOLVER (tiny solver)" "${expected_solver}" "${timeout_s}" \
-      hipsolver-bench --perf 1 -f getrf -m "${hipsolver_m}" -n "${hipsolver_m}" -i "${hipsolver_iters}" || true
+      hipsolver-bench --perf 1 -f getrf -r d -m "${hipsolver_m}" -n "${hipsolver_m}" -i "${hipsolver_iters}" || true
   elif bench_selected 4; then
     add_result "bench: hipSOLVER (tiny solver)" "SKIP" "0s" "hipsolver-bench not in PATH"
   fi
