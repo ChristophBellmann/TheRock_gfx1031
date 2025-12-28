@@ -1108,7 +1108,7 @@ power_wrap() {
     tflops="$(extract_tflops "${tmp}")"
     if [[ -z "${tflops}" && -n "${gflops}" ]]; then
       tflops=$(awk -v v="${gflops}" 'BEGIN{printf "%.3f", v/1000.0}')
-      metric="TFLOPS=${tflops} (GFLOPS=${gflops})"
+      metric="TFLOPS=${tflops}"
     elif [[ -n "${tflops}" ]]; then
       metric="TFLOPS=${tflops}"
     fi
@@ -1144,6 +1144,12 @@ power_wrap() {
           metric="gpu_time_us=${special}"
         fi
       fi
+    fi
+    # If power sampling is disabled, avoid cluttering the output with both TFLOPS
+    # and GFLOPS. Prefer TFLOPS.
+    # Strip GFLOPS suffix if present (we print TFLOPS as the primary metric).
+    if [[ "${metric}" == *"(GFLOPS="* ]]; then
+      metric="${metric%% (GFLOPS=*}"
     fi
     [[ -n "${power_blob}" ]] && metric="${metric} | ${power_blob}"
     add_result "${label}" "OK" "$(fmt_duration_ms "${elapsed_ms}")" "${metric}"
@@ -1226,9 +1232,12 @@ run_bench_with_timeout() {
     tflops="$(extract_tflops "${tmp}")"
     if [[ -z "${tflops}" && -n "${gflops}" ]]; then
       tflops=$(awk -v v="${gflops}" 'BEGIN{printf "%.3f", v/1000.0}')
-      metric="TFLOPS=${tflops} (GFLOPS=${gflops})"
+      metric="TFLOPS=${tflops}"
     elif [[ -n "${tflops}" ]]; then
       metric="TFLOPS=${tflops}"
+    fi
+    if [[ "${metric}" == *"(GFLOPS="* ]]; then
+      metric="${metric%% (GFLOPS=*}"
     fi
     if [[ -z "${metric}" ]]; then
       local gbps
@@ -1489,14 +1498,16 @@ run_bench_suite() {
 if [[ "${MODE}" == "full" ]]; then
   BENCH_SIZE="${BENCH_SIZE:-4096}"
   BENCH_ITERS="${BENCH_ITERS:-20}"
-  # RX 6700 XT (gfx1031) typical: GEMM 2-6s, others <1s (warm cache).
+  # With power sampling enabled (default), GEMM is forced to ~5s. Without
+  # power, GEMM is usually ~1-2s on RX 6700 XT (gfx1031).
   BENCH_EXPECTED="typ. 2-6s"
   BENCH_EXPECTED_MISC="typ. <1s"
   BENCH_TIMEOUT_S="${BENCH_TIMEOUT_S:-900}"
 else
   BENCH_SIZE="${BENCH_SIZE:-2048}"
   BENCH_ITERS="${BENCH_ITERS:-10}"
-  # RX 6700 XT (gfx1031) typical: GEMM 1-2s, others <1s (warm cache).
+  # With power sampling enabled (default), GEMM is forced to ~5s. Without
+  # power, GEMM is usually ~1-2s on RX 6700 XT (gfx1031).
   BENCH_EXPECTED="typ. 1-2s"
   BENCH_EXPECTED_MISC="typ. <1s"
   BENCH_TIMEOUT_S="${BENCH_TIMEOUT_S:-300}"
@@ -1505,6 +1516,7 @@ fi
 # If power sampling is enabled, prefer a sustained load so avgW/gpu% are meaningful.
 # Only adjust if BENCH_ITERS is still at the default.
 if (( RUN_POWER )); then
+  BENCH_EXPECTED="typ. 4-7s"
   # For GEMM we want sustained load (~5s) to make power/gpu% sampling reliable.
   # Other bench clients ignore BENCH_ITERS, so this mainly affects rocBLAS/hipBLAS.
   if [[ "${MODE}" == "quick" && "${BENCH_ITERS}" == "10" ]]; then
