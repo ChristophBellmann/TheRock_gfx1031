@@ -1321,9 +1321,25 @@ run_bench_suite() {
 
   # 2) SOLVER (LAPACK-ish)
   if bench_selected 3 && command -v rocsolver-bench >/dev/null 2>&1; then
-    # Use a known-good invocation that returns rc=0 and produces timing output.
-    run_bench_with_timeout "bench: rocSOLVER geqrf_strided_batched (s)" "${expected_misc}" "${timeout_s}" \
-      rocsolver-bench -f geqrf_strided_batched -r s -m 30 --batch_count 100 --perf 1 -i 2 || true
+    # Use a sustained invocation so power/utilization sampling is meaningful.
+    # Target: ~5s wall-time on gfx1031 (RX 6700 XT).
+    local rocsolver_m rocsolver_batch rocsolver_iters
+    rocsolver_batch=16
+    if [[ "${MODE}" == "full" ]]; then
+      rocsolver_m=1536
+      rocsolver_iters=60
+    else
+      rocsolver_m=1024
+      rocsolver_iters=100
+    fi
+    local expected_solver
+    if [[ "${MODE}" == "full" ]]; then
+      expected_solver="typ. 5-10s"
+    else
+      expected_solver="typ. 4-7s"
+    fi
+    run_bench_with_timeout "bench: rocSOLVER geqrf_strided_batched (s)" "${expected_solver}" "${timeout_s}" \
+      rocsolver-bench -f geqrf_strided_batched -r s -m "${rocsolver_m}" --batch_count "${rocsolver_batch}" --perf 1 -i "${rocsolver_iters}" || true
   elif bench_selected 3; then
     add_result "bench: rocSOLVER geqrf_strided_batched (s)" "SKIP" "0s" "rocsolver-bench not in PATH"
   fi
