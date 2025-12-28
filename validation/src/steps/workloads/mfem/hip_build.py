@@ -57,10 +57,10 @@ def step_mfem_hip(ctx: Context, cfg: dict[str, Any], build_dir: str, rocm_dist: 
     if r2.rc != 0:
         return StepResult(build_dir, "MFEM (HIP) build+run", "FAIL", fmt_duration(r1.dur_ms + r2.dur_ms), f"ninja rc={r2.rc}")
 
-    ex1 = bld / "examples" / "ex1"
-    if not ex1.exists():
-        ex1 = bld / "bin" / "ex1"
-    if not ex1.exists():
+    exe = bld / "examples" / "ex1"
+    if not exe.exists():
+        exe = bld / "bin" / "ex1"
+    if not exe.exists():
         # Examples are often excluded from the default "all" target unless explicitly enabled.
         # Build just ex1 to keep this step reproducible and lightweight.
         r2b = run_cmd(ctx.repo_root, env, ["ninja", "-C", str(bld), "-j4", "ex1"], t, log)
@@ -72,15 +72,26 @@ def step_mfem_hip(ctx: Context, cfg: dict[str, Any], build_dir: str, rocm_dist: 
                 fmt_duration(r1.dur_ms + r2.dur_ms + r2b.dur_ms),
                 f"ninja ex1 rc={r2b.rc}",
             )
-        ex1 = bld / "examples" / "ex1"
-        if not ex1.exists():
-            ex1 = bld / "bin" / "ex1"
-    if not ex1.exists():
-        return StepResult(build_dir, "MFEM (HIP) build+run", "FAIL", fmt_duration(r1.dur_ms + r2.dur_ms), "MFEM ex1 not found after build")
+        exe = bld / "examples" / "ex1"
+        if not exe.exists():
+            exe = bld / "bin" / "ex1"
+    if not exe.exists():
+        return StepResult(build_dir, "MFEM (HIP) build+run", "FAIL", fmt_duration(r1.dur_ms + r2.dur_ms), "MFEM executable not found after build")
 
-    mesh = src / "data" / "star.mesh"
+    wl = cfg.get("workloads", {}).get("mfem", {}) or {}
+    mesh_name = str(wl.get("mesh", "") or "").strip() or "fichera.mesh"
+    # Prefer a larger mesh to make GPU load/power more visible, but keep a safe fallback.
+    mesh_candidates = [mesh_name, "beam-hex.mesh", "star.mesh"]
+    mesh = None
+    for name in mesh_candidates:
+        m = src / "data" / name
+        if m.is_file():
+            mesh = m
+            break
+    if mesh is None:
+        return StepResult(build_dir, "MFEM (HIP) build+run", "FAIL", fmt_duration(r1.dur_ms + r2.dur_ms), "MFEM mesh not found")
     # Detect runtime flags from help, so we can request HIP device when supported.
-    h = run_cmd(ctx.repo_root, env, [str(ex1), "-h"], 20, log)
+    h = run_cmd(ctx.repo_root, env, [str(exe), "-h"], 20, log)
     help_txt = (h.out + "\n" + h.err)
     have_device_flag = ("-d " in help_txt) or ("--device" in help_txt)
     have_refine_flag = ("-r " in help_txt) or ("--refine" in help_txt)
@@ -89,7 +100,7 @@ def step_mfem_hip(ctx: Context, cfg: dict[str, Any], build_dir: str, rocm_dist: 
     have_no_vis_flag = ("-no-vis" in help_txt) or ("--no-visualization" in help_txt)
 
     def mk_args(refine: int | None, order: int | None) -> list[str]:
-        args: list[str] = [str(ex1), "-m", str(mesh)]
+        args: list[str] = [str(exe), "-m", str(mesh)]
         if have_refine_flag and refine is not None:
             args += ["-r", str(refine)]
         if have_order_flag and order is not None:
@@ -104,21 +115,14 @@ def step_mfem_hip(ctx: Context, cfg: dict[str, Any], build_dir: str, rocm_dist: 
             args += ["-no-vis"]
         return args
 
-    # Prefer a heavy(ish) parameter set, but fall back if HIP OOM/other runtime
+    # Prefer a heavier parameter set, but fall back if HIP OOM/other runtime
     # errors occur. We will also repeat runs until we reach min_bench_s to avoid
     # short "pulses" that make GPU/power validation noisy.
     candidates: list[tuple[int | None, int | None]] = []
     if have_refine_flag and have_order_flag:
-        candidates = [
-            (4, 3),
-            (4, 2),
-            (3, 2),
-            (2, 2),
-            (2, 1),
-            (1, 1),
-            (None, 1),
-            (None, None),
-        ]
+        candidates = [(2, 3), (1, 3), (1, 2), (0, 2), (None, 1), (None, None)]
+    elif have_order_flag:
+        candidates = [(None, 3), (None, 2), (None, 1), (None, None)]
     else:
         candidates = [(None, None)]
 
@@ -165,7 +169,7 @@ def step_mfem_hip(ctx: Context, cfg: dict[str, Any], build_dir: str, rocm_dist: 
             # Annotate stdout minimally (for logs/diagnostics).
             out = last_ok.out
             err = last_ok.err
-            suffix = f"\nMFEM_VALIDATE params: refine={refine} order={order} pa={int(have_pa_flag)} runs={runs}\n"
+            suffix = f"\nMFEM_VALIDATE exe={exe.name} params: refine={refine} order={order} pa={int(have_pa_flag)} runs={runs}\n"
             out = (out or "") + suffix
             return CommandResult(rc=0, out=out, err=err, dur_ms=total_ms), total_wall_s, sampler
 
@@ -174,7 +178,7 @@ def step_mfem_hip(ctx: Context, cfg: dict[str, Any], build_dir: str, rocm_dist: 
         return last_err, 0.0, sampler
 
     r3, wall_s, sampler = with_power_sampler(cfg, build_dir=build_dir, fn=run_one)
-    metric = f"ex1 mesh={mesh.name} wall={wall_s:.2f}s"
+    metric = f"{exe.name} mesh={mesh.name} wall={wall_s:.2f}s"
     if have_device_flag:
         metric += " device=hip"
     else:

@@ -48,6 +48,9 @@ workloads:
   mfem:
     git: "https://github.com/mfem/mfem.git"
     ref: "master"
+    # Prefer a larger mesh for a clearer GPU signal. The runner will fall back
+    # if the mesh is missing or if runtime parameters become too heavy.
+    mesh: "fichera.mesh"
     min_bench_s: 5.0
   whisper:
     # Optional auto-install (requires downloads enabled). Whisper needs a ROCm-enabled
@@ -56,6 +59,11 @@ workloads:
     pip_args: []
     packages: ["openai-whisper"]
     audio_file: "validation/src/assets/samples/audio/Take2_Audio1-1.wav"
+    # Keep defaults small, but use beam search to increase compute and produce
+    # a clearer GPU signal than greedy decode for very short audio.
+    model: "tiny.en"
+    beam_size: 5
+    best_of: 5
     min_bench_s: 5.0
   petsc:
     git: "https://gitlab.com/petsc/petsc.git"

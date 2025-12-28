@@ -19,6 +19,10 @@ workloads:
     auto_install: true
     packages: ["openai-whisper"]
     use_in_tree_rocm: false
+    # Heavier than the default tiny model to make GPU usage more visible.
+    model: "base"
+    beam_size: 5
+    best_of: 5
 
 steps:
   rocm_sanity: true

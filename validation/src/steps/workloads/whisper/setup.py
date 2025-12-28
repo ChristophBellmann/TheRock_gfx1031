@@ -70,11 +70,17 @@ def step_whisper(ctx: Context, cfg: dict[str, Any], build_dir: str, rocm_dist: P
 
     t = int(cfg.get("timeouts_s", {}).get("whisper", 1800))
     min_bench_s = float(cfg.get("workloads", {}).get("whisper", {}).get("min_bench_s", 5.0) or 5.0)
+    model_name = str(wl.get("model", "") or "").strip() or "tiny.en"
+    beam_size = int(wl.get("beam_size", 5) or 5)
+    best_of = int(wl.get("best_of", 5) or 5)
     audio_cfg = str(cfg.get("workloads", {}).get("whisper", {}).get("audio_file", "")).strip()
     audio_cfg = audio_cfg or "validation/src/assets/samples/audio/Take2_Audio1-1.wav"
     env = dict(run_env)
     env["ROCM_VALIDATION_WHISPER_AUDIO"] = str(ctx.repo_root / audio_cfg) if not Path(audio_cfg).is_absolute() else audio_cfg
     env["ROCM_VALIDATION_WHISPER_MIN_S"] = str(min_bench_s)
+    env["ROCM_VALIDATION_WHISPER_MODEL"] = model_name
+    env["ROCM_VALIDATION_WHISPER_BEAM_SIZE"] = str(max(1, beam_size))
+    env["ROCM_VALIDATION_WHISPER_BEST_OF"] = str(max(1, best_of))
     # Match PyTorch wheels that often ship gfx1030 but not gfx1031 code objects.
     if str(cfg.get("rocm", {}).get("amd_gpu_arch", "gfx1031")) == "gfx1031" and "HSA_OVERRIDE_GFX_VERSION" not in env:
         env["HSA_OVERRIDE_GFX_VERSION"] = "10.3.0"
@@ -105,21 +111,27 @@ if not (fname and os.path.isfile(fname)):
 
 min_s=float(os.environ.get("ROCM_VALIDATION_WHISPER_MIN_S","5"))
 device="cuda"
-model=whisper.load_model("tiny.en", device=device)
+model_name=os.environ.get("ROCM_VALIDATION_WHISPER_MODEL","tiny.en")
+beam_size=int(os.environ.get("ROCM_VALIDATION_WHISPER_BEAM_SIZE","5"))
+best_of=int(os.environ.get("ROCM_VALIDATION_WHISPER_BEST_OF","5"))
+model=whisper.load_model(model_name, device=device)
 t0=time.time()
 runs=0
 text_len=0
 while (time.time()-t0) < min_s:
     try:
-        result=model.transcribe(fname, fp16=True)
+        result=model.transcribe(fname, fp16=True, beam_size=beam_size, best_of=best_of, language="en", task="transcribe", condition_on_previous_text=False)
     except Exception:
-        result=model.transcribe(fname, fp16=False)
+        result=model.transcribe(fname, fp16=False, beam_size=beam_size, best_of=best_of, language="en", task="transcribe", condition_on_previous_text=False)
     runs += 1
     text_len=max(text_len, len(result.get("text","") or ""))
 dt=time.time()-t0
 torch.cuda.synchronize()
 print("GPU_OK")
 print("device", device)
+print("model", model_name)
+print("beam_size", beam_size)
+print("best_of", best_of)
 print("runs", runs)
 print("seconds", dt)
 print("text_len", text_len)
@@ -146,9 +158,9 @@ print("text_len", text_len)
             return StepResult(build_dir, "Whisper (python) smoke", "FAIL", fmt_duration(r.dur_ms), f"missing audio sample: {Path(audio_cfg).name}")
         return StepResult(build_dir, "Whisper (python) smoke", "FAIL", fmt_duration(r.dur_ms), f"rc={r.rc}")
 
-    metric = f"tiny.en transcribe (audio={Path(audio_cfg).name}) rocm_env={'in-tree' if use_in_tree else 'system'} wall={wall_s:.2f}s"
-    for key in ("runs", "seconds", "text_len"):
-        m = re.search(rf"^{key}\\s+(\\S+)$", out, re.MULTILINE)
+    metric = f"{model_name} transcribe (audio={Path(audio_cfg).name}) rocm_env={'in-tree' if use_in_tree else 'system'} wall={wall_s:.2f}s"
+    for key in ("model", "beam_size", "best_of", "runs", "seconds", "text_len"):
+        m = re.search(rf"^{key}\s+(\S+)$", out, re.MULTILINE)
         if m:
             metric += f" {key}={m.group(1)}"
 
