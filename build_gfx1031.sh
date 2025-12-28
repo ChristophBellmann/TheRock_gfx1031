@@ -77,6 +77,10 @@ Commands:
   expunge           Expunge specific subprojects (no rebuild)
   rocprofiler-gcc   Phase-2: build rocprofiler-systems with GCC in a separate build dir
 
+Default behavior (no --stage*/--build-dir and no explicit targets):
+  configure         Stage-1 configure; if Stage-1 toolchain exists, also Stage-2 configure
+  build             Stage-1 bootstrap+build; then Stage-2 configure+bootstrap+build
+
 Shared options:
   --config <file>          Config file (default: ./config_gfx1031.yaml)
   --stage1                Use BUILD_DIR=build-stage1 and STAGE=1
