@@ -627,6 +627,13 @@ This prints a side-by-side TFLOPS/power/gpu% comparison. By default it keeps no 
 # Host-only run (no docker run, no compare table):
 ./test_docker_gfx1031.sh --host-only --no-compare
 
+# Also include build/toolchain consistency checks:
+./test_docker_gfx1031.sh --consistency
+
+# Also include MIOpen/composable_kernel checks (and optional smoke test):
+./test_docker_gfx1031.sh --miopen
+./test_docker_gfx1031.sh --miopen-smoke
+
 # Keep captured output:
 ./test_docker_gfx1031.sh --keep-logs
 ./test_docker_gfx1031.sh --out /tmp/perf_compare

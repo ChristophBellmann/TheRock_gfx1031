@@ -15,6 +15,7 @@ POWER=1                 # default: on (sanity check needs it)
 INSTALL_DEPS=1          # default: on for benches in container
 NO_TTY=0
 DROP_SHELL=0
+EXTRA_ARGS=()
 
 DO_HOST=1
 DO_DOCKER=1
@@ -51,6 +52,10 @@ Options:
   --no-power          Disable sysfs power sampling
   --no-install-deps   Do not install minimal runtime deps in the container
 
+  --consistency       Also run build/toolchain consistency checks
+  --miopen            Also run MIOpen/composable_kernel checks
+  --miopen-smoke      Also run a tiny MIOpenDriver smoke test (can take time on first run)
+
   --docker-only       Run only in docker (no host run, no compare)
   --host-only         Run only on host (no docker run, no compare)
   --no-compare        Do not print compare table (still runs host+docker)
@@ -79,6 +84,9 @@ while [[ $# -gt 0 ]]; do
     --full) MODE="full"; shift ;;
     --no-power) POWER=0; shift ;;
     --no-install-deps) INSTALL_DEPS=0; shift ;;
+    --consistency) EXTRA_ARGS+=(--consistency); shift ;;
+    --miopen) EXTRA_ARGS+=(--miopen); shift ;;
+    --miopen-smoke) EXTRA_ARGS+=(--miopen-smoke); shift ;;
     --docker-only) DO_HOST=0; DO_DOCKER=1; COMPARE=0; shift ;;
     --host-only) DO_HOST=1; DO_DOCKER=0; COMPARE=0; shift ;;
     --no-compare) COMPARE=0; shift ;;
@@ -150,7 +158,7 @@ run_host() {
   echo "== host run (local) =="
   local rc=0
   set +e
-  ./test_gfx1031.sh --build-dir "${BUILD_DIR}" "${bench_args[@]}" 2>&1 | tee "${host_cap}"
+  ./test_gfx1031.sh --build-dir "${BUILD_DIR}" "${bench_args[@]}" "${EXTRA_ARGS[@]}" 2>&1 | tee "${host_cap}"
   rc=$?
   set -e
   return "${rc}"
@@ -198,7 +206,7 @@ run_docker() {
       echo \"ROCM_PATH=\$ROCM_PATH\"
       echo
       rc=0
-      ./test_gfx1031.sh --build-dir \"\$BUILD_DIR\" ${bench_args[*]} || rc=\$?
+      ./test_gfx1031.sh --build-dir \"\$BUILD_DIR\" ${bench_args[*]} ${EXTRA_ARGS[*]} || rc=\$?
       echo
       echo \"test_gfx1031 rc=\$rc\"
       if [[ '${DROP_SHELL}' == '1' ]]; then
@@ -214,98 +222,72 @@ run_docker() {
 }
 
 extract_tflops() {
-  local label="$1"
+  local id="$1"  # "01", "02", ...
   local file="$2"
-  local t
-  t="$(rg -n "${label}" "${file}" | rg -o "TFLOPS=[0-9.]+" | tail -n 1 | cut -d= -f2 || true)"
-  if [[ -z "${t}" ]]; then
-    local g
-    g="$(rg -n "${label}" "${file}" | rg -o "GFLOPS=[0-9.]+" | tail -n 1 | cut -d= -f2 || true)"
-    if [[ -n "${g}" ]]; then
-      t="$(python3 -c "print(float('${g}')/1000.0)")"
-    fi
+  local line
+  line="$(rg -n "^${id}  " "${file}" | tail -n 1 || true)"
+  if [[ -z "${line}" ]]; then
+    echo ""
+    return 0
   fi
-  echo "${t}"
+  # PERF column contains "TFLOPS <val>".
+  echo "${line}" | sed -nE 's/.*TFLOPS[[:space:]]+([0-9.]+).*/\1/p'
 }
 
-extract_kv() {
-  local label="$1"
-  local key="$2" # avgW, gpu%, maxW
-  local file="$3"
-  python3 - "${label}" "${key}" "${file}" <<'PY'
-import re,sys
-label=sys.argv[1]
-key=sys.argv[2]
-path=sys.argv[3]
-try:
-    lines=open(path,'r',encoding='utf-8',errors='replace').read().splitlines()
-except FileNotFoundError:
-    print("")
-    raise SystemExit(0)
-line=""
-for ln in lines:
-    if label in ln:
-        line=ln
-if not line:
-    print("")
-    raise SystemExit(0)
-m=re.search(rf"{re.escape(key)}\s*=\s*([+\-]?[0-9]+(?:\.[0-9]+)?)", line)
-print(m.group(1) if m else "")
-PY
-}
-
-extract_result_line() {
-  local label="$1"
+extract_energy_line() {
+  # prints the Energy line following a summary row, if present
+  local id="$1"
   local file="$2"
-  python3 - "${label}" "${file}" <<'PY'
-import re,sys
-label=sys.argv[1]
-path=sys.argv[2]
-try:
-    lines=open(path,'r',encoding='utf-8',errors='replace').read().splitlines()
-except FileNotFoundError:
-    print("")
-    raise SystemExit(0)
-
-# Prefer summary lines which look like:
-# - 03) bench: rocFFT ... OK (123ms) ms=0.012
-last=""
-for ln in lines:
-    if ln.strip().startswith("- ") and label in ln:
-        last=ln
-if not last:
-    print("")
-    raise SystemExit(0)
-print(last)
-PY
+  awk -v id="${id}" '
+    $1 == id {
+      getline
+      if ($1 == "Energy:") {
+        print $0
+      }
+      exit
+    }
+  ' "${file}" 2>/dev/null
 }
 
-parse_status_metric() {
-  local label="$1"
+extract_energy_wh() {
+  local id="$1"
   local file="$2"
-  python3 - "${label}" "${file}" <<'PY'
-import re,sys
-label=sys.argv[1]
-path=sys.argv[2]
-try:
-    lines=open(path,'r',encoding='utf-8',errors='replace').read().splitlines()
-except FileNotFoundError:
-    print("n/a|")
-    raise SystemExit(0)
-last=""
-for ln in lines:
-    if ln.strip().startswith("- ") and label in ln:
-        last=ln
-if not last:
-    print("n/a|")
-    raise SystemExit(0)
+  local line
+  line="$(extract_energy_line "${id}" "${file}")"
+  echo "${line}" | sed -nE 's/.*Energy:[[:space:]]+([0-9.]+)Wh.*/\1/p'
+}
 
-m=re.search(r"\)\s*(.*)$", last)
-metric=(m.group(1).strip() if m else "")
-ms=re.search(r"\s(OK|FAIL|SKIP)\s", " "+last+" ")
-status=ms.group(1) if ms else "n/a"
-print(status + "|" + metric)
-PY
+extract_energy_avgw() {
+  local id="$1"
+  local file="$2"
+  local line
+  line="$(extract_energy_line "${id}" "${file}")"
+  echo "${line}" | sed -nE 's/.*avg[[:space:]]+([0-9.]+)W.*/\1/p'
+}
+
+extract_energy_gpu() {
+  local id="$1"
+  local file="$2"
+  local line
+  line="$(extract_energy_line "${id}" "${file}")"
+  echo "${line}" | sed -nE 's/.*gpu[[:space:]]+([0-9]+)%.*/\1/p'
+}
+
+extract_status() {
+  local id="$1"
+  local file="$2"
+  local line
+  line="$(rg -n "^${id}  " "${file}" | tail -n 1 || true)"
+  echo "${line}" | sed -nE 's/.*[[:space:]](OK|FAIL|SKIP)[[:space:]].*/\1/p'
+}
+
+extract_perf_text() {
+  local id="$1"
+  local file="$2"
+  local line
+  line="$(rg -n "^${id}  " "${file}" | tail -n 1 || true)"
+  # PERF column begins after the time field "<num>s". Keep it short for printing.
+  echo "${line}" | sed -nE 's/.*[[:space:]][0-9]+\.[0-9]{3}s[[:space:]]+(.+)$/\1/p'
 }
 
 fmt_pct() {
@@ -315,7 +297,7 @@ fmt_pct() {
     echo "n/a"
     return 0
   fi
-  python3 -c "a=float('${a}'); b=float('${b}'); print('n/a' if a==0 else f'{(b-a)/a*100.0:+.1f}%')"
+  awk -v a="${a}" -v b="${b}" 'BEGIN{if(a==0){print "n/a"}else{printf "%+.1f%%", (b-a)/a*100.0}}'
 }
 
 host_rc=0
@@ -349,46 +331,48 @@ fi
 if (( COMPARE )) && (( DO_HOST )) && (( DO_DOCKER )); then
   echo ""
   echo "==== perf comparison (${BUILD_DIR}) ===="
-  host_rocblas="$(extract_tflops "rocBLAS GEMM f32" "${host_cap}")"
-  docker_rocblas="$(extract_tflops "rocBLAS GEMM f32" "${docker_cap}")"
-  host_hipblas="$(extract_tflops "hipBLAS GEMM f32" "${host_cap}")"
-  docker_hipblas="$(extract_tflops "hipBLAS GEMM f32" "${docker_cap}")"
+  host_rocblas="$(extract_tflops "01" "${host_cap}")"
+  docker_rocblas="$(extract_tflops "01" "${docker_cap}")"
+  host_hipblas="$(extract_tflops "02" "${host_cap}")"
+  docker_hipblas="$(extract_tflops "02" "${docker_cap}")"
 
-  host_rocblas_avgw="$(extract_kv "bench: rocBLAS GEMM f32" "avgW" "${host_cap}")"
-  docker_rocblas_avgw="$(extract_kv "bench: rocBLAS GEMM f32" "avgW" "${docker_cap}")"
-  host_rocblas_gpu="$(extract_kv "bench: rocBLAS GEMM f32" "gpu%" "${host_cap}")"
-  docker_rocblas_gpu="$(extract_kv "bench: rocBLAS GEMM f32" "gpu%" "${docker_cap}")"
+  host_rocblas_wh="$(extract_energy_wh "01" "${host_cap}")"
+  docker_rocblas_wh="$(extract_energy_wh "01" "${docker_cap}")"
+  host_rocblas_avgw="$(extract_energy_avgw "01" "${host_cap}")"
+  docker_rocblas_avgw="$(extract_energy_avgw "01" "${docker_cap}")"
+  host_rocblas_gpu="$(extract_energy_gpu "01" "${host_cap}")"
+  docker_rocblas_gpu="$(extract_energy_gpu "01" "${docker_cap}")"
 
-  host_hipblas_avgw="$(extract_kv "bench: hipBLAS GEMM f32" "avgW" "${host_cap}")"
-  docker_hipblas_avgw="$(extract_kv "bench: hipBLAS GEMM f32" "avgW" "${docker_cap}")"
-  host_hipblas_gpu="$(extract_kv "bench: hipBLAS GEMM f32" "gpu%" "${host_cap}")"
-  docker_hipblas_gpu="$(extract_kv "bench: hipBLAS GEMM f32" "gpu%" "${docker_cap}")"
+  host_hipblas_wh="$(extract_energy_wh "02" "${host_cap}")"
+  docker_hipblas_wh="$(extract_energy_wh "02" "${docker_cap}")"
+  host_hipblas_avgw="$(extract_energy_avgw "02" "${host_cap}")"
+  docker_hipblas_avgw="$(extract_energy_avgw "02" "${docker_cap}")"
+  host_hipblas_gpu="$(extract_energy_gpu "02" "${host_cap}")"
+  docker_hipblas_gpu="$(extract_energy_gpu "02" "${docker_cap}")"
 
-  printf "%-34s %10s %10s %10s  %9s %9s  %7s %7s\n" "bench" "hostTF" "dockTF" "ΔTF" "hostW" "dockW" "hGPU%" "dGPU%"
-  printf "%-34s %10s %10s %10s  %9s %9s  %7s %7s\n" \
+  printf "%-34s %10s %10s %10s  %8s %8s  %7s %7s  %7s %7s\n" "bench" "hostTF" "dockTF" "ΔTF" "hWh" "dWh" "hW" "dW" "hGPU%" "dGPU%"
+  printf "%-34s %10s %10s %10s  %8s %8s  %7s %7s  %7s %7s\n" \
     "rocBLAS GEMM f32" "${host_rocblas:-n/a}" "${docker_rocblas:-n/a}" "$(fmt_pct "${host_rocblas}" "${docker_rocblas}")" \
-    "${host_rocblas_avgw:-n/a}" "${docker_rocblas_avgw:-n/a}" "${host_rocblas_gpu:-n/a}" "${docker_rocblas_gpu:-n/a}"
-  printf "%-34s %10s %10s %10s  %9s %9s  %7s %7s\n" \
+    "${host_rocblas_wh:-n/a}" "${docker_rocblas_wh:-n/a}" "${host_rocblas_avgw:-n/a}" "${docker_rocblas_avgw:-n/a}" "${host_rocblas_gpu:-n/a}" "${docker_rocblas_gpu:-n/a}"
+  printf "%-34s %10s %10s %10s  %8s %8s  %7s %7s  %7s %7s\n" \
     "hipBLAS GEMM f32" "${host_hipblas:-n/a}" "${docker_hipblas:-n/a}" "$(fmt_pct "${host_hipblas}" "${docker_hipblas}")" \
-    "${host_hipblas_avgw:-n/a}" "${docker_hipblas_avgw:-n/a}" "${host_hipblas_gpu:-n/a}" "${docker_hipblas_gpu:-n/a}"
+    "${host_hipblas_wh:-n/a}" "${docker_hipblas_wh:-n/a}" "${host_hipblas_avgw:-n/a}" "${docker_hipblas_avgw:-n/a}" "${host_hipblas_gpu:-n/a}" "${docker_hipblas_gpu:-n/a}"
 
-  echo ""
-  echo "==== bench suite status (3-9) ===="
-  printf "%-34s %-5s %-5s  %s\n" "bench" "host" "dock" "metric (host | docker)"
-  for lbl in \
-    "bench: rocSOLVER geqrf_strided_batched (s)" \
-    "bench: hipSOLVER (tiny solver)" \
-    "bench: rocSPARSE axpyi (s)" \
-    "bench: hipSPARSE axpyi (s)" \
-    "bench: rocFFT complex fwd 1024 (single)" \
-    "bench: dyna-rocFFT complex fwd 1024 (single)" \
-    "bench: rocRAND generate (philox, uniform-float)"; do
-    hs="$(parse_status_metric "${lbl}" "${host_cap}")"
-    ds="$(parse_status_metric "${lbl}" "${docker_cap}")"
-    hst="${hs%%|*}"; hmet="${hs#*|}"
-    dst="${ds%%|*}"; dmet="${ds#*|}"
-    printf "%-34s %-5s %-5s  %s\n" "${lbl#bench: }" "${hst}" "${dst}" "${hmet:-} | ${dmet:-}"
-  done
+  if (( ! BENCH_LITE )); then
+    echo ""
+    echo "==== bench suite status (3-9) ===="
+    printf "%-34s %-5s %-5s  %s\n" "bench" "host" "dock" "perf (host | docker)"
+    for id in 03 04 05 06 07 08 09; do
+      hst="$(extract_status "${id}" "${host_cap}")"
+      dst="$(extract_status "${id}" "${docker_cap}")"
+      # Use the host bench name as the label.
+      name="$(rg -n "^${id}  " "${host_cap}" | tail -n 1 | sed -nE 's/^[0-9]{2}[[:space:]]+(.*)[[:space:]]+(OK|FAIL|SKIP)[[:space:]].*/\\1/p' || true)"
+      [[ -z "${name}" ]] && name="bench ${id}"
+      hperf="$(extract_perf_text "${id}" "${host_cap}")"
+      dperf="$(extract_perf_text "${id}" "${docker_cap}")"
+      printf "%-34.34s %-5s %-5s  %s\n" "${name}" "${hst:-n/a}" "${dst:-n/a}" "${hperf:-} | ${dperf:-}"
+    done
+  fi
 fi
 
 if (( KEEP_LOGS )); then
