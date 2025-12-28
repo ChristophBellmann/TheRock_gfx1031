@@ -167,28 +167,28 @@ print_ops_data_model() {
   local kind="$1"   # GEMM|QR|LU|AXPYI|FFT|RNG
   case "${kind}" in
     GEMM)
-      print_bench_desc "- ops_FLOP ≈ iters · 2·m·n·k (Multiplikation+Addition) (ggf. + iters·2·m·n für β·C + …, meist vernachlässigt)"
-      print_bench_desc "- data_B ≈ iters · (sizeof(A)·m·k + sizeof(B)·k·n + sizeof(C)·m·n) (mindestens gelesen/geschrieben; Wiederverwendung/Caches ignoriert)"
+      print_bench_desc "- ops_FLOP ≈ iters · 2·m·n·k (multiply+add) (optionally + iters·2·m·n for β·C + …; usually negligible)"
+      print_bench_desc "- data_B ≈ iters · (sizeof(A)·m·k + sizeof(B)·k·n + sizeof(C)·m·n) (minimum touched bytes; reuse/caches ignored)"
       ;;
     QR)
-      print_bench_desc "- ops_FLOP ≈ batch · iters · (2·m·n² − (2/3)·n³) (für m≥n, Householder‑QR, grob)"
-      print_bench_desc "- data_B ≈ batch · (sizeof(A)·m·n + sizeof(tau)·n) (+ Workspace, je nach Implementierung)"
+      print_bench_desc "- ops_FLOP ≈ batch · iters · (2·m·n² − (2/3)·n³) (for m≥n, Householder-QR; rough)"
+      print_bench_desc "- data_B ≈ batch · (sizeof(A)·m·n + sizeof(tau)·n) (+ workspace, implementation-dependent)"
       ;;
     LU)
-      print_bench_desc "- ops_FLOP ≈ iters · (2/3)·n³ (für n×n)"
-      print_bench_desc "- data_B ≈ iters · sizeof(A)·n² (+ Pivot/Workspace)"
+      print_bench_desc "- ops_FLOP ≈ iters · (2/3)·n³ (for n×n)"
+      print_bench_desc "- data_B ≈ iters · sizeof(A)·n² (+ pivots/workspace)"
       ;;
     AXPYI)
-      print_bench_desc "- ops_FLOP ≈ iters · 2·nnz (Multiplikation+Addition)"
-      print_bench_desc "- data_B ≈ iters · (sizeof(x)·nnz + sizeof(i)·nnz + sizeof(y)·nnz_eff) (nnz_eff hängt von Index‑Wiederholungen ab)"
+      print_bench_desc "- ops_FLOP ≈ iters · 2·nnz (multiply+add)"
+      print_bench_desc "- data_B ≈ iters · (sizeof(x)·nnz + sizeof(i)·nnz + sizeof(y)·nnz_eff) (nnz_eff depends on index repeats)"
       ;;
     FFT)
-      print_bench_desc "- ops ≈ iters · batch · c·N·log2(N) (Konstante c stark implementierungsabhängig)"
-      print_bench_desc "- data_B ≈ iters · batch · sizeof(complex)·N·(Lesen+Schreiben) (typisch ≈2)"
+      print_bench_desc "- ops ≈ iters · batch · c·N·log2(N) (constant c is implementation-dependent)"
+      print_bench_desc "- data_B ≈ iters · batch · sizeof(complex)·N·(reads+writes) (typically ≈2)"
       ;;
     RNG)
       print_bench_desc "- ops_samples = iters · count"
-      print_bench_desc "- data_B ≈ iters · count · sizeof(Ausgabe)"
+      print_bench_desc "- data_B ≈ iters · count · sizeof(output)"
       ;;
   esac
 }
@@ -1499,43 +1499,43 @@ run_bench_with_timeout() {
         anchor="GEMM"
         formula="C ← α·A·B + β·C   (A∈ℝ^{m×k}, B∈ℝ^{k×n}, C∈ℝ^{m×n})"
         if [[ "${label}" == "bench: rocBLAS GEMM f32" ]]; then
-          desc="Dichte BLAS-3 Matrixmultiplikation mit Akkumulation; hohe arithmetische Intensität. Belastet FMA-Durchsatz und Speicherhierarchie unter Dauerlast."
+          desc="Dense BLAS-3 matrix multiply-accumulate; high arithmetic intensity. Stresses FMA throughput and the memory hierarchy under sustained load."
         else
-          desc="Wie rocBLAS GEMM, aber über die hipBLAS-API-Schicht aufgerufen."
+          desc="Same GEMM computation, but invoked through the hipBLAS API layer."
         fi
         ;;
       bench:\ rocSOLVER\ geqrf_strided_batched*)
         anchor="QR"
         formula="A = Q·R,   Qᵀ·Q = I"
-        desc="Batched QR-Faktorisierung (Householder); liefert orthonormales Q und obere Dreiecksmatrix R. Typisch für Least-Squares und Orthogonalisierung."
+        desc="Batched Householder QR factorization producing orthonormal Q and upper-triangular R; common in least-squares and orthogonalization."
         ;;
       bench:\ hipSOLVER*)
         anchor="LU"
         formula="P·A = L·U"
-        desc="Dichte LU-Faktorisierung mit partieller Pivotisierung (GETRF): P·A = L·U. Fundament für das Lösen von A·x=b und verwandte Zerlegungen."
+        desc="Dense LU factorization with partial pivoting (GETRF); fundamental for solving A·x=b and related decompositions."
         ;;
       bench:\ rocSPARSE\ axpyi*|bench:\ hipSPARSE\ axpyi*)
         anchor="AXP"
         formula="∀j∈[0,nnz):  y[iⱼ] ← y[iⱼ] + α·xⱼ"
         if [[ "${label}" == bench:\ rocSPARSE* ]]; then
-          desc="Sparse indexed AXPY (Scatter-Add nach y). Belastet unregelmäßige Zugriffe (Gather/Scatter) sowie Bandbreite/Latenz unter Dauerlast."
+          desc="Sparse indexed AXPY (scatter-add into y). Stresses irregular gather/scatter and bandwidth/latency under sustained updates."
         else
-          desc="Wie rocSPARSE AXPYI, aber über die hipSPARSE-API-Schicht aufgerufen."
+          desc="Same AXPYI computation, but invoked through the hipSPARSE API layer."
         fi
         ;;
       bench:\ rocFFT\ complex\ fwd*|bench:\ dyna-rocFFT\ complex\ fwd*)
         anchor="FFT"
         formula="Xₖ = ∑ₙ₌₀^{N−1} xₙ · e^{−2π i k n / N}"
         if [[ "${label}" == bench:\ rocFFT* ]]; then
-          desc="Batched komplex→komplex Forward-FFT. Belastet Radix-Kerne, Twiddle-Faktor-Arithmetik und globalen Speichertraffic (Signal/Spektral-Workloads)."
+          desc="Batched complex-to-complex forward FFT. Stresses radix kernels, twiddle-factor math, and global memory traffic typical for spectral workloads."
         else
-          desc="Wie rocFFT Forward-FFT, aber via Dynamic-Loader-Client geladen (Runtime-Library-Auswahl)."
+          desc="Same forward FFT, but loaded via the dynamic-loader client (runtime library selection)."
         fi
         ;;
       bench:\ rocRAND\ generate*)
         anchor="RNG"
         formula="xᵢ ∼ U(0,1)"
-        desc="GPU-Zufallszahlengenerierung (Philox, counter-based): misst Durchsatz von RNG-State-Erzeugung und Output-Schreibtraffic (stochastische Workloads)."
+        desc="GPU pseudorandom variate generation (Philox, counter-based); measures RNG state generation and output write throughput."
         ;;
     esac
     if [[ -n "${anchor}" ]]; then
