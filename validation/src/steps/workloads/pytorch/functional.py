@@ -1,0 +1,154 @@
+from __future__ import annotations
+
+import re
+import sys
+import time
+from pathlib import Path
+from typing import Any
+
+from core.context import Context
+from core.reporting.models import StepResult
+from core.runner import fmt_duration, run_cmd
+from steps.shared import append_power, baseline_avg_w, with_power_sampler
+from steps.workloads.pytorch.setup import ensure_pytorch
+
+
+def _gpu_required_script(kind: str) -> str:
+    # NOTE: torch uses "cuda" device strings even on ROCm.
+    # We treat missing torch/ROCm as SKIP/FAIL at the step layer.
+    return rf"""
+import os, time
+import torch
+
+min_s=float(os.environ.get("ROCM_VALIDATION_PYTORCH_MIN_S","5"))
+kind=os.environ.get("ROCM_VALIDATION_PYTORCH_KIND","audio")
+
+print("torch", getattr(torch, "__version__", ""))
+print("torch.cuda.is_available", torch.cuda.is_available())
+print("torch.version.hip", getattr(getattr(torch, "version", None), "hip", None))
+if not torch.cuda.is_available():
+    print("GPU_NOT_AVAILABLE")
+    raise SystemExit(2)
+if getattr(getattr(torch, "version", None), "hip", None) in (None, "", "None"):
+    print("GPU_NOT_ROCM")
+    raise SystemExit(3)
+
+dev=torch.device("cuda")
+name=torch.cuda.get_device_name(0)
+print("device_name", name)
+
+torch.manual_seed(0)
+
+if kind=="audio":
+    # Conv1d on a batch of audio-like tensors.
+    B=16; C=64; L=16384
+    conv=torch.nn.Conv1d(C, 128, kernel_size=33, padding=16, bias=False).to(dev).eval()
+    x=torch.randn(B, C, L, device=dev, dtype=torch.float16)
+    # Warmup
+    y=conv(x); torch.cuda.synchronize()
+    t0=time.time()
+    runs=0
+    while (time.time()-t0) < min_s:
+        y=conv(x)
+        runs += 1
+    torch.cuda.synchronize()
+    dt=time.time()-t0
+    # Rough FLOP estimate for Conv1d (multiply+add):
+    # out_len ~= L, out_ch=128, in_ch=64, k=33
+    flops = runs * 2.0 * B * 128 * L * 64 * 33
+    print("GPU_OK")
+    print("kind", "audio")
+    print("runs", runs)
+    print("seconds", dt)
+    print("tflops_est", flops/dt/1e12)
+else:
+    # Conv3d on a small video-like tensor: (B,C,T,H,W)
+    B=2; C=32; T=16; H=112; W=112
+    conv=torch.nn.Conv3d(C, 64, kernel_size=3, padding=1, bias=False).to(dev).eval()
+    x=torch.randn(B, C, T, H, W, device=dev, dtype=torch.float16)
+    y=conv(x); torch.cuda.synchronize()
+    t0=time.time()
+    runs=0
+    while (time.time()-t0) < min_s:
+        y=conv(x)
+        runs += 1
+    torch.cuda.synchronize()
+    dt=time.time()-t0
+    # Rough FLOP estimate for Conv3d (multiply+add):
+    # out_ch=64, in_ch=32, k^3=27, out volume ~= T*H*W
+    flops = runs * 2.0 * B * 64 * (T*H*W) * 32 * 27
+    print("GPU_OK")
+    print("kind", "video")
+    print("runs", runs)
+    print("seconds", dt)
+    print("tflops_est", flops/dt/1e12)
+""".strip()
+
+
+def _step_pytorch_conv(ctx: Context, cfg: dict[str, Any], build_dir: str, rocm_dist: Path, env: dict[str, str], log: Path | None, *, kind: str) -> StepResult:
+    meta = ensure_pytorch(ctx, cfg, env, log)
+    if meta is not None and meta.status != "OK":
+        return StepResult(build_dir, f"PyTorch ({kind})", meta.status, meta.duration, meta.metric)
+
+    min_s = float(cfg.get("workloads", {}).get("pytorch", {}).get("min_bench_s", 5.0) or 5.0)
+    t = int(cfg.get("timeouts_s", {}).get("pytorch", 900))
+    env = dict(env)
+    env["ROCM_VALIDATION_PYTORCH_MIN_S"] = str(min_s)
+    env["ROCM_VALIDATION_PYTORCH_KIND"] = kind
+
+    script = _gpu_required_script(kind)
+
+    def run_one(sampler):
+        t0 = time.monotonic()
+        r = run_cmd(ctx.repo_root, env, [sys.executable, "-c", script], t, log)
+        wall_s = time.monotonic() - t0
+        return r, wall_s, sampler
+
+    r, wall_s, sampler = with_power_sampler(cfg, build_dir=build_dir, fn=run_one)
+    out = (r.out + "\n" + r.err).strip()
+
+    if r.rc != 0:
+        if "No module named 'torch'" in out:
+            return StepResult(build_dir, f"PyTorch ({kind})", "SKIP", fmt_duration(r.dur_ms), "torch not installed (set workloads.pytorch.auto_install=true or install ROCm torch)")
+        if "GPU_NOT_AVAILABLE" in out:
+            return StepResult(build_dir, f"PyTorch ({kind})", "FAIL", fmt_duration(r.dur_ms), "torch.cuda.is_available=false (GPU required)")
+        if "GPU_NOT_ROCM" in out:
+            return StepResult(build_dir, f"PyTorch ({kind})", "FAIL", fmt_duration(r.dur_ms), "torch.version.hip missing (ROCm torch required)")
+        return StepResult(build_dir, f"PyTorch ({kind})", "FAIL", fmt_duration(r.dur_ms), f"rc={r.rc}")
+
+    if "GPU_OK" not in out:
+        return StepResult(build_dir, f"PyTorch ({kind})", "FAIL", fmt_duration(r.dur_ms), "GPU validation marker missing")
+
+    # Extract a small metric summary.
+    device = ""
+    tflops = ""
+    m = re.search(r"^device_name\\s+(.+)$", out, re.MULTILINE)
+    if m:
+        device = m.group(1).strip()
+    m = re.search(r"^tflops_est\\s+([0-9.]+)$", out, re.MULTILINE)
+    if m:
+        tflops = m.group(1)
+    metric = f"device={device} wall={wall_s:.2f}s"
+    if tflops:
+        metric += f" tflops_est={float(tflops):.2f}"
+
+    metric = append_power(metric, sampler, baseline_w=baseline_avg_w(cfg, build_dir))
+
+    # Enforce that GPU use is visible in power/utilization.
+    if sampler is not None:
+        gpu = sampler.avg_gpu_busy()
+        base_w = baseline_avg_w(cfg, build_dir) or 0.0
+        avgw = sampler.avg_power_w() or 0.0
+        if (gpu is not None and gpu < 10) and (avgw - base_w) < 10:
+            return StepResult(build_dir, f"PyTorch ({kind})", "FAIL", fmt_duration(r.dur_ms), f"no clear GPU activity detected | {metric}")
+
+    return StepResult(build_dir, f"PyTorch ({kind})", "OK", fmt_duration(r.dur_ms), metric)
+
+
+def step_pytorch_audio(ctx: Context, cfg: dict[str, Any], build_dir: str, rocm_dist: Path, env: dict[str, str], log: Path | None) -> StepResult:
+    return _step_pytorch_conv(ctx, cfg, build_dir, rocm_dist, env, log, kind="audio")
+
+
+def step_pytorch_video(ctx: Context, cfg: dict[str, Any], build_dir: str, rocm_dist: Path, env: dict[str, str], log: Path | None) -> StepResult:
+    return _step_pytorch_conv(ctx, cfg, build_dir, rocm_dist, env, log, kind="video")
+

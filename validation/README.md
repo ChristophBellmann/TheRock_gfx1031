@@ -79,6 +79,15 @@ python3 validation/scripts/whisper_validate.py
 python3 validation/scripts/mfem_validate.py
 ```
 
+Additional GPU compute validations:
+```bash
+# PyTorch audio/video style GPU compute (requires ROCm-enabled torch in the venv):
+python3 validation/scripts/validate.py --profile pytorch --yes --power
+
+# PETSc HIP build + KSP solve (downloads + builds PETSc; can take a while):
+python3 validation/scripts/validate.py --profile petsc --yes --power --log
+```
+
 MFEM notes:
 - The HIP CMake package sometimes ends up with an empty `HIP_PLATFORM` during early configure in external projects; the validator pins `-DHIP_PLATFORM=amd`.
 - MFEM examples are often excluded from the default build target; the validator builds `ex1` explicitly and falls back to smaller runtime parameters if a HIP OOM occurs.
@@ -177,6 +186,8 @@ python3 validation/scripts/report_open.py --open
   - `validation/config/profiles/llama_cpp_smoke.yaml` (llama.cpp smoke-only; no model/inference)
   - `validation/config/profiles/whisper.yaml` (Whisper-only)
   - `validation/config/profiles/mfem.yaml` (MFEM-only)
+  - `validation/config/profiles/pytorch.yaml` (PyTorch GPU compute: audio+video conv)
+  - `validation/config/profiles/petsc.yaml` (PETSc HIP build+solve)
 - Workload inputs (URLs/refs): `validation/config/defaults.yaml` under `workloads:`
 - Layout/env hints:
   - `validation/config/layout/gfx_targets.yaml`

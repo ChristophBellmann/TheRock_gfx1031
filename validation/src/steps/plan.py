@@ -21,6 +21,8 @@ from steps.workloads.llama_cpp.docker_env import step_llama_cpp_docker
 from steps.workloads.mfem.hip_build import step_mfem_hip
 from steps.workloads.ollama.functional import step_ollama
 from steps.workloads.open_interpreter.functional import step_open_interpreter
+from steps.workloads.petsc.hip_build import step_petsc_hip
+from steps.workloads.pytorch.functional import step_pytorch_audio, step_pytorch_video
 from steps.workloads.whisper.setup import step_whisper
 
 
@@ -429,6 +431,9 @@ def build_plan(cfg: dict[str, Any], *, doctor_only: bool = False) -> list[Step]:
     add("open_interpreter", "open_interpreter", "Open Interpreter (pip) smoke", "minutes (pip), <2s help", step_open_interpreter)
     add("whisper", "whisper", "Whisper (python) smoke", "<5s run (if installed)", step_whisper)
     add("mfem_hip", "mfem_hip", "MFEM (HIP) build+run", "minutes (clone/build), <5s run", step_mfem_hip)
+    add("pytorch", "pytorch_audio", "PyTorch (audio) conv", "typ. ~5s (sustained)", step_pytorch_audio)
+    add("pytorch", "pytorch_video", "PyTorch (video) conv", "typ. ~5s (sustained)", step_pytorch_video)
+    add("petsc_hip", "petsc_hip", "PETSc (HIP) build+solve", "minutes (clone/build), ~5s solve", step_petsc_hip)
     return plan
 
 

@@ -15,6 +15,15 @@ rocm:
   prefer_in_tree_rocm: true
 
 workloads:
+  pytorch:
+    # PyTorch ROCm wheels are large and version/index dependent. By default we
+    # do not auto-install. If you already have ROCm torch in the validation venv,
+    # the steps run and enforce GPU usage via power/gpu%.
+    auto_install: false
+    # Optional pip flags and package list for auto-install:
+    # pip_args: ["--index-url", "https://download.pytorch.org/whl/rocm6.2"]
+    # packages: ["torch", "torchvision"]
+    min_bench_s: 5.0
   llama_cpp:
     docker_image: ""   # optional override; empty => auto-detect from AMD docs
     prompt_file: "validation/src/assets/samples/prompts/tiny_prompt.txt"
@@ -43,6 +52,10 @@ workloads:
   whisper:
     audio_file: "validation/src/assets/samples/audio/Take2_Audio1-1.wav"
     min_bench_s: 5.0
+  petsc:
+    git: "https://gitlab.com/petsc/petsc.git"
+    ref: "release"
+    min_bench_s: 5.0
 
 steps:
   rocm_sanity: true
@@ -53,6 +66,8 @@ steps:
   open_interpreter: true
   whisper: true
   mfem_hip: true
+  pytorch: false
+  petsc_hip: false
 
 timeouts_s:
   rocminfo: 10
@@ -70,3 +85,7 @@ timeouts_s:
   open_interpreter: 900
   whisper: 1800
   mfem_hip: 3600
+  pytorch: 900
+  pytorch_install: 1800
+  petsc_configure: 3600
+  petsc_build: 7200

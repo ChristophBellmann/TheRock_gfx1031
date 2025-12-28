@@ -1,0 +1,18 @@
+# Run PETSc HIP build+solve, plus minimal ROCm sanity.
+run:
+  profile: petsc
+  ask_before_downloads: true
+  downloads_enabled: true
+
+steps:
+  rocm_sanity: true
+  rocm_bench_smoke: false
+  miopen_smoke: false
+  llama_cpp_docker: false
+  ollama: false
+  open_interpreter: false
+  whisper: false
+  mfem_hip: false
+  pytorch: false
+  petsc_hip: true
+
