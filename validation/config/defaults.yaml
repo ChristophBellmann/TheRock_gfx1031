@@ -48,9 +48,13 @@ workloads:
   mfem:
     git: "https://github.com/mfem/mfem.git"
     ref: "master"
-    # Prefer a larger mesh for a clearer GPU signal. The runner will fall back
-    # if the mesh is missing or if runtime parameters become too heavy.
+    # Prefer a complex 3D mesh for a clearer sustained GPU signal.
     mesh: "fichera.mesh"
+    # Parameters for the MFEM HIP micro-benchmark (repeated operator apply).
+    order: 3
+    # -1 means "auto refine" similar to MFEM ex1: refine up to ~50k elements.
+    refine: -1
+    pa: 1
     min_bench_s: 5.0
   whisper:
     # Optional auto-install (requires downloads enabled). Whisper needs a ROCm-enabled
