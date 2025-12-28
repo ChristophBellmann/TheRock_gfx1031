@@ -1324,13 +1324,14 @@ run_bench_suite() {
     # Use a sustained invocation so power/utilization sampling is meaningful.
     # Target: ~5s wall-time on gfx1031 (RX 6700 XT).
     local rocsolver_m rocsolver_batch rocsolver_iters
-    rocsolver_batch=16
     if [[ "${MODE}" == "full" ]]; then
-      rocsolver_m=1536
-      rocsolver_iters=60
+      rocsolver_m="${ROC_SOLVER_M:-1536}"
+      rocsolver_batch="${ROC_SOLVER_BATCH:-16}"
+      rocsolver_iters="${ROC_SOLVER_ITERS:-60}"
     else
-      rocsolver_m=1024
-      rocsolver_iters=100
+      rocsolver_m="${ROC_SOLVER_M:-1024}"
+      rocsolver_batch="${ROC_SOLVER_BATCH:-16}"
+      rocsolver_iters="${ROC_SOLVER_ITERS:-100}"
     fi
     local expected_solver
     if [[ "${MODE}" == "full" ]]; then
@@ -1338,8 +1339,15 @@ run_bench_suite() {
     else
       expected_solver="typ. 4-7s"
     fi
+    # NOTE: rocsolver-bench treats `-i 0` as "run 0 iters" and can emit NaNs.
+    # If the caller sets ROC_SOLVER_ITERS=0, omit -i and let the client default.
+    local -a rocsolver_cmd
+    rocsolver_cmd=(rocsolver-bench -f geqrf_strided_batched -r s -m "${rocsolver_m}" --batch_count "${rocsolver_batch}" --perf 1)
+    if [[ "${rocsolver_iters}" != "0" ]]; then
+      rocsolver_cmd+=(-i "${rocsolver_iters}")
+    fi
     run_bench_with_timeout "bench: rocSOLVER geqrf_strided_batched (s)" "${expected_solver}" "${timeout_s}" \
-      rocsolver-bench -f geqrf_strided_batched -r s -m "${rocsolver_m}" --batch_count "${rocsolver_batch}" --perf 1 -i "${rocsolver_iters}" || true
+      "${rocsolver_cmd[@]}" || true
   elif bench_selected 3; then
     add_result "bench: rocSOLVER geqrf_strided_batched (s)" "SKIP" "0s" "rocsolver-bench not in PATH"
   fi
@@ -1361,8 +1369,15 @@ run_bench_suite() {
     else
       expected_solver="typ. 4-7s"
     fi
+    # NOTE: hipsolver-bench returns NaNs for `-i 0`. If HIP_SOLVER_ITERS=0,
+    # omit -i and let the client default.
+    local -a hipsolver_cmd
+    hipsolver_cmd=(hipsolver-bench --perf 1 -f getrf -m "${hipsolver_m}" -n "${hipsolver_m}")
+    if [[ "${hipsolver_iters}" != "0" ]]; then
+      hipsolver_cmd+=(-i "${hipsolver_iters}")
+    fi
     run_bench_with_timeout "bench: hipSOLVER (tiny solver)" "${expected_solver}" "${timeout_s}" \
-      hipsolver-bench --perf 1 -f getrf -m "${hipsolver_m}" -n "${hipsolver_m}" -i "${hipsolver_iters}" || true
+      "${hipsolver_cmd[@]}" || true
   elif bench_selected 4; then
     add_result "bench: hipSOLVER (tiny solver)" "SKIP" "0s" "hipsolver-bench not in PATH"
   fi
