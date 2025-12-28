@@ -227,10 +227,14 @@ run_docker() {
 strip_ansi_file() {
   local in="$1"
   local out="$2"
-  # Remove common ANSI escape sequences so parsing is robust regardless of TTY/color.
-  # - CSI ... m  (colors)
-  # - CSI ... K  (clear-to-end-of-line)
-  sed -r 's/\x1B\\[[0-9;]*[mK]//g' "${in}" >"${out}" 2>/dev/null || cp -f "${in}" "${out}"
+  # Remove ANSI escape sequences so parsing is robust regardless of TTY/color.
+  # Also strip CRs (some tools emit \r progress updates).
+  if command -v perl >/dev/null 2>&1; then
+    perl -pe 's/\e\[[0-?]*[ -\/]*[@-~]//g; s/\r//g' "${in}" >"${out}" 2>/dev/null || cp -f "${in}" "${out}"
+  else
+    # Best-effort fallback (less complete than the perl variant).
+    sed -r 's/\x1B\\[[0-?]*[ -\/]*[@-~]//g; s/\r//g' "${in}" >"${out}" 2>/dev/null || cp -f "${in}" "${out}"
+  fi
 }
 
 extract_tflops() {
@@ -250,39 +254,32 @@ extract_tflops() {
 extract_status_by_id() {
   local id="$1"
   local file="$2"
-  local line
-  line="$(rg -n "^${id}  " "${file}" | tail -n 1 || true)"
-  [[ -z "${line}" ]] && { echo ""; return 0; }
-  echo "${line}" | awk '
-    {
+  awk -v id="${id}" '
+    $1==id {
       for(i=2;i<=NF;i++){
         if($i ~ /^(OK|FAIL|SKIP)$/ && $(i+1) ~ /^[0-9]+\.[0-9]{3}s$/){ print $i; exit }
       }
-    }'
+      exit
+    }' "${file}" 2>/dev/null || true
 }
 
 extract_time_by_id() {
   local id="$1"
   local file="$2"
-  local line
-  line="$(rg -n "^${id}  " "${file}" | tail -n 1 || true)"
-  [[ -z "${line}" ]] && { echo ""; return 0; }
-  echo "${line}" | awk '
-    {
+  awk -v id="${id}" '
+    $1==id {
       for(i=2;i<=NF;i++){
         if($i ~ /^(OK|FAIL|SKIP)$/ && $(i+1) ~ /^[0-9]+\.[0-9]{3}s$/){ print $(i+1); exit }
       }
-    }'
+      exit
+    }' "${file}" 2>/dev/null || true
 }
 
 extract_perf_by_id() {
   local id="$1"
   local file="$2"
-  local line
-  line="$(rg -n "^${id}  " "${file}" | tail -n 1 || true)"
-  [[ -z "${line}" ]] && { echo ""; return 0; }
-  echo "${line}" | awk '
-    {
+  awk -v id="${id}" '
+    $1==id {
       for(i=2;i<=NF;i++){
         if($i ~ /^(OK|FAIL|SKIP)$/ && $(i+1) ~ /^[0-9]+\.[0-9]{3}s$/){
           out=""
@@ -294,7 +291,8 @@ extract_perf_by_id() {
           exit
         }
       }
-    }'
+      exit
+    }' "${file}" 2>/dev/null || true
 }
 
 extract_energy_line() {

@@ -167,8 +167,8 @@ print_ops_data_model() {
   local kind="$1"   # GEMM|QR|LU|AXPYI|FFT|RNG
   case "${kind}" in
     GEMM)
-      print_bench_desc "- ops_FLOP ≈ iters · 2·m·n·k (Multiply+Add) (ggf. + iters·2·m·n für β·C + …, meist vernachlässigt)"
-      print_bench_desc "- data_B ≈ iters · (sizeof(A)·m·k + sizeof(B)·k·n + sizeof(C)·m·n) (mindestens gelesen/geschrieben; Reuse/Caches ignoriert)"
+      print_bench_desc "- ops_FLOP ≈ iters · 2·m·n·k (Multiplikation+Addition) (ggf. + iters·2·m·n für β·C + …, meist vernachlässigt)"
+      print_bench_desc "- data_B ≈ iters · (sizeof(A)·m·k + sizeof(B)·k·n + sizeof(C)·m·n) (mindestens gelesen/geschrieben; Wiederverwendung/Caches ignoriert)"
       ;;
     QR)
       print_bench_desc "- ops_FLOP ≈ batch · iters · (2·m·n² − (2/3)·n³) (für m≥n, Householder‑QR, grob)"
@@ -179,16 +179,16 @@ print_ops_data_model() {
       print_bench_desc "- data_B ≈ iters · sizeof(A)·n² (+ Pivot/Workspace)"
       ;;
     AXPYI)
-      print_bench_desc "- ops_FLOP ≈ iters · 2·nnz (mul+add)"
+      print_bench_desc "- ops_FLOP ≈ iters · 2·nnz (Multiplikation+Addition)"
       print_bench_desc "- data_B ≈ iters · (sizeof(x)·nnz + sizeof(i)·nnz + sizeof(y)·nnz_eff) (nnz_eff hängt von Index‑Wiederholungen ab)"
       ;;
     FFT)
       print_bench_desc "- ops ≈ iters · batch · c·N·log2(N) (Konstante c stark implementierungsabhängig)"
-      print_bench_desc "- data_B ≈ iters · batch · sizeof(complex)·N·(reads+writes) (typisch ≈2)"
+      print_bench_desc "- data_B ≈ iters · batch · sizeof(complex)·N·(Lesen+Schreiben) (typisch ≈2)"
       ;;
     RNG)
       print_bench_desc "- ops_samples = iters · count"
-      print_bench_desc "- data_B ≈ iters · count · sizeof(output)"
+      print_bench_desc "- data_B ≈ iters · count · sizeof(Ausgabe)"
       ;;
   esac
 }
