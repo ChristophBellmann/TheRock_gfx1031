@@ -1499,43 +1499,43 @@ run_bench_with_timeout() {
         anchor="GEMM"
         formula="C ← α·A·B + β·C   (A∈ℝ^{m×k}, B∈ℝ^{k×n}, C∈ℝ^{m×n})"
         if [[ "${label}" == "bench: rocBLAS GEMM f32" ]]; then
-          desc="Dense BLAS-3 matrix multiply-accumulate; high arithmetic intensity. Exercises FMA throughput and the memory hierarchy under sustained load."
+          desc="Dichte BLAS-3 Matrixmultiplikation mit Akkumulation; hohe arithmetische Intensität. Belastet FMA-Durchsatz und Speicherhierarchie unter Dauerlast."
         else
-          desc="Same as rocBLAS GEMM, but invoked through the hipBLAS API layer."
+          desc="Wie rocBLAS GEMM, aber über die hipBLAS-API-Schicht aufgerufen."
         fi
         ;;
       bench:\ rocSOLVER\ geqrf_strided_batched*)
         anchor="QR"
         formula="A = Q·R,   Qᵀ·Q = I"
-        desc="Batched QR factorization (Householder-based); produces orthonormal Q and upper-triangular R. Common in least-squares and orthogonalization pipelines."
+        desc="Batched QR-Faktorisierung (Householder); liefert orthonormales Q und obere Dreiecksmatrix R. Typisch für Least-Squares und Orthogonalisierung."
         ;;
       bench:\ hipSOLVER*)
         anchor="LU"
         formula="P·A = L·U"
-        desc="Dense LU factorization with partial pivoting (GETRF); factors A into L and U plus permutation P. Fundamental for solving A·x=b and related decompositions."
+        desc="Dichte LU-Faktorisierung mit partieller Pivotisierung (GETRF): P·A = L·U. Fundament für das Lösen von A·x=b und verwandte Zerlegungen."
         ;;
       bench:\ rocSPARSE\ axpyi*|bench:\ hipSPARSE\ axpyi*)
         anchor="AXP"
         formula="∀j∈[0,nnz):  y[iⱼ] ← y[iⱼ] + α·xⱼ"
         if [[ "${label}" == bench:\ rocSPARSE* ]]; then
-          desc="Sparse indexed AXPY (scatter-add into y). Stresses irregular gather/scatter and bandwidth/latency under a sustained update stream."
+          desc="Sparse indexed AXPY (Scatter-Add nach y). Belastet unregelmäßige Zugriffe (Gather/Scatter) sowie Bandbreite/Latenz unter Dauerlast."
         else
-          desc="Same as rocSPARSE AXPYI, but invoked through the hipSPARSE API layer."
+          desc="Wie rocSPARSE AXPYI, aber über die hipSPARSE-API-Schicht aufgerufen."
         fi
         ;;
       bench:\ rocFFT\ complex\ fwd*|bench:\ dyna-rocFFT\ complex\ fwd*)
         anchor="FFT"
         formula="Xₖ = ∑ₙ₌₀^{N−1} xₙ · e^{−2π i k n / N}"
         if [[ "${label}" == bench:\ rocFFT* ]]; then
-          desc="Batched complex-to-complex forward FFT. Exercises radix kernels, twiddle-factor math, and global memory traffic typical for signal/spectral workloads."
+          desc="Batched komplex→komplex Forward-FFT. Belastet Radix-Kerne, Twiddle-Faktor-Arithmetik und globalen Speichertraffic (Signal/Spektral-Workloads)."
         else
-          desc="Same as rocFFT forward FFT, but loaded via the dynamic-loader client (runtime library selection)."
+          desc="Wie rocFFT Forward-FFT, aber via Dynamic-Loader-Client geladen (Runtime-Library-Auswahl)."
         fi
         ;;
       bench:\ rocRAND\ generate*)
         anchor="RNG"
         formula="xᵢ ∼ U(0,1)"
-        desc="GPU pseudorandom variate generation (Philox, counter-based). Measures throughput of RNG state generation and output writes for stochastic workloads."
+        desc="GPU-Zufallszahlengenerierung (Philox, counter-based): misst Durchsatz von RNG-State-Erzeugung und Output-Schreibtraffic (stochastische Workloads)."
         ;;
     esac
     if [[ -n "${anchor}" ]]; then

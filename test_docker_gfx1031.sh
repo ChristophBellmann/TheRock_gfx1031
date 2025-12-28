@@ -142,6 +142,8 @@ mkdir -p "${OUT_DIR}"
 
 host_cap="${OUT_DIR}/host.${BUILD_DIR}.out"
 docker_cap="${OUT_DIR}/docker.${BUILD_DIR}.out"
+host_parse="${OUT_DIR}/host.${BUILD_DIR}.parse"
+docker_parse="${OUT_DIR}/docker.${BUILD_DIR}.parse"
 
 if [[ -n "${LOG_PATH}" ]]; then
   if (( DO_DOCKER )) && (( DO_HOST )) && (( COMPARE )); then
@@ -220,6 +222,15 @@ run_docker() {
   rc=${PIPESTATUS[0]}
   set -e
   return "${rc}"
+}
+
+strip_ansi_file() {
+  local in="$1"
+  local out="$2"
+  # Remove common ANSI escape sequences so parsing is robust regardless of TTY/color.
+  # - CSI ... m  (colors)
+  # - CSI ... K  (clear-to-end-of-line)
+  sed -r 's/\x1B\\[[0-9;]*[mK]//g' "${in}" >"${out}" 2>/dev/null || cp -f "${in}" "${out}"
 }
 
 extract_tflops() {
@@ -351,9 +362,11 @@ echo ""
 
 if (( DO_HOST )); then
   run_host || host_rc=$?
+  strip_ansi_file "${host_cap}" "${host_parse}"
 fi
 if (( DO_DOCKER )); then
   run_docker || docker_rc=$?
+  strip_ansi_file "${docker_cap}" "${docker_parse}"
 fi
 
 if (( host_rc != 0 )); then
@@ -385,25 +398,29 @@ if (( COMPARE )) && (( DO_HOST )) && (( DO_DOCKER )); then
 
   printf "%-3s %-38s %-5s %-9s %-30s  %-5s %-9s %-30s\n" "ID" "bench" "hST" "hTIME" "hPERF" "dST" "dTIME" "dPERF"
   printf "%s\n" "---------------------------------------------------------------------------------------------------------------------------"
+  # Use the sanitized streams for parsing.
+  host_src="${host_parse}"
+  docker_src="${docker_parse}"
+
   i=1
   for bench in "${bench_names[@]}"; do
     id="$(printf "%02d" "${i}")"
-    hst="$(extract_status_by_id "${id}" "${host_cap}")"
-    dst="$(extract_status_by_id "${id}" "${docker_cap}")"
-    htime="$(extract_time_by_id "${id}" "${host_cap}")"
-    dtime="$(extract_time_by_id "${id}" "${docker_cap}")"
-    hperf="$(extract_perf_by_id "${id}" "${host_cap}")"
-    dperf="$(extract_perf_by_id "${id}" "${docker_cap}")"
+    hst="$(extract_status_by_id "${id}" "${host_src}")"
+    dst="$(extract_status_by_id "${id}" "${docker_src}")"
+    htime="$(extract_time_by_id "${id}" "${host_src}")"
+    dtime="$(extract_time_by_id "${id}" "${docker_src}")"
+    hperf="$(extract_perf_by_id "${id}" "${host_src}")"
+    dperf="$(extract_perf_by_id "${id}" "${docker_src}")"
     printf "%-3s %-38.38s %-5s %-9s %-30.30s  %-5s %-9s %-30.30s\n" \
       "${id}" "${bench}" "${hst:-n/a}" "${htime:-n/a}" "${hperf:-}" "${dst:-n/a}" "${dtime:-n/a}" "${dperf:-}"
 
     # Power line (if available)
-    hwh="$(extract_energy_wh "${id}" "${host_cap}")"
-    dwh="$(extract_energy_wh "${id}" "${docker_cap}")"
-    hw="$(extract_energy_avgw "${id}" "${host_cap}")"
-    dw="$(extract_energy_avgw "${id}" "${docker_cap}")"
-    hgpu="$(extract_energy_gpu "${id}" "${host_cap}")"
-    dgpu="$(extract_energy_gpu "${id}" "${docker_cap}")"
+    hwh="$(extract_energy_wh "${id}" "${host_src}")"
+    dwh="$(extract_energy_wh "${id}" "${docker_src}")"
+    hw="$(extract_energy_avgw "${id}" "${host_src}")"
+    dw="$(extract_energy_avgw "${id}" "${docker_src}")"
+    hgpu="$(extract_energy_gpu "${id}" "${host_src}")"
+    dgpu="$(extract_energy_gpu "${id}" "${docker_src}")"
     if [[ -n "${hwh}${dwh}${hw}${dw}${hgpu}${dgpu}" ]]; then
       printf "    %-38s  hWh %-7s hW %-6s hGPU %-4s   dWh %-7s dW %-6s dGPU %-4s\n" \
         "power" "${hwh:-n/a}" "${hw:-n/a}" "${hgpu:-n/a}%" "${dwh:-n/a}" "${dw:-n/a}" "${dgpu:-n/a}%"
