@@ -1349,11 +1349,11 @@ run_bench_suite() {
     # Target: ~5s wall-time on gfx1031 (RX 6700 XT).
     local hipsolver_m hipsolver_iters
     if [[ "${MODE}" == "full" ]]; then
-      hipsolver_m=2560
-      hipsolver_iters=150
+      hipsolver_m=6144
+      hipsolver_iters=35
     else
-      hipsolver_m=2048
-      hipsolver_iters=200
+      hipsolver_m=5120
+      hipsolver_iters=50
     fi
     local expected_solver
     if [[ "${MODE}" == "full" ]]; then
@@ -1362,7 +1362,7 @@ run_bench_suite() {
       expected_solver="typ. 4-7s"
     fi
     run_bench_with_timeout "bench: hipSOLVER (tiny solver)" "${expected_solver}" "${timeout_s}" \
-      hipsolver-bench --perf 1 -m "${hipsolver_m}" -n "${hipsolver_m}" -i "${hipsolver_iters}" || true
+      hipsolver-bench --perf 1 -f getrf -m "${hipsolver_m}" -n "${hipsolver_m}" -i "${hipsolver_iters}" || true
   elif bench_selected 4; then
     add_result "bench: hipSOLVER (tiny solver)" "SKIP" "0s" "hipsolver-bench not in PATH"
   fi
