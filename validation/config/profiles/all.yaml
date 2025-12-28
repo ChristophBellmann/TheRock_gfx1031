@@ -1,0 +1,33 @@
+# All validations/workloads:
+# - Runs in-tree ROCm sanity + benches
+# - Runs all third-party workloads (downloads/builds gated by one Y/n prompt; use --yes)
+# - Enables optional heavy validations (PyTorch, PETSc)
+run:
+  profile: all
+  ask_before_downloads: true
+  downloads_enabled: true
+
+workloads:
+  pytorch:
+    auto_install: true
+    # NOTE: ROCm torch wheels are large and ROCm-version-specific.
+    # This is a best-effort default; adjust as needed for your environment.
+    pip_args: ["--index-url", "https://download.pytorch.org/whl/rocm6.2"]
+    packages: ["torch"]
+    use_in_tree_rocm: false
+  whisper:
+    auto_install: true
+    packages: ["openai-whisper"]
+    use_in_tree_rocm: false
+
+steps:
+  rocm_sanity: true
+  rocm_bench_smoke: true
+  miopen_smoke: true
+  llama_cpp_docker: true
+  ollama: true
+  open_interpreter: true
+  whisper: true
+  mfem_hip: true
+  pytorch: true
+  petsc_hip: true

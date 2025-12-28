@@ -4,6 +4,16 @@ run:
   ask_before_downloads: true
   downloads_enabled: true
 
+workloads:
+  pytorch:
+    auto_install: true
+    # Best-effort default for ROCm PyTorch wheels (adjust if needed).
+    pip_args: ["--index-url", "https://download.pytorch.org/whl/rocm6.2"]
+    packages: ["torch"]
+    # ROCm wheels are often coupled to a specific ROCm runtime; prefer the system
+    # ROCm runtime for this check unless you have a matching in-tree build.
+    use_in_tree_rocm: false
+
 steps:
   rocm_sanity: true
   rocm_bench_smoke: false
@@ -15,4 +25,3 @@ steps:
   mfem_hip: false
   pytorch: true
   petsc_hip: false
-

@@ -8,6 +8,7 @@ from typing import Any
 
 from core.context import Context
 from core.reporting.models import StepResult
+from core.rocm_env import deactivated_env
 from core.runner import fmt_duration, run_cmd
 from steps.shared import append_power, baseline_avg_w, with_power_sampler
 from steps.workloads.pytorch.setup import ensure_pytorch
@@ -42,7 +43,7 @@ torch.manual_seed(0)
 if kind=="audio":
     # Conv1d on a batch of audio-like tensors.
     B=16; C=64; L=16384
-    conv=torch.nn.Conv1d(C, 128, kernel_size=33, padding=16, bias=False).to(dev).eval()
+    conv=torch.nn.Conv1d(C, 128, kernel_size=33, padding=16, bias=False).to(dev, dtype=torch.float16).eval()
     x=torch.randn(B, C, L, device=dev, dtype=torch.float16)
     # Warmup
     y=conv(x); torch.cuda.synchronize()
@@ -64,7 +65,7 @@ if kind=="audio":
 else:
     # Conv3d on a small video-like tensor: (B,C,T,H,W)
     B=2; C=32; T=16; H=112; W=112
-    conv=torch.nn.Conv3d(C, 64, kernel_size=3, padding=1, bias=False).to(dev).eval()
+    conv=torch.nn.Conv3d(C, 64, kernel_size=3, padding=1, bias=False).to(dev, dtype=torch.float16).eval()
     x=torch.randn(B, C, T, H, W, device=dev, dtype=torch.float16)
     y=conv(x); torch.cuda.synchronize()
     t0=time.time()
@@ -86,21 +87,34 @@ else:
 
 
 def _step_pytorch_conv(ctx: Context, cfg: dict[str, Any], build_dir: str, rocm_dist: Path, env: dict[str, str], log: Path | None, *, kind: str) -> StepResult:
-    meta = ensure_pytorch(ctx, cfg, env, log)
+    wl = cfg.get("workloads", {}).get("pytorch", {}) or {}
+    use_in_tree = bool(wl.get("use_in_tree_rocm", False))
+    run_env = env if use_in_tree else deactivated_env(env, rocm_dist)
+
+    meta = ensure_pytorch(ctx, cfg, run_env, log)
     if meta is not None and meta.status != "OK":
         return StepResult(build_dir, f"PyTorch ({kind})", meta.status, meta.duration, meta.metric)
 
     min_s = float(cfg.get("workloads", {}).get("pytorch", {}).get("min_bench_s", 5.0) or 5.0)
     t = int(cfg.get("timeouts_s", {}).get("pytorch", 900))
-    env = dict(env)
-    env["ROCM_VALIDATION_PYTORCH_MIN_S"] = str(min_s)
-    env["ROCM_VALIDATION_PYTORCH_KIND"] = kind
+    run_env = dict(run_env)
+    run_env["ROCM_VALIDATION_PYTORCH_MIN_S"] = str(min_s)
+    run_env["ROCM_VALIDATION_PYTORCH_KIND"] = kind
+    # Some prebuilt ROCm wheels ship code objects for gfx1030 but not gfx1031.
+    # Allow opting into the common compatibility workaround.
+    if not use_in_tree:
+        arch = str(cfg.get("rocm", {}).get("amd_gpu_arch", "gfx1031"))
+        override = str(wl.get("hsa_override_gfx_version", "") or "").strip()
+        if not override and arch == "gfx1031":
+            override = "10.3.0"
+        if override and "HSA_OVERRIDE_GFX_VERSION" not in run_env:
+            run_env["HSA_OVERRIDE_GFX_VERSION"] = override
 
     script = _gpu_required_script(kind)
 
     def run_one(sampler):
         t0 = time.monotonic()
-        r = run_cmd(ctx.repo_root, env, [sys.executable, "-c", script], t, log)
+        r = run_cmd(ctx.repo_root, run_env, [sys.executable, "-c", script], t, log)
         wall_s = time.monotonic() - t0
         return r, wall_s, sampler
 
@@ -114,6 +128,8 @@ def _step_pytorch_conv(ctx: Context, cfg: dict[str, Any], build_dir: str, rocm_d
             return StepResult(build_dir, f"PyTorch ({kind})", "FAIL", fmt_duration(r.dur_ms), "torch.cuda.is_available=false (GPU required)")
         if "GPU_NOT_ROCM" in out:
             return StepResult(build_dir, f"PyTorch ({kind})", "FAIL", fmt_duration(r.dur_ms), "torch.version.hip missing (ROCm torch required)")
+        if r.rc < 0:
+            return StepResult(build_dir, f"PyTorch ({kind})", "FAIL", fmt_duration(r.dur_ms), f"signal={-r.rc} (crash) | try workloads.pytorch.use_in_tree_rocm=false")
         return StepResult(build_dir, f"PyTorch ({kind})", "FAIL", fmt_duration(r.dur_ms), f"rc={r.rc}")
 
     if "GPU_OK" not in out:
@@ -122,13 +138,15 @@ def _step_pytorch_conv(ctx: Context, cfg: dict[str, Any], build_dir: str, rocm_d
     # Extract a small metric summary.
     device = ""
     tflops = ""
-    m = re.search(r"^device_name\\s+(.+)$", out, re.MULTILINE)
+    m = re.search(r"^device_name\s+(.+)$", out, re.MULTILINE)
     if m:
         device = m.group(1).strip()
-    m = re.search(r"^tflops_est\\s+([0-9.]+)$", out, re.MULTILINE)
+    m = re.search(r"^tflops_est\s+([0-9.]+)$", out, re.MULTILINE)
     if m:
         tflops = m.group(1)
-    metric = f"device={device} wall={wall_s:.2f}s"
+    metric = f"device={device} rocm_env={'in-tree' if use_in_tree else 'system'} wall={wall_s:.2f}s"
+    if not use_in_tree and run_env.get("HSA_OVERRIDE_GFX_VERSION"):
+        metric += f" hsa_override={run_env['HSA_OVERRIDE_GFX_VERSION']}"
     if tflops:
         metric += f" tflops_est={float(tflops):.2f}"
 
@@ -151,4 +169,3 @@ def step_pytorch_audio(ctx: Context, cfg: dict[str, Any], build_dir: str, rocm_d
 
 def step_pytorch_video(ctx: Context, cfg: dict[str, Any], build_dir: str, rocm_dist: Path, env: dict[str, str], log: Path | None) -> StepResult:
     return _step_pytorch_conv(ctx, cfg, build_dir, rocm_dist, env, log, kind="video")
-

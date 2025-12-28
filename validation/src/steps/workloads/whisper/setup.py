@@ -8,28 +8,79 @@ from typing import Any
 
 from core.context import Context
 from core.reporting.models import StepResult
-from core.runner import run_cmd, fmt_duration
-from steps.shared import append_power, baseline_avg_w, with_power_sampler
+from core.rocm_env import deactivated_env
+from core.runner import fmt_duration, run_cmd
+from steps.shared import append_power, baseline_avg_w, downloads_enabled, with_power_sampler
+
+
+def ensure_whisper(ctx: Context, cfg: dict[str, Any], env: dict[str, str], log: Path | None) -> StepResult | None:
+    """
+    Ensure the `whisper` Python package is available in the validation venv.
+
+    Whisper depends on PyTorch; GPU validation still requires a ROCm-enabled torch.
+
+    Auto-install is disabled by default because wheels can be large and platform-specific.
+    Enable it via config:
+      workloads.whisper.auto_install: true
+      workloads.whisper.pip_args: [...]
+      workloads.whisper.packages: ["openai-whisper"]
+    """
+    wl = cfg.get("workloads", {}).get("whisper", {}) or {}
+    auto = bool(wl.get("auto_install", False))
+    if not auto:
+        return None
+
+    # If whisper is already installed, proceed even when downloads are disabled.
+    probe = run_cmd(ctx.repo_root, env, [sys.executable, "-c", "import whisper; print('ok')"], 30, log)
+    if probe.rc == 0:
+        return None
+    if not downloads_enabled(cfg):
+        return StepResult("<meta>", "Whisper setup", "SKIP", "0ms", "downloads disabled (cannot install whisper)")
+
+    t = int(cfg.get("timeouts_s", {}).get("whisper", 1800))
+    pip_args = list(wl.get("pip_args", []) or [])
+    packages = list(wl.get("packages", []) or [])
+    if not packages:
+        packages = ["openai-whisper"]
+
+    cmd = [sys.executable, "-m", "pip", "install"] + pip_args + packages
+    r = run_cmd(ctx.repo_root, env, cmd, t, log)
+    if r.rc != 0:
+        return StepResult("<meta>", "Whisper setup", "FAIL", fmt_duration(r.dur_ms), f"pip rc={r.rc}")
+    return None
 
 
 def step_whisper(ctx: Context, cfg: dict[str, Any], build_dir: str, rocm_dist: Path, env: dict[str, str], log: Path | None) -> StepResult:
     """
-    Whisper smoke test.
+    Whisper smoke test (GPU required).
 
-    Notes:
-    - We *do not* auto-install PyTorch/Whisper here (wheels can be huge and platform-specific).
-    - If torch/whisper are available in the validation venv, we run a tiny transcription on a
-      bundled sample audio clip when present.
+    - Optionally installs the Python `whisper` package if enabled via config
+      (`workloads.whisper.auto_install: true`).
+    - Requires ROCm-enabled PyTorch (torch.cuda.is_available == True and torch.version.hip present).
+    - Runs a sustained transcription loop (~min_bench_s) on a small audio sample to make
+      GPU acceleration visible in power/utilization metrics.
     """
+    wl = cfg.get("workloads", {}).get("whisper", {}) or {}
+    use_in_tree = bool(wl.get("use_in_tree_rocm", False))
+    run_env = env if use_in_tree else deactivated_env(env, rocm_dist)
+
+    meta = ensure_whisper(ctx, cfg, run_env, log)
+    if meta is not None:
+        return StepResult(build_dir, "Whisper (python) smoke", meta.status, meta.duration, meta.metric)
+
     t = int(cfg.get("timeouts_s", {}).get("whisper", 1800))
     min_bench_s = float(cfg.get("workloads", {}).get("whisper", {}).get("min_bench_s", 5.0) or 5.0)
     audio_cfg = str(cfg.get("workloads", {}).get("whisper", {}).get("audio_file", "")).strip()
     audio_cfg = audio_cfg or "validation/src/assets/samples/audio/Take2_Audio1-1.wav"
-    env = dict(env)
+    env = dict(run_env)
     env["ROCM_VALIDATION_WHISPER_AUDIO"] = str(ctx.repo_root / audio_cfg) if not Path(audio_cfg).is_absolute() else audio_cfg
     env["ROCM_VALIDATION_WHISPER_MIN_S"] = str(min_bench_s)
+    # Match PyTorch wheels that often ship gfx1030 but not gfx1031 code objects.
+    if str(cfg.get("rocm", {}).get("amd_gpu_arch", "gfx1031")) == "gfx1031" and "HSA_OVERRIDE_GFX_VERSION" not in env:
+        env["HSA_OVERRIDE_GFX_VERSION"] = "10.3.0"
+
     script = r"""
-import os, wave, struct, math, time, sys
+import os, time, sys
 try:
     import torch
     import whisper
@@ -47,29 +98,14 @@ if getattr(getattr(torch, "version", None), "hip", None) in (None, "", "None"):
     print("GPU_NOT_ROCM")
     raise SystemExit(3)
 
-repo_sample=os.environ.get("ROCM_VALIDATION_WHISPER_AUDIO", "")
-if repo_sample and os.path.isfile(repo_sample):
-    fname=repo_sample
-else:
-    # Fallback: generate a tiny 1s tone if the repo sample is not present.
-    sr=16000
-    dur=1.0
-    freq=440.0
-    n=int(sr*dur)
-    fname=os.path.join("validation","workspace","cache","downloads","whisper_test.wav")
-    os.makedirs(os.path.dirname(fname), exist_ok=True)
-    with wave.open(fname, "w") as w:
-        w.setnchannels(1)
-        w.setsampwidth(2)
-        w.setframerate(sr)
-        for i in range(n):
-            v=int(0.2*32767*math.sin(2*math.pi*freq*i/sr))
-            w.writeframes(struct.pack("<h", v))
+fname=os.environ.get("ROCM_VALIDATION_WHISPER_AUDIO", "")
+if not (fname and os.path.isfile(fname)):
+    print("AUDIO_MISSING")
+    raise SystemExit(4)
 
 min_s=float(os.environ.get("ROCM_VALIDATION_WHISPER_MIN_S","5"))
 device="cuda"
 model=whisper.load_model("tiny.en", device=device)
-# Keep a sustained run to validate GPU acceleration and power draw.
 t0=time.time()
 runs=0
 text_len=0
@@ -77,7 +113,6 @@ while (time.time()-t0) < min_s:
     try:
         result=model.transcribe(fname, fp16=True)
     except Exception:
-        # Some builds may not support fp16; fall back while still requiring GPU.
         result=model.transcribe(fname, fp16=False)
     runs += 1
     text_len=max(text_len, len(result.get("text","") or ""))
@@ -101,15 +136,17 @@ print("text_len", text_len)
 
     if r.rc != 0:
         if "IMPORT_ERROR" in out:
-            return StepResult(build_dir, "Whisper (python) smoke", "SKIP", fmt_duration(r.dur_ms), "missing torch/whisper in venv (install separately)")
+            return StepResult(build_dir, "Whisper (python) smoke", "SKIP", fmt_duration(r.dur_ms), "missing torch/whisper in venv")
         if "GPU_NOT_AVAILABLE" in out:
-            return StepResult(build_dir, "Whisper (python) smoke", "FAIL", fmt_duration(r.dur_ms), "torch.cuda.is_available=false (no GPU; ROCm torch required)")
+            return StepResult(build_dir, "Whisper (python) smoke", "FAIL", fmt_duration(r.dur_ms), "torch.cuda.is_available=false (GPU required)")
         if "GPU_NOT_ROCM" in out:
-            return StepResult(build_dir, "Whisper (python) smoke", "FAIL", fmt_duration(r.dur_ms), "torch.version.hip missing (CPU/CUDA torch; ROCm torch required)")
+            return StepResult(build_dir, "Whisper (python) smoke", "FAIL", fmt_duration(r.dur_ms), "torch.version.hip missing (ROCm torch required)")
+        if "AUDIO_MISSING" in out:
+            # Keep behavior deterministic: require the bundled sample.
+            return StepResult(build_dir, "Whisper (python) smoke", "FAIL", fmt_duration(r.dur_ms), f"missing audio sample: {Path(audio_cfg).name}")
         return StepResult(build_dir, "Whisper (python) smoke", "FAIL", fmt_duration(r.dur_ms), f"rc={r.rc}")
 
-    metric = f"tiny.en transcribe (audio={Path(audio_cfg).name}) wall={wall_s:.2f}s"
-    # Include a tiny signal from script stdout.
+    metric = f"tiny.en transcribe (audio={Path(audio_cfg).name}) rocm_env={'in-tree' if use_in_tree else 'system'} wall={wall_s:.2f}s"
     for key in ("runs", "seconds", "text_len"):
         m = re.search(rf"^{key}\\s+(\\S+)$", out, re.MULTILINE)
         if m:

@@ -4,6 +4,12 @@ run:
   ask_before_downloads: true
   downloads_enabled: true
 
+workloads:
+  whisper:
+    auto_install: true
+    packages: ["openai-whisper"]
+    use_in_tree_rocm: false
+
 steps:
   rocm_sanity: true
   rocm_bench_smoke: false
@@ -13,4 +19,3 @@ steps:
   open_interpreter: false
   whisper: true
   mfem_hip: false
-

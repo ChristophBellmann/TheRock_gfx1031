@@ -50,6 +50,11 @@ workloads:
     ref: "master"
     min_bench_s: 5.0
   whisper:
+    # Optional auto-install (requires downloads enabled). Whisper needs a ROCm-enabled
+    # PyTorch in the validation venv.
+    auto_install: false
+    pip_args: []
+    packages: ["openai-whisper"]
     audio_file: "validation/src/assets/samples/audio/Take2_Audio1-1.wav"
     min_bench_s: 5.0
   petsc:
