@@ -23,6 +23,13 @@ workloads:
     model: "base"
     beam_size: 5
     best_of: 5
+    # The bundled audio sample is very short; repeat it to reach a longer
+    # duration for a clearer sustained GPU signal.
+    audio_target_s: 300
+
+timeouts_s:
+  # Whisper can take significantly longer with longer audio + larger model.
+  whisper: 7200
 
 steps:
   rocm_sanity: true

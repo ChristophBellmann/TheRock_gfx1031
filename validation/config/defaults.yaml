@@ -59,6 +59,10 @@ workloads:
     pip_args: []
     packages: ["openai-whisper"]
     audio_file: "validation/src/assets/samples/audio/Take2_Audio1-1.wav"
+    # Optional: generate a longer WAV by repeating the bundled sample to reach
+    # the target duration (seconds). This increases sustained GPU work on short
+    # samples. 0 disables (default).
+    audio_target_s: 0
     # Keep defaults small, but use beam search to increase compute and produce
     # a clearer GPU signal than greedy decode for very short audio.
     model: "tiny.en"

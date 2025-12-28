@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import os
+import shutil
 import sys
 import time
 import re
@@ -11,6 +13,81 @@ from core.reporting.models import StepResult
 from core.rocm_env import deactivated_env
 from core.runner import fmt_duration, run_cmd
 from steps.shared import append_power, baseline_avg_w, downloads_enabled, with_power_sampler
+
+
+def _ffprobe_duration_s(env: dict[str, str], path: Path) -> float | None:
+    ffprobe = shutil.which("ffprobe", path=env.get("PATH"))
+    if not ffprobe:
+        return None
+    try:
+        import subprocess
+
+        r = subprocess.run(
+            [
+                ffprobe,
+                "-v",
+                "error",
+                "-show_entries",
+                "format=duration",
+                "-of",
+                "default=noprint_wrappers=1:nokey=1",
+                str(path),
+            ],
+            check=False,
+            capture_output=True,
+            text=True,
+            env=env,
+        )
+        if r.returncode != 0:
+            return None
+        v = (r.stdout or "").strip()
+        if not v:
+            return None
+        return float(v)
+    except Exception:
+        return None
+
+
+def _ffmpeg_repeat_to_target(ctx: Context, env: dict[str, str], src: Path, *, out: Path, target_s: float, log: Path | None) -> tuple[Path, int]:
+    """
+    Create `out` by looping `src` to exactly `target_s` using ffmpeg.
+
+    We use ffmpeg because the bundled sample may be a float WAV (format tag 3),
+    which Python's `wave` module cannot read. Whisper already depends on ffmpeg
+    for audio decoding, so this keeps the suite lightweight.
+    """
+    ffmpeg = shutil.which("ffmpeg", path=env.get("PATH"))
+    if not ffmpeg:
+        return src, 1
+    out.parent.mkdir(parents=True, exist_ok=True)
+    # Re-encode to PCM 16-bit mono 16kHz for deterministic size/compatibility.
+    cmd = [
+        ffmpeg,
+        "-v",
+        "error",
+        "-y",
+        "-stream_loop",
+        "-1",
+        "-i",
+        str(src),
+        "-t",
+        str(int(target_s)),
+        "-ac",
+        "1",
+        "-ar",
+        "16000",
+        "-c:a",
+        "pcm_s16le",
+        str(out),
+    ]
+    r = run_cmd(ctx.repo_root, env, cmd, max(60, int(target_s)), log)
+    if r.rc != 0 or not out.is_file():
+        return src, 1
+    dur = _ffprobe_duration_s(env, src)
+    if dur and dur > 0:
+        repeats = max(1, int((target_s + dur - 1e-9) // dur) + 1)
+        return out, repeats
+    return out, 2
 
 
 def ensure_whisper(ctx: Context, cfg: dict[str, Any], env: dict[str, str], log: Path | None) -> StepResult | None:
@@ -75,8 +152,24 @@ def step_whisper(ctx: Context, cfg: dict[str, Any], build_dir: str, rocm_dist: P
     best_of = int(wl.get("best_of", 5) or 5)
     audio_cfg = str(cfg.get("workloads", {}).get("whisper", {}).get("audio_file", "")).strip()
     audio_cfg = audio_cfg or "validation/src/assets/samples/audio/Take2_Audio1-1.wav"
+    # Optional: build a longer audio sample by repeating the bundled WAV.
+    # Allow env override for ad-hoc testing without editing YAML.
+    audio_target_s = float(os.environ.get("ROCM_VALIDATION_WHISPER_AUDIO_TARGET_S", str(wl.get("audio_target_s", 0) or 0)) or 0)
     env = dict(run_env)
-    env["ROCM_VALIDATION_WHISPER_AUDIO"] = str(ctx.repo_root / audio_cfg) if not Path(audio_cfg).is_absolute() else audio_cfg
+
+    audio_path = (Path(audio_cfg) if Path(audio_cfg).is_absolute() else (ctx.repo_root / audio_cfg)).resolve()
+    repeats = 1
+    if audio_target_s and audio_target_s > 0:
+        out = ctx.builds_dir() / "whisper" / f"audio_repeat_{int(audio_target_s)}s.wav"
+        try:
+            audio_path, repeats = _ffmpeg_repeat_to_target(ctx, env, audio_path, out=out, target_s=audio_target_s, log=log)
+            # Ensure we don't timeout trivially for very long targets.
+            t = max(t, int(audio_target_s * 4))
+        except Exception:
+            # If anything goes wrong, fall back to the bundled sample.
+            repeats = 1
+
+    env["ROCM_VALIDATION_WHISPER_AUDIO"] = str(audio_path)
     env["ROCM_VALIDATION_WHISPER_MIN_S"] = str(min_bench_s)
     env["ROCM_VALIDATION_WHISPER_MODEL"] = model_name
     env["ROCM_VALIDATION_WHISPER_BEAM_SIZE"] = str(max(1, beam_size))
@@ -158,7 +251,9 @@ print("text_len", text_len)
             return StepResult(build_dir, "Whisper (python) smoke", "FAIL", fmt_duration(r.dur_ms), f"missing audio sample: {Path(audio_cfg).name}")
         return StepResult(build_dir, "Whisper (python) smoke", "FAIL", fmt_duration(r.dur_ms), f"rc={r.rc}")
 
-    metric = f"{model_name} transcribe (audio={Path(audio_cfg).name}) rocm_env={'in-tree' if use_in_tree else 'system'} wall={wall_s:.2f}s"
+    metric = f"{model_name} transcribe (audio={audio_path.name}) rocm_env={'in-tree' if use_in_tree else 'system'} wall={wall_s:.2f}s"
+    if repeats > 1 and audio_target_s and audio_target_s > 0:
+        metric += f" audio_target_s={int(audio_target_s)} repeats={repeats}"
     for key in ("model", "beam_size", "best_of", "runs", "seconds", "text_len"):
         m = re.search(rf"^{key}\s+(\S+)$", out, re.MULTILINE)
         if m:
