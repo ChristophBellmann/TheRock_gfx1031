@@ -19,6 +19,91 @@ Default (no args): quick suite with **power metrics** (no downloads, no logs):
 python3 validation/scripts/validate.py
 ```
 
+## Validation modes / CLI overview
+
+All validation runs are **repo-local** and target the in-tree ROCm artifact under `<builddir>/dist/rocm` (no `/opt/rocm` required).
+
+### Core modes
+
+- Default quick suite (power on, no logs, no downloads prompt for `quick`):
+  ```bash
+  python3 validation/scripts/validate.py
+  ```
+- Quick, explicitly no downloads:
+  ```bash
+  python3 validation/scripts/validate.py --profile quick --no-downloads
+  ```
+- Full suite (enables workloads; prompts once before downloads/builds):
+  ```bash
+  python3 validation/scripts/validate.py --profile full
+  ```
+- Full suite, non-interactive (assume “yes”):
+  ```bash
+  python3 validation/scripts/validate.py --profile full --yes
+  ```
+
+### Workload-specific profiles
+
+Run a focused subset instead of the full pipeline:
+
+- llama.cpp: `--profile llama_cpp`, `llama_cpp_infer`, `llama_cpp_smoke`
+- Ollama: `--profile ollama`, `ollama_smoke`
+- Whisper: `--profile whisper`
+- MFEM: `--profile mfem`
+- PyTorch GPU compute: `--profile pytorch` (requires ROCm-enabled `torch` in the validation venv unless configured for auto-install)
+- PETSc HIP build+solve: `--profile petsc` (can take a while)
+
+Tip: list the profiles available in your checkout:
+```bash
+python3 validation/scripts/validate.py --help
+```
+
+### Build-dir selection
+
+- Default: auto-select the preferred build dir in this order:
+  `build-stage2`, then `build`, then `build-stage1`.
+- Force specific build dirs:
+  ```bash
+  python3 validation/scripts/validate.py --build-dirs build-stage2
+  ```
+- Validate all detected build dirs:
+  ```bash
+  python3 validation/scripts/validate.py --all-build-dirs
+  ```
+
+### Output / logging / power sampling
+
+- Power sampling on/off:
+  ```bash
+  python3 validation/scripts/validate.py --power
+  python3 validation/scripts/validate.py --no-power
+  ```
+- More readable output (prints metrics under each step):
+  ```bash
+  python3 validation/scripts/validate.py --summary-multiline
+  ```
+- Write per-step logs under `validation/workspace/runs/<run_id>/logs/`:
+  ```bash
+  python3 validation/scripts/validate.py --log
+  ```
+
+### One-shot utilities
+
+- System + in-tree diagnosis (no downloads):
+  ```bash
+  python3 validation/scripts/doctor.py
+  ```
+- Cache cleanup:
+  ```bash
+  python3 validation/scripts/cache_gc.py
+  python3 validation/scripts/cache_gc.py --all
+  ```
+- Show last report location (and optionally open HTML report):
+  ```bash
+  python3 validation/scripts/report_open.py
+  python3 validation/scripts/report_open.py --open
+  ```
+
 More readable summary output (prints params/power under each test):
 ```bash
 python3 validation/scripts/validate.py --summary-multiline
