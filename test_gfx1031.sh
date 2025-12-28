@@ -900,7 +900,6 @@ print_run_header() {
 
   local what=()
   if (( RUN_CONSISTENCY )); then what+=("consistency"); fi
-  if (( RUN_SANITY )); then what+=("sanity"); fi
   if (( RUN_MIOPEN )); then
     if (( RUN_MIOPEN_SMOKE )); then what+=("miopen-smoke"); else what+=("miopen"); fi
   fi
