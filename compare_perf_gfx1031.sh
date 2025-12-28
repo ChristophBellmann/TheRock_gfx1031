@@ -7,7 +7,7 @@ BUILD_DIR="${BUILD_DIR:-build-stage2}"
 IMAGE="${IMAGE:-rocm/dev-ubuntu-24.04:latest}"
 MODE="quick"
 BENCH_LITE=1
-KEEP_LOGS=1
+KEEP_LOGS=0
 OUT_DIR=""
 INSTALL_DEPS=1
 POWER=1
@@ -31,9 +31,9 @@ Options:
   --bench-lite       Run only BLAS GEMM benches (default)
   --full             Longer bench sizes/iters (passes --full)
   --no-power         Disable sysfs power sampling (default: enabled)
-  --out <dir>        Write logs under this dir (default: ./perf_compare/<timestamp>/)
+  --out <dir>        Write captured output under this dir (implies --keep-logs)
   --no-install-deps  Do not install runtime deps in the docker image (default: installs libgfortran5)
-  --no-logs          Do not keep logs (still prints summary)
+  --keep-logs        Keep logs under ./perf_compare/<timestamp>/ (default: delete after printing summary)
   -h, --help         Show this help
 
 Env overrides:
@@ -51,9 +51,9 @@ while [[ $# -gt 0 ]]; do
     --bench-lite) BENCH_LITE=1; shift ;;
     --full) MODE="full"; shift ;;
     --no-power) POWER=0; shift ;;
-    --out) OUT_DIR="${2:-}"; shift 2 ;;
+    --out) OUT_DIR="${2:-}"; KEEP_LOGS=1; shift 2 ;;
     --no-install-deps) INSTALL_DEPS=0; shift ;;
-    --no-logs) KEEP_LOGS=0; shift ;;
+    --keep-logs) KEEP_LOGS=1; shift ;;
     -h|--help) usage; exit 0 ;;
     *) echo "Unknown option: $1" >&2; usage >&2; exit 1 ;;
   esac
@@ -65,21 +65,17 @@ if [[ -z "${BUILD_DIR}" ]]; then
 fi
 
 ts="$(date +%Y%m%d-%H%M%S)"
+# Default: use a temp dir and delete it after printing summary (unless --keep-logs/--out).
 if [[ -z "${OUT_DIR}" ]]; then
-  OUT_DIR="${ROOT}/perf_compare/${ts}"
+  OUT_DIR="$(mktemp -d -t perf_compare_gfx1031.XXXXXXXX)"
+  if (( KEEP_LOGS )); then
+    OUT_DIR="${ROOT}/perf_compare/${ts}"
+  fi
 fi
 mkdir -p "${OUT_DIR}"
 
-local_log="${OUT_DIR}/host.${BUILD_DIR}.log"
-
-# Docker must write logs to a mounted path. If OUT_DIR is outside the repo root,
-# write the docker log under the repo and copy it back afterwards.
-docker_out_dir="${OUT_DIR}"
-if [[ "${OUT_DIR}" != "${ROOT}"* ]]; then
-  docker_out_dir="${ROOT}/perf_compare/${ts}"
-  mkdir -p "${docker_out_dir}"
-fi
-docker_log="${docker_out_dir}/docker.${BUILD_DIR}.log"
+host_cap="${OUT_DIR}/host.${BUILD_DIR}.out"
+docker_cap="${OUT_DIR}/docker.${BUILD_DIR}.out"
 
 bench_args=(--bench)
 if (( BENCH_LITE )); then
@@ -95,11 +91,11 @@ fi
 echo "== host bench =="
 host_rc=0
 set +e
-./test_gfx1031.sh --build-dir "${BUILD_DIR}" "${bench_args[@]}" --log "${local_log}"
+./test_gfx1031.sh --build-dir "${BUILD_DIR}" "${bench_args[@]}" 2>&1 | tee "${host_cap}"
 host_rc=$?
 set -e
 if (( host_rc != 0 )); then
-  echo "Host run failed (rc=${host_rc}). Log: ${local_log}" >&2
+  echo "Host run failed (rc=${host_rc})." >&2
   exit "${host_rc}"
 fi
 
@@ -107,23 +103,15 @@ echo ""
 echo "== docker bench =="
 docker_rc=0
 set +e
-docker_args=(--image "${IMAGE}" --build-dir "${BUILD_DIR}" "${bench_args[@]}" --no-shell --no-tty --log "${docker_log}")
+docker_args=(--image "${IMAGE}" --build-dir "${BUILD_DIR}" "${bench_args[@]}" --no-tty)
 if (( INSTALL_DEPS )); then
   docker_args+=(--install-deps)
 fi
-./run_rocm_container.sh "${docker_args[@]}"
+./run_rocm_container.sh "${docker_args[@]}" 2>&1 | tee "${docker_cap}"
 docker_rc=$?
 set -e
 if (( docker_rc != 0 )); then
-  echo "Docker run failed (rc=${docker_rc}). Log: ${docker_log}" >&2
-  if [[ -f "${docker_log}" ]]; then
-    if rg -q "GLIBC_[0-9.]+' not found|GLIBCXX_" "${docker_log}"; then
-      echo "Hint: container userland is too old for your in-tree dist (glibc/libstdc++ mismatch). Try a newer image, e.g.:" >&2
-      echo "  ./compare_perf_gfx1031.sh --image rocm/dev-ubuntu-24.04:latest" >&2
-    fi
-    echo "--- docker log tail ---" >&2
-    tail -n 20 "${docker_log}" >&2
-  fi
+  echo "Docker run failed (rc=${docker_rc})." >&2
   exit "${docker_rc}"
 fi
 
@@ -181,20 +169,20 @@ fmt_pct() {
   python3 -c "a=float('${a}'); b=float('${b}'); print('n/a' if a==0 else f'{(b-a)/a*100.0:+.1f}%')"
 }
 
-host_rocblas="$(extract_tflops "rocBLAS GEMM f32" "${local_log}")"
-docker_rocblas="$(extract_tflops "rocBLAS GEMM f32" "${docker_log}")"
-host_hipblas="$(extract_tflops "hipBLAS GEMM f32" "${local_log}")"
-docker_hipblas="$(extract_tflops "hipBLAS GEMM f32" "${docker_log}")"
+host_rocblas="$(extract_tflops "rocBLAS GEMM f32" "${host_cap}")"
+docker_rocblas="$(extract_tflops "rocBLAS GEMM f32" "${docker_cap}")"
+host_hipblas="$(extract_tflops "hipBLAS GEMM f32" "${host_cap}")"
+docker_hipblas="$(extract_tflops "hipBLAS GEMM f32" "${docker_cap}")"
 
-host_rocblas_avgw="$(extract_kv "bench: rocBLAS GEMM f32" "avgW" "${local_log}")"
-docker_rocblas_avgw="$(extract_kv "bench: rocBLAS GEMM f32" "avgW" "${docker_log}")"
-host_rocblas_gpu="$(extract_kv "bench: rocBLAS GEMM f32" "gpu%" "${local_log}")"
-docker_rocblas_gpu="$(extract_kv "bench: rocBLAS GEMM f32" "gpu%" "${docker_log}")"
+host_rocblas_avgw="$(extract_kv "bench: rocBLAS GEMM f32" "avgW" "${host_cap}")"
+docker_rocblas_avgw="$(extract_kv "bench: rocBLAS GEMM f32" "avgW" "${docker_cap}")"
+host_rocblas_gpu="$(extract_kv "bench: rocBLAS GEMM f32" "gpu%" "${host_cap}")"
+docker_rocblas_gpu="$(extract_kv "bench: rocBLAS GEMM f32" "gpu%" "${docker_cap}")"
 
-host_hipblas_avgw="$(extract_kv "bench: hipBLAS GEMM f32" "avgW" "${local_log}")"
-docker_hipblas_avgw="$(extract_kv "bench: hipBLAS GEMM f32" "avgW" "${docker_log}")"
-host_hipblas_gpu="$(extract_kv "bench: hipBLAS GEMM f32" "gpu%" "${local_log}")"
-docker_hipblas_gpu="$(extract_kv "bench: hipBLAS GEMM f32" "gpu%" "${docker_log}")"
+host_hipblas_avgw="$(extract_kv "bench: hipBLAS GEMM f32" "avgW" "${host_cap}")"
+docker_hipblas_avgw="$(extract_kv "bench: hipBLAS GEMM f32" "avgW" "${docker_cap}")"
+host_hipblas_gpu="$(extract_kv "bench: hipBLAS GEMM f32" "gpu%" "${host_cap}")"
+docker_hipblas_gpu="$(extract_kv "bench: hipBLAS GEMM f32" "gpu%" "${docker_cap}")"
 
 echo ""
 echo "==== perf comparison (${BUILD_DIR}) ===="
@@ -207,15 +195,10 @@ printf "%-22s %10s %10s %10s  %9s %9s  %7s %7s\n" \
   "${host_hipblas_avgw:-n/a}" "${docker_hipblas_avgw:-n/a}" "${host_hipblas_gpu:-n/a}" "${docker_hipblas_gpu:-n/a}"
 
 if (( KEEP_LOGS )); then
-  if [[ "${docker_out_dir}" != "${OUT_DIR}" ]]; then
-    mkdir -p "${OUT_DIR}"
-    cp -f "${docker_log}" "${OUT_DIR}/docker.${BUILD_DIR}.log"
-    docker_log="${OUT_DIR}/docker.${BUILD_DIR}.log"
-  fi
   echo ""
-  echo "Logs:"
-  echo "- ${local_log}"
-  echo "- ${docker_log}"
+  echo "Captured output:"
+  echo "- ${host_cap}"
+  echo "- ${docker_cap}"
 else
   rm -rf "${OUT_DIR}"
 fi

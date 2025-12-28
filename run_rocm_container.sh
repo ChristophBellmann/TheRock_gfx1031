@@ -8,11 +8,13 @@ BUILD_DIR="${BUILD_DIR:-build-stage2}"
 RUN_BENCH=0
 BENCH_LITE=0
 MODE="quick"
-DROP_SHELL=1
+# Default: run tests and exit (non-interactive).
+DROP_SHELL=0
 NO_TTY=0
 LOG_ENABLED=0
 LOG_FILE=""
 INSTALL_DEPS=0
+INSTALL_DEPS_EXPLICIT=0
 POWER=0
 
 usage() {
@@ -33,7 +35,7 @@ Options:
   --power            Enable sysfs power sampling in ./test_gfx1031.sh
   --log [file]       Enable logging (default: run_rocm_container.<builddir>.log)
   --install-deps     Install minimal runtime deps inside the container (e.g. libgfortran5 for bench clients)
-  --no-shell         Exit after running tests (default: drop into bash)
+  --shell            Drop into an interactive shell after running tests
   --no-tty           Do not allocate a pseudo-TTY (useful for piping/capture)
   -h, --help         Show this help
 
@@ -89,10 +91,11 @@ while [[ $# -gt 0 ]]; do
       ;;
     --install-deps)
       INSTALL_DEPS=1
+      INSTALL_DEPS_EXPLICIT=1
       shift
       ;;
-    --no-shell)
-      DROP_SHELL=0
+    --shell)
+      DROP_SHELL=1
       shift
       ;;
     --no-tty)
@@ -114,6 +117,12 @@ done
 if [[ -z "${BUILD_DIR}" ]]; then
   echo "BUILD_DIR is empty" >&2
   exit 2
+fi
+
+# Bench clients in the in-tree dist often depend on runtime libs not present in minimal dev images.
+# If the user asked to run benches and did not explicitly override deps behavior, auto-install minimal deps.
+if (( RUN_BENCH )) && (( ! INSTALL_DEPS_EXPLICIT )); then
+  INSTALL_DEPS=1
 fi
 
 cmd=(./test_gfx1031.sh --no-bench)
