@@ -1467,8 +1467,20 @@ run_bench_suite() {
 
   # 5) RNG
   if bench_selected 9 && command -v benchmark_rocrand_generate >/dev/null 2>&1; then
-    run_bench_with_timeout "bench: rocRAND generate (philox, uniform-float)" "${expected_misc}" "${timeout_s}" \
-      benchmark_rocrand_generate --size 1048576 --trials 2 --dis uniform-float --engine philox --format csv || true
+    # Sustained RNG workload to make power/utilization sampling meaningful.
+    # The rocrand micro-bench reports an internal "Time(all)" that can be large,
+    # but has low host overhead. Increase trials to get ~5s wall-time.
+    local rocrand_size rocrand_trials
+    if [[ "${MODE}" == "full" ]]; then
+      rocrand_size="${ROCRAND_SIZE:-134217728}"
+      rocrand_trials="${ROCRAND_TRIALS:-3300}"
+    else
+      rocrand_size="${ROCRAND_SIZE:-134217728}"
+      rocrand_trials="${ROCRAND_TRIALS:-3300}"
+    fi
+    local expected_rng="typ. 4-7s"
+    run_bench_with_timeout "bench: rocRAND generate (philox, uniform-float)" "${expected_rng}" "${timeout_s}" \
+      benchmark_rocrand_generate --size "${rocrand_size}" --trials "${rocrand_trials}" --dis uniform-float --engine philox --format csv || true
   elif bench_selected 9; then
     add_result "bench: rocRAND generate (philox, uniform-float)" "SKIP" "0s" "benchmark_rocrand_generate not in PATH"
   fi
