@@ -68,6 +68,13 @@ usage() {
   cat <<'EOF_USAGE'
 Usage: build_gfx1031.sh <command> [options] [args...]
 
+Purpose:
+  Reproducible TheRock builds for gfx1031 with:
+  - venv + ccache setup
+  - systemd memory limits (MemoryHigh/MemoryMax)
+  - per-build-dir locking (prevents concurrent build corruption)
+  - strict in-tree ROCm/HIP roots (avoid /opt/rocm mixing)
+
 Commands:
   configure         Top-level CMake configure (Stage-1/Stage-2 supported)
   configure-sub     (Re)configure specific subprojects only (<name>+configure)
@@ -80,6 +87,12 @@ Commands:
 Default behavior (no --stage*/--build-dir and no explicit targets):
   configure         Stage-1 configure; if Stage-1 toolchain exists, also Stage-2 configure
   build             Stage-1 bootstrap+build; then Stage-2 configure+bootstrap+build
+
+Quick start (fresh clone):
+  ./build_gfx1031.sh configure
+  ./build_gfx1031.sh build
+  ./test_gfx1031.sh --stage2
+  python3 validation/scripts/validate.py
 
 Shared options:
   --config <file>          Config file (default: ./config_gfx1031.yaml)
@@ -98,6 +111,12 @@ Configure options:
   --no-clean              Do not remove BUILD_DIR before configuring
   --no-check-clean        Skip "build dir must be empty" check
   -- <extra cmake args>   Extra args forwarded to top-level cmake
+
+Notes:
+  - Stage-2 configure requires the Stage-1 toolchain at:
+      <stage1_build_dir>/compiler/amd-llvm/dist/lib/llvm/bin/{clang,clang++,lld}
+  - The script does not auto-fall back to system hipcc for CMake HIP projects.
+    If ./install/bin/hipcc exists, it is used for CMake-HIP-language subprojects.
 
 Environment:
   CONFIG_FILE, LOG_FILE, BUILD_DIR, STAGE, STAGE1_BUILD_DIR
