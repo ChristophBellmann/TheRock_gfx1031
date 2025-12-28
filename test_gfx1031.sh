@@ -567,8 +567,8 @@ extract_power_field() {
 print_summary_table() {
   local title="$1"
   echo "${title}" | tee -a "${LOG_FILE}"
-  printf "ID  %-30s  %-4s  %7s  %-18s\n" "BENCH" "ST" "TIME" "PERF" | tee -a "${LOG_FILE}"
-  printf "%s\n" "--------------------------------------------------------------------------------" | tee -a "${LOG_FILE}"
+  printf "ID  %-30s  %-4s  %7s  %-28s\n" "BENCH" "ST" "TIME" "PERF" | tee -a "${LOG_FILE}"
+  printf "%s\n" "----------------------------------------------------------------------------------------------------" | tee -a "${LOG_FILE}"
 
   for i in "${!RESULT_LABELS[@]}"; do
     local label="${RESULT_LABELS[$i]}"
@@ -604,7 +604,7 @@ print_summary_table() {
     printf "%s%-30.30s%s" "${C_BOLD}" "${name}" "${C_RESET}" | tee -a "${LOG_FILE}"
     printf "  " | tee -a "${LOG_FILE}"
     printf "%s%-4s%s" "${st_c}" "${status}" "${C_RESET}" | tee -a "${LOG_FILE}"
-    printf "  %6.3fs  %-18.18s\n" "${seconds}" "${perf}" | tee -a "${LOG_FILE}"
+    printf "  %6.3fs  %-28.28s\n" "${seconds}" "${perf}" | tee -a "${LOG_FILE}"
 
     # Bench rows get a second line with energy/utilization fields (if power is enabled and available).
     if [[ "${label}" == bench:* ]] && (( RUN_POWER )) && [[ -n "${power}" ]]; then
@@ -1015,9 +1015,10 @@ extract_sparse_metrics() {
     }
     END {
       if(gf!="") {
-        out="GFLOP/s=" gf
-        if(gb!="") out=out " (GB/s=" gb ")"
-        if(ms!="") out=out " (ms=" ms ")"
+        out=""
+        if(gb!="") out="GB/s=" gb
+        if(out!="" && gf!="") out=out " "
+        out=out "GFLOP/s=" gf
         print out
       }
     }
@@ -1034,8 +1035,7 @@ extract_rocrand_metrics() {
     END {
       if(gb!="") {
         out="GB/s=" gb
-        if(gs!="") out=out " (GSample/s=" gs ")"
-        if(ms!="") out=out " (ms=" ms ")"
+        if(gs!="") out=out " GSample/s=" gs
         print out
       }
     }
@@ -1374,7 +1374,7 @@ power_wrap() {
       if [[ -n "${gbps}" ]]; then
         metric="GB/s=${gbps}"
         if [[ -n "${gs}" ]]; then
-          metric="${metric} (GSample/s=${gs})"
+          metric="${metric} GSample/s=${gs}"
         fi
       elif [[ -n "${gs}" ]]; then
         metric="GSample/s=${gs}"
@@ -1560,7 +1560,7 @@ run_bench_with_timeout() {
       if [[ -n "${gbps}" ]]; then
         metric="GB/s=${gbps}"
         if [[ -n "${gs}" ]]; then
-          metric="${metric} (GSample/s=${gs})"
+          metric="${metric} GSample/s=${gs}"
         fi
       elif [[ -n "${gs}" ]]; then
         metric="GSample/s=${gs}"
