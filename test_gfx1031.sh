@@ -1202,6 +1202,34 @@ run_bench_with_timeout() {
   local tmp
   tmp="$(mktemp)"
   echo "${C_CYAN}==>${C_RESET} $(fmt_label "${label}") ${C_DIM}(expected: ${expected})${C_RESET}" | tee -a "${LOG_FILE}"
+  # After the benchmark header, print a short math-oriented description of what
+  # is computed so users can interpret the benchmark at a glance.
+  if [[ "${label}" == bench:* ]]; then
+    local formula=""
+    case "${label}" in
+      "bench: rocBLAS GEMM f32"|"bench: hipBLAS GEMM f32")
+        formula="GEMM:  C ← α·A·B + β·C  (A∈ℝ^{m×k}, B∈ℝ^{k×n}, C∈ℝ^{m×n})"
+        ;;
+      bench:\ rocSOLVER\ geqrf_strided_batched*)
+        formula="QR factorization:  A = Q·R,  with  Qᵀ·Q = I  (batched across inputs)"
+        ;;
+      bench:\ hipSOLVER*)
+        formula="LU factorization (partial pivoting):  P·A = L·U"
+        ;;
+      bench:\ rocSPARSE\ axpyi*|bench:\ hipSPARSE\ axpyi*)
+        formula="Sparse AXPYI:  ∀j∈[0,nnz):  y[iⱼ] ← y[iⱼ] + α·xⱼ"
+        ;;
+      bench:\ rocFFT\ complex\ fwd*|bench:\ dyna-rocFFT\ complex\ fwd*)
+        formula="FFT (forward):  Xₖ = ∑ₙ₌₀^{N−1} xₙ · e^{−2π i k n / N}  (batched)"
+        ;;
+      bench:\ rocRAND\ generate*)
+        formula="RNG:  xᵢ ∼ U(0,1)  (Philox engine; uniform-float distribution)"
+        ;;
+    esac
+    if [[ -n "${formula}" ]]; then
+      echo "    ${C_DIM}${formula}${C_RESET}" | tee -a "${LOG_FILE}"
+    fi
+  fi
   if (( RUN_POWER )) && [[ -n "${POWER_PATH}" ]]; then
     rm -f "${tmp}"
     power_wrap "${label}" "${expected}" "${timeout_s}" "${cmd[@]}"
