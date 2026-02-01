@@ -47,7 +47,8 @@ workloads:
     docker_image: "ollama/ollama:rocm"
   mfem:
     git: "https://github.com/mfem/mfem.git"
-    ref: "master"
+    # Pinned for reproducibility (was: master).
+    ref: "v4.9"
     # Prefer a complex 3D mesh for a clearer sustained GPU signal.
     mesh: "fichera.mesh"
     # Parameters for the MFEM HIP micro-benchmark (repeated operator apply).
@@ -75,7 +76,8 @@ workloads:
     min_bench_s: 5.0
   petsc:
     git: "https://gitlab.com/petsc/petsc.git"
-    ref: "release"
+    # Pinned for reproducibility (was: release).
+    ref: "v3.24.2"
     min_bench_s: 5.0
 
 steps:
