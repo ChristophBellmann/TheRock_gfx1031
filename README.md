@@ -117,6 +117,11 @@ Notes:
 ./test_gfx1031.sh
 ```
 
+Thorough host run (full suite, power, logs):
+```bash
+./test_gfx1031.sh --build-dir build-stage2 --consistency --miopen --miopen-smoke --bench --full --log test_gfx1031.stage2.full.log
+```
+
 ## Docker comparison: `test_docker_gfx1031.sh`
 
 This script runs the same bench suite against the in-tree dist:
@@ -126,6 +131,13 @@ This script runs the same bench suite against the in-tree dist:
 ```bash
 ./test_docker_gfx1031.sh
 ```
+
+Host vs docker (keeps captured output under `perf_compare/<timestamp>/`):
+```bash
+./test_docker_gfx1031.sh --build-dir build-stage2 --full --consistency --miopen --miopen-smoke --keep-logs
+```
+
+Note: the docker image is used as a runtime container; host-build-tool presence checks (`cmake`, `ninja`, `ccache`) may show as missing inside the container unless you install them there.
 
 ## Validation suite (apps + ROCm usability): `validation/`
 
@@ -153,45 +165,17 @@ python3 validation/scripts/validate.py --profile all --yes --power --log
 
 See `validation/README.md` for full details, configuration, and per-workload one-shot validators.
 
+Example full regression run (with logs):
+```bash
+# Host tests (writes test_gfx1031.stage2.full.log):
+./test_gfx1031.sh --build-dir build-stage2 --consistency --miopen --miopen-smoke --bench --full --log test_gfx1031.stage2.full.log
 
-### Validation Christophs PC:
+# Host vs docker comparison (writes perf_compare/<timestamp>/):
+./test_docker_gfx1031.sh --build-dir build-stage2 --full --consistency --miopen --miopen-smoke --keep-logs
 
-christoph@christoph-Produktion:/media/christoph/some_space/make_my_gpu_useful/TheRock_gfx1031$ python3 validation/scripts/validate.py
-Validation profile: all
-Build dirs: build-stage2
-
-May download/build (if enabled):
-- llama.cpp (docker image) + GGUF model: https://huggingface.co/bartowski/Llama-3.2-3B-Instruct-GGUF/resolve/main/Llama-3.2-3B-Instruct-Q4_K_M.gguf
-- Ollama (download or docker) + model: llama3.2:3b-instruct-q4_0
-- Open Interpreter (pip install)
-- Whisper (pip install) + model: base (audio_target_s=300)
-- MFEM source clone + HIP build (ref=v4.9)
-- PyTorch (pip install ROCm wheels): ['torch']
-- PETSc source clone + HIP build (ref=v3.24.2)
-
-Download limits: max_total=8GB, max_single=4GB (best-effort)
-Proceed? [Y/n] 
-
-==== validation summary ====
--- build dir: build-stage2
-- ROCm env activation      OK (    0ms)  ROCM_PATH=/media/christoph/some_space/make_my_gpu_useful/TheRock_gfx1031/build-stage2/dist/rocm
-- Power idle baseline      OK ( 5.000s)                                                                                                            |  E=  85Ws  avgW=  18.8W  dW=   n/a  maxW=  19.0W  gpu%=  2  mem%=  0
-- rocminfo                 OK (   36ms)
-- hipcc compile+run        OK ( 5.288s)                                                                                                            |  E= 413Ws  avgW= 112.5W  dW= +93.7W  maxW= 129.0W  gpu%= 87  mem%= 37
-- rocBLAS GEMM f32         OK ( 5.725s)  m=n=k=6144 iters=80 TFLOPS=11.248 (GFLOPS=11247.9)                                                        |  E= 701Ws  avgW= 128.1W  dW=+109.3W  maxW= 198.0W  gpu%= 60  mem%=  4
-- rocFFT                   OK ( 5.394s)  len=1048576 batch=16 ntrial=800                                                                           |  E= 742Ws  avgW= 144.5W  dW=+125.7W  maxW= 154.0W  gpu%= 90  mem%= 25
-- rocRAND generate         OK ( 5.272s)  size=134217728 trials=3300                                                                                |  E= 936Ws  avgW= 184.0W  dW=+165.2W  maxW= 191.0W  gpu%= 91  mem%= 38
-- MIOpen driver            OK (   32ms)  driver=MIOpenDriver
-- MIOpen smoke             OK ( 5.313s)  driver=MIOpenDriver iters=700                                                                             |  E= 904Ws  avgW= 178.7W  dW=+159.9W  maxW= 208.0W  gpu%= 81  mem%= 13
-- llama.cpp (docker) smoke OK (31.136s)  image=rocm/llama.cpp:llama.cpp-b6652.amd0_rocm7.0.0_ubuntu24.04_full model=Llama-3.2-3B-Instruct-Q4_K_M…  |  E=4784Ws  avgW= 160.7W  dW=+141.9W  maxW= 187.0W  gpu%= 94  mem%= 21
-- Ollama (docker ROCm) bench OK ( 5.205s)  backend=rocm model=llama3.2:3b-instruct-q4_0 out=512 runs=8 tok/s=135.61 prompt_tok/s=3087.12 ttft=222m…  |  E= 503Ws  avgW=  99.8W  dW= +81.0W  maxW= 141.0W  gpu%= 56  mem%= 16
-- Open Interpreter (pip) smoke OK ( 2.349s)  interpreter --help
-- Whisper (python) smoke   OK (1m46.59s)  base transcribe (audio=audio_repeat_300s.wav) rocm_env=system wall=106.59s audio_target_s=300 repeats=5…  |  E=10042Ws  avgW=  94.3W  dW= +75.5W  maxW= 115.0W  gpu%= 90  mem%=  5
-- MFEM (HIP) build+run     OK ( 9.068s)  mfem_apply mesh=fichera.mesh wall=8.61s order=3 refine=4 pa=1 ndofs=802081 iters=6770 seconds=7.77831 a…  |  E=1360Ws  avgW= 156.3W  dW=+137.5W  maxW= 180.0W  gpu%= 88  mem%= 24
-- PyTorch (audio)          OK (11.661s)  device=AMD Radeon RX 6700 XT rocm_env=system wall=11.66s hsa_override=10.3.0 tflops_est=9.38 shape=16x6…  |  E=1894Ws  avgW= 158.5W  dW=+139.7W  maxW= 207.0W  gpu%= 75  mem%=  7
-- PyTorch (video)          OK (20.613s)  device=AMD Radeon RX 6700 XT rocm_env=system wall=20.61s hsa_override=10.3.0 tflops_est=3.21 shape=2x32…  |  E=3806Ws  avgW= 181.5W  dW=+162.7W  maxW= 211.0W  gpu%= 83  mem%= 10
-- PETSc (HIP) build+solve  OK ( 8.465s)  spmv m×n=1024x1024 wall=7.28s vec=hip mat=seqsellhip iters=45694 seconds=5.06662 matmult/s=9018.6         |  E=1189Ws  avgW= 123.7W  dW=+104.9W  maxW= 180.0W  gpu%= 65  mem%=  5
-Logs: disabled (use --log)
+# Full workload validation (writes validation/workspace/runs/<run_id>/logs/):
+python3 validation/scripts/validate.py --profile all --yes --power --summary-multiline --log
+```
 
 
 ## TODO

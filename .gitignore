@@ -29,6 +29,7 @@ validation/_logs/
 /install/
 /output-*/
 /out/
+/perf_compare/
 .locks/
 
 # Personal build logs and artifacts
