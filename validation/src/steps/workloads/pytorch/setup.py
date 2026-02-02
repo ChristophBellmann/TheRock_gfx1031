@@ -25,11 +25,12 @@ def ensure_pytorch(ctx: Context, cfg: dict[str, Any], env: dict[str, str], log: 
     auto = bool(wl.get("auto_install", False))
     if not auto:
         return None
+    force = bool(wl.get("force_reinstall", False))
 
     # If torch is already installed in the validation venv, we can proceed even
     # when downloads are disabled.
     probe = run_cmd(ctx.repo_root, env, [sys.executable, "-c", "import torch; print(getattr(torch,'__version__',''))"], 30, log)
-    if probe.rc == 0:
+    if probe.rc == 0 and not force:
         return None
 
     if not downloads_enabled(cfg):

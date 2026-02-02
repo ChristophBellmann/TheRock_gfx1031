@@ -24,6 +24,9 @@ workloads:
     # pip_args: ["--index-url", "https://download.pytorch.org/whl/rocm6.2"]
     # packages: ["torch", "torchvision"]
     min_bench_s: 5.0
+    # If true, run pip install even if torch is already present (useful when
+    # switching ROCm wheel channels or testing in-tree runtime compatibility).
+    force_reinstall: false
     # If set, enforce that ROCm runtime libraries are loaded from this prefix.
     # Special value: "in-tree" => require libs from <builddir>/dist/rocm.
     # Example (system install): "/opt/rocm"

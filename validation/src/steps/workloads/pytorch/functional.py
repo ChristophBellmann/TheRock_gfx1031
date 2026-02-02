@@ -139,6 +139,9 @@ def _step_pytorch_conv(ctx: Context, cfg: dict[str, Any], build_dir: str, rocm_d
     run_env = dict(run_env)
     run_env["ROCM_VALIDATION_PYTORCH_MIN_S"] = str(min_s)
     run_env["ROCM_VALIDATION_PYTORCH_KIND"] = kind
+    # Improve crash diagnostics (some ROCm/runtime mismatches can segfault).
+    run_env.setdefault("PYTHONUNBUFFERED", "1")
+    run_env.setdefault("PYTHONFAULTHANDLER", "1")
     # Some prebuilt ROCm wheels ship code objects for gfx1030 but not gfx1031.
     # Allow opting into the common compatibility workaround.
     if not use_in_tree:
@@ -153,7 +156,7 @@ def _step_pytorch_conv(ctx: Context, cfg: dict[str, Any], build_dir: str, rocm_d
 
     def run_one(sampler):
         t0 = time.monotonic()
-        r = run_cmd(ctx.repo_root, run_env, [sys.executable, "-c", script], t, log)
+        r = run_cmd(ctx.repo_root, run_env, [sys.executable, "-u", "-X", "faulthandler", "-c", script], t, log)
         wall_s = time.monotonic() - t0
         return r, wall_s, sampler
 
