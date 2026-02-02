@@ -1,0 +1,34 @@
+# Validate PyTorch GPU usage while forcing the in-tree ROCm runtime.
+#
+# Use-case:
+# - You want to check whether a ROCm PyTorch install can run while loading the
+#   ROCm runtime from <builddir>/dist/rocm (instead of bundled wheels or /opt/rocm).
+#
+# Notes:
+# - This can crash if the installed torch build is tightly coupled to a
+#   different ROCm runtime. If so, run `--profile pytorch` instead.
+run:
+  profile: pytorch_in_tree
+  ask_before_downloads: true
+  downloads_enabled: true
+
+workloads:
+  pytorch:
+    auto_install: true
+    # Best-effort ROCm wheels. Adjust as needed.
+    pip_args: ["--index-url", "https://download.pytorch.org/whl/rocm7.1"]
+    packages: ["torch"]
+    use_in_tree_rocm: true
+    require_rocm_prefix: "in-tree"
+
+steps:
+  rocm_sanity: true
+  rocm_bench_smoke: false
+  miopen_smoke: false
+  llama_cpp_docker: false
+  ollama: false
+  open_interpreter: false
+  whisper: false
+  mfem_hip: false
+  pytorch: true
+  petsc_hip: false

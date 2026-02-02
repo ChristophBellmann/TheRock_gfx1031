@@ -56,6 +56,7 @@ Run a focused subset instead of the full pipeline:
 - Whisper: `--profile whisper`
 - MFEM: `--profile mfem`
 - PyTorch GPU compute: `--profile pytorch` (requires ROCm-enabled `torch` in the validation venv unless configured for auto-install)
+- PyTorch + in-tree ROCm runtime: `--profile pytorch_in_tree` (enforces that ROCm runtime libs are loaded from `<builddir>/dist/rocm`)
 - PETSc HIP build+solve: `--profile petsc` (can take a while)
 
 Tip: list the profiles available in your checkout:

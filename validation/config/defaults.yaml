@@ -24,6 +24,10 @@ workloads:
     # pip_args: ["--index-url", "https://download.pytorch.org/whl/rocm6.2"]
     # packages: ["torch", "torchvision"]
     min_bench_s: 5.0
+    # If set, enforce that ROCm runtime libraries are loaded from this prefix.
+    # Special value: "in-tree" => require libs from <builddir>/dist/rocm.
+    # Example (system install): "/opt/rocm"
+    require_rocm_prefix: ""
   llama_cpp:
     docker_image: ""   # optional override; empty => auto-detect from AMD docs
     prompt_file: "validation/src/assets/samples/prompts/tiny_prompt.txt"

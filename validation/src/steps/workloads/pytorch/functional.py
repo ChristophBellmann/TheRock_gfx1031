@@ -87,6 +87,41 @@ else:
     print("runs", runs)
     print("seconds", dt)
     print("tflops_est", flops/dt/1e12)
+
+# Record where ROCm runtime libraries are actually loaded from (for "in-tree" vs
+# "system" validation).
+try:
+    import os as _os
+    import re as _re
+
+    def _loaded_so_paths():
+        out=set()
+        with open("/proc/self/maps","r",encoding="utf-8",errors="ignore") as f:
+            for line in f:
+                parts=line.strip().split()
+                if len(parts) < 6:
+                    continue
+                p=parts[5]
+                if p.startswith("/") and ".so" in p:
+                    out.add(p)
+        return sorted(out)
+
+    def _find_lib(paths, base):
+        # Match libfoo.so or libfoo.so.<ver>
+        pat=_re.compile(_re.escape(base) + r"(\\..*)?$")
+        for p in paths:
+            b=_os.path.basename(p)
+            if pat.match(b):
+                return p
+        return ""
+
+    _paths=_loaded_so_paths()
+    for _lib in ("libamdhip64.so","libhsa-runtime64.so","libhiprtc.so"):
+        _p=_find_lib(_paths, _lib)
+        if _p:
+            print("loaded", _lib, _p)
+except Exception as e:
+    print("loaded_libs_error", type(e).__name__)
 """.strip()
 
 
@@ -162,6 +197,27 @@ def _step_pytorch_conv(ctx: Context, cfg: dict[str, Any], build_dir: str, rocm_d
     secs = float(m.group(1)) if m else 0.0
     if runs > 0 and secs > 0:
         metric += f" it/s={runs/secs:.2f}"
+
+    # Determine where ROCm runtime libraries came from.
+    loaded = {}
+    for line in out.splitlines():
+        if not line.startswith("loaded "):
+            continue
+        parts = line.split(" ", 2)
+        if len(parts) == 3:
+            loaded[parts[1].strip()] = parts[2].strip()
+
+    hip_lib = loaded.get("libamdhip64.so", "")
+    if hip_lib:
+        metric += f" hip_lib={hip_lib}"
+
+    req = str(wl.get("require_rocm_prefix", "") or "").strip()
+    if req:
+        expected = str(rocm_dist) if req == "in-tree" else req.rstrip("/")
+        if not hip_lib:
+            return StepResult(build_dir, f"PyTorch ({kind})", "FAIL", fmt_duration(r.dur_ms), f"could not determine loaded ROCm runtime lib (libamdhip64) | expected prefix: {expected} | {metric}")
+        if not hip_lib.startswith(expected + "/"):
+            return StepResult(build_dir, f"PyTorch ({kind})", "FAIL", fmt_duration(r.dur_ms), f"ROCm runtime lib not from expected prefix: {expected} | hip_lib={hip_lib}")
 
     metric = append_power(metric, sampler, baseline_w=baseline_avg_w(cfg, build_dir))
 
