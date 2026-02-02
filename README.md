@@ -177,6 +177,51 @@ Example full regression run (with logs):
 python3 validation/scripts/validate.py --profile all --yes --power --summary-multiline --log
 ```
 
+## Latest known-good run (example)
+
+This section documents a recent, complete end-to-end run to serve as a **baseline**.
+Numbers depend on GPU/driver/kernel and will vary, but **GPU usage should be obvious**
+from `dW` (power delta) and `gpu%`.
+
+### 2026-02-02 (RX 6700 XT / gfx1031)
+
+Commands used:
+- `./test_gfx1031.sh --build-dir build-stage2 --consistency --miopen --miopen-smoke --bench --full --log test_gfx1031.stage2.full.log`
+- `./test_docker_gfx1031.sh --build-dir build-stage2 --full --consistency --miopen --miopen-smoke --keep-logs`
+- `python3 validation/scripts/validate.py --profile all --yes --power --summary-multiline --log`
+
+Artifacts:
+- Host test log: `test_gfx1031.stage2.full.log`
+- Validation report (local): `validation/workspace/runs/2026-02-02_003528/report.json`
+- Validation logs (local): `validation/workspace/runs/2026-02-02_003528/logs/`
+
+Key validation results (`--profile all`, `build-stage2`):
+- ROCm sanity:
+  - `rocminfo`: OK
+  - HIP compile+run: OK (`avgW≈113W`, `dW≈+94W`, `gpu%≈87`)
+- ROCm bench smoke (~5s sustained per test):
+  - rocBLAS GEMM f32: `TFLOPS≈11.2` (`avgW≈129W`, `dW≈+110W`, `gpu%≈62`)
+  - rocFFT: OK (`avgW≈139W`, `dW≈+120W`, `gpu%≈88`)
+  - rocRAND generate: OK (`avgW≈183W`, `dW≈+164W`, `gpu%≈91`)
+- MIOpen:
+  - driver present + smoke: OK (`avgW≈162W`, `dW≈+143W`, `gpu%≈72`)
+- LLMs:
+  - llama.cpp (docker): OK (`pp_tok/s≈1723`, `tg_tok/s≈98`, `avgW≈132W`, `dW≈+113W`, `gpu%≈74`)
+  - Ollama (docker ROCm): OK (`tok/s≈135`, `ttft≈232ms`, `avgW≈105W`, `dW≈+86W`, `gpu%≈62`)
+- Speech:
+  - Whisper (python, 300s audio): OK (`words=268`, `w/s≈2.38`, `rtf≈0.375`, `avgW≈92W`, `dW≈+73W`, `gpu%≈87`)
+- FEM / solvers:
+  - MFEM (HIP): OK (`ndofs≈802k`, `apply/s≈867`, `avgW≈155W`, `dW≈+136W`, `gpu%≈89`)
+  - PETSc (HIP): OK (`matmult/s≈9177`, `avgW≈120W`, `dW≈+101W`, `gpu%≈64`)
+- PyTorch:
+  - audio: OK (`it/s≈66.9`, `tflops_est≈9.5`, `avgW≈155W`, `dW≈+136W`, `gpu%≈71`)
+  - video: OK (`it/s≈72.1`, `tflops_est≈3.2`, `avgW≈183W`, `dW≈+164W`, `gpu%≈85`)
+
+Reproducibility notes:
+- MFEM is pinned to `v4.9` and PETSc to `v3.24.2` in the validation defaults.
+- Whisper "long audio" is generated at runtime via `ffmpeg` (no large WAV is committed).
+- `perf_compare/` is intentionally not tracked (captured docker vs host logs).
+
 
 ## TODO
 
