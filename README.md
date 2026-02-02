@@ -222,6 +222,19 @@ Reproducibility notes:
 - Whisper "long audio" is generated at runtime via `ffmpeg` (no large WAV is committed).
 - `perf_compare/` is intentionally not tracked (captured docker vs host logs).
 
+## Optional: system-wide install (/opt/rocm)
+
+The intended workflow is **in-tree** (no system install). If you want a system-wide prefix anyway,
+use `install_to_opt.sh` to mirror the Stage‑2 dist to `/opt/rocm`.
+
+```bash
+# Builds are incremental; ensure Stage‑2 dist exists first:
+./build_gfx1031.sh build --stage2
+
+# Install to /opt/rocm (prompts once, uses rsync, sets ldconfig paths):
+./install_to_opt.sh --build-dir build-stage2 --prefix /opt/rocm
+```
+
 
 ## TODO
 
