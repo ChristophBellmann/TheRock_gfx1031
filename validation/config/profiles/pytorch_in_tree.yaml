@@ -16,10 +16,10 @@ workloads:
   pytorch:
     auto_install: true
     # Best-effort ROCm wheels. Adjust as needed.
-    # This profile is explicitly about mixing "pip torch" with the in-tree ROCm runtime,
-    # so we force a reinstall to avoid using a previously-installed wheel.
-    force_reinstall: true
-    pip_args: ["--upgrade", "--force-reinstall", "--no-cache-dir", "--index-url", "https://download.pytorch.org/whl/rocm7.1"]
+    # This profile is explicitly about mixing "pip torch" with the in-tree ROCm runtime.
+    # If a different torch build is already installed, the suite will reinstall once
+    # based on `expected_version_substr`.
+    pip_args: ["--index-url", "https://download.pytorch.org/whl/rocm7.1"]
     packages: ["torch"]
     expected_version_substr: "+rocm7.1"
     use_in_tree_rocm: true
