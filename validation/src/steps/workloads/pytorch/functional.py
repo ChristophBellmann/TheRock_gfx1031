@@ -38,6 +38,41 @@ dev=torch.device("cuda")
 name=torch.cuda.get_device_name(0)
 print("device_name", name)
 
+# Record where ROCm runtime libraries are actually loaded from (for "in-tree" vs
+# "system" validation).
+try:
+    import os as _os
+    import re as _re
+
+    def _loaded_so_paths():
+        out=set()
+        with open("/proc/self/maps","r",encoding="utf-8",errors="ignore") as f:
+            for line in f:
+                parts=line.strip().split()
+                if len(parts) < 6:
+                    continue
+                p=parts[5]
+                if p.startswith("/") and ".so" in p:
+                    out.add(p)
+        return sorted(out)
+
+    def _find_lib(paths, base):
+        # Match libfoo.so or libfoo.so.<ver>
+        pat=_re.compile(_re.escape(base) + r"(\\..*)?$")
+        for p in paths:
+            b=_os.path.basename(p)
+            if pat.match(b):
+                return p
+        return ""
+
+    _paths=_loaded_so_paths()
+    for _lib in ("libamdhip64.so","libhsa-runtime64.so","libhiprtc.so"):
+        _p=_find_lib(_paths, _lib)
+        if _p:
+            print("loaded", _lib, _p)
+except Exception as e:
+    print("loaded_libs_error", type(e).__name__)
+
 torch.manual_seed(0)
 
 if kind=="audio":
@@ -87,41 +122,6 @@ else:
     print("runs", runs)
     print("seconds", dt)
     print("tflops_est", flops/dt/1e12)
-
-# Record where ROCm runtime libraries are actually loaded from (for "in-tree" vs
-# "system" validation).
-try:
-    import os as _os
-    import re as _re
-
-    def _loaded_so_paths():
-        out=set()
-        with open("/proc/self/maps","r",encoding="utf-8",errors="ignore") as f:
-            for line in f:
-                parts=line.strip().split()
-                if len(parts) < 6:
-                    continue
-                p=parts[5]
-                if p.startswith("/") and ".so" in p:
-                    out.add(p)
-        return sorted(out)
-
-    def _find_lib(paths, base):
-        # Match libfoo.so or libfoo.so.<ver>
-        pat=_re.compile(_re.escape(base) + r"(\\..*)?$")
-        for p in paths:
-            b=_os.path.basename(p)
-            if pat.match(b):
-                return p
-        return ""
-
-    _paths=_loaded_so_paths()
-    for _lib in ("libamdhip64.so","libhsa-runtime64.so","libhiprtc.so"):
-        _p=_find_lib(_paths, _lib)
-        if _p:
-            print("loaded", _lib, _p)
-except Exception as e:
-    print("loaded_libs_error", type(e).__name__)
 """.strip()
 
 

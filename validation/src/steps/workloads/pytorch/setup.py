@@ -26,12 +26,26 @@ def ensure_pytorch(ctx: Context, cfg: dict[str, Any], env: dict[str, str], log: 
     if not auto:
         return None
     force = bool(wl.get("force_reinstall", False))
+    expected = str(wl.get("expected_version_substr", "") or "").strip()
 
     # If torch is already installed in the validation venv, we can proceed even
     # when downloads are disabled.
     probe = run_cmd(ctx.repo_root, env, [sys.executable, "-c", "import torch; print(getattr(torch,'__version__',''))"], 30, log)
+    installed_ver = (probe.out or "").strip() if probe.rc == 0 else ""
     if probe.rc == 0 and not force:
-        return None
+        if expected and expected not in installed_ver:
+            # Installed torch does not match the requested wheel channel/version tag.
+            # If downloads are disabled, proceed but warn (the step may still fail).
+            if not downloads_enabled(cfg):
+                return StepResult(
+                    "<meta>",
+                    "PyTorch setup",
+                    "OK",
+                    "0ms",
+                    f"torch already installed but version mismatch: have={installed_ver} expected~={expected} (downloads disabled; proceeding)",
+                )
+        else:
+            return None
 
     if not downloads_enabled(cfg):
         return StepResult("<meta>", "PyTorch setup", "SKIP", "0ms", "downloads disabled (cannot install torch)")

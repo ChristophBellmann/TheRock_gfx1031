@@ -24,6 +24,10 @@ workloads:
     # pip_args: ["--index-url", "https://download.pytorch.org/whl/rocm6.2"]
     # packages: ["torch", "torchvision"]
     min_bench_s: 5.0
+    # Optional: if set, auto-install will ensure the installed torch version
+    # string contains this substring (e.g. "+rocm6.2"). If mismatched and
+    # downloads are enabled, it will reinstall.
+    expected_version_substr: ""
     # If true, run pip install even if torch is already present (useful when
     # switching ROCm wheel channels or testing in-tree runtime compatibility).
     force_reinstall: false

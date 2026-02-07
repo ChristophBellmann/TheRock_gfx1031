@@ -10,6 +10,7 @@ workloads:
     # Best-effort default for ROCm PyTorch wheels (adjust if needed).
     pip_args: ["--index-url", "https://download.pytorch.org/whl/rocm6.2"]
     packages: ["torch"]
+    expected_version_substr: "+rocm6.2"
     # ROCm wheels are often coupled to a specific ROCm runtime; prefer the system
     # ROCm runtime for this check unless you have a matching in-tree build.
     use_in_tree_rocm: false
