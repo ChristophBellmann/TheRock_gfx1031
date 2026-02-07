@@ -32,6 +32,7 @@ def ensure_pytorch(ctx: Context, cfg: dict[str, Any], env: dict[str, str], log: 
     # when downloads are disabled.
     probe = run_cmd(ctx.repo_root, env, [sys.executable, "-c", "import torch; print(getattr(torch,'__version__',''))"], 30, log)
     installed_ver = (probe.out or "").strip() if probe.rc == 0 else ""
+    need_reinstall = force
     if probe.rc == 0 and not force:
         if expected and expected not in installed_ver:
             # Installed torch does not match the requested wheel channel/version tag.
@@ -44,6 +45,7 @@ def ensure_pytorch(ctx: Context, cfg: dict[str, Any], env: dict[str, str], log: 
                     "0ms",
                     f"torch already installed but version mismatch: have={installed_ver} expected~={expected} (downloads disabled; proceeding)",
                 )
+            need_reinstall = True
         else:
             return None
 
@@ -57,7 +59,15 @@ def ensure_pytorch(ctx: Context, cfg: dict[str, Any], env: dict[str, str], log: 
         packages = ["torch", "torchvision"]
 
     # `pip_install` doesn't support extra args; call pip directly for flexibility.
-    cmd = [sys.executable, "-m", "pip", "install"] + pip_args + packages
+    extra_flags: list[str] = []
+    if need_reinstall:
+        # Make the result deterministic even if a different torch build is
+        # already installed in the validation venv.
+        if "--ignore-installed" not in pip_args and "-I" not in pip_args:
+            extra_flags += ["-I"]
+        if "--no-cache-dir" not in pip_args:
+            extra_flags += ["--no-cache-dir"]
+    cmd = [sys.executable, "-m", "pip", "install"] + extra_flags + pip_args + packages
     r = run_cmd(ctx.repo_root, env, cmd, t, log)
     if r.rc != 0:
         return StepResult("<meta>", "PyTorch setup", "FAIL", fmt_duration(r.dur_ms), f"pip rc={r.rc}")
