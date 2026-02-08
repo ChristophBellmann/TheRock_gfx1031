@@ -42,6 +42,8 @@ features:
   enable_compiler: true
   enable_core_runtime: true
   enable_hip_runtime: true
+  # OpenCL runtime (needed for OpenCL apps like DaVinci Resolve).
+  enable_ocl_runtime: true
   enable_hipify: true
   enable_blas: true
   enable_prim: true

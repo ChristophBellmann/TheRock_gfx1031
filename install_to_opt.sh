@@ -7,6 +7,7 @@ BUILD_DIR="${BUILD_DIR:-build-stage2}"
 SRC_PREFIX="${SRC_PREFIX:-}"
 PREFIX="${PREFIX:-/opt/rocm}"
 PYTORCH_WHEEL="${PYTORCH_WHEEL:-}"
+DO_OPENCL_ICD=1
 DO_PYTORCH_WHEEL=1
 DO_DELETE=1
 DO_LDCONFIG=1
@@ -36,6 +37,7 @@ Options:
                        Also copy this custom-built torch wheel into <prefix>/wheels/pytorch_rocm711/
                        (default: auto-discover in validation cache; best-effort)
   --no-pytorch-wheel    Do not copy the custom torch wheel
+  --no-opencl-icd       Do not install /etc/OpenCL/vendors/amdocl64.icd (OpenCL apps like DaVinci Resolve)
   --no-delete           Do not delete extra files in destination
   --no-ldconfig         Do not write /etc/ld.so.conf.d snippet, do not run ldconfig
   --no-check            Do not run post-install checks
@@ -103,6 +105,10 @@ while [[ $# -gt 0 ]]; do
       DO_PYTORCH_WHEEL=0
       shift
       ;;
+    --no-opencl-icd)
+      DO_OPENCL_ICD=0
+      shift
+      ;;
     --no-delete)
       DO_DELETE=0
       shift
@@ -164,6 +170,7 @@ fi
 echo "mode   : ${mode}"
 echo "ldconfig: $([[ ${DO_LDCONFIG} -eq 1 ]] && echo yes || echo no)"
 echo "check  : $([[ ${DO_CHECK} -eq 1 ]] && echo yes || echo no)"
+echo "opencl icd: $([[ ${DO_OPENCL_ICD} -eq 1 ]] && echo yes || echo no)"
 echo "pytorch wheel: $([[ ${DO_PYTORCH_WHEEL} -eq 1 ]] && echo best-effort || echo no)"
 echo ""
 
@@ -189,6 +196,29 @@ fi
 
 ${SUDO} mkdir -p "${PREFIX}"
 ${SUDO} rsync "${RSYNC_ARGS[@]}" "${SRC_PREFIX}/" "${PREFIX}/"
+
+if (( DO_OPENCL_ICD )); then
+  # OpenCL apps (DaVinci Resolve, etc.) use the system ICD loader. Provide an
+  # AMD ICD entry that points at libamdocl64.so in this prefix.
+  if [[ -e "${PREFIX}/lib/libamdocl64.so" || -e "${PREFIX}/lib/opencl/libamdocl64.so" ]]; then
+    icd_dir="/etc/OpenCL/vendors"
+    icd_path="${icd_dir}/amdocl64.icd"
+    tmp="$(mktemp)"
+    echo "libamdocl64.so" >"${tmp}"
+    ${SUDO} mkdir -p "${icd_dir}"
+    ${SUDO} install -m 0644 "${tmp}" "${icd_path}"
+    rm -f "${tmp}"
+    echo ""
+    echo "== OpenCL ICD =="
+    echo "installed: ${icd_path}"
+    echo "content  : libamdocl64.so"
+  else
+    echo ""
+    echo "WARN: libamdocl64.so not found under ${PREFIX}/lib{,/opencl}."
+    echo "      OpenCL ICD not installed (DaVinci Resolve will not see the AMD OpenCL platform)."
+    echo "      Enable and build it first: THEROCK_ENABLE_OCL_RUNTIME=ON (see README)."
+  fi
+fi
 
 if (( DO_PYTORCH_WHEEL )); then
   # Best-effort: copy a custom torch wheel (built against in-tree ROCm 7.11)
@@ -252,6 +282,11 @@ if (( DO_CHECK )); then
       "${PREFIX}/bin/hipcc" --version || true
     else
       echo "WARN: ${PREFIX}/bin/hipcc not found"
+    fi
+    if (( DO_OPENCL_ICD )) && command -v clinfo >/dev/null 2>&1; then
+      echo ""
+      echo "== OpenCL check (clinfo) =="
+      clinfo | head -n 40 || true
     fi
   fi
 fi

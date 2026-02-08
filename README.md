@@ -25,6 +25,16 @@ Upstream project: `ROCm/TheRock` (this repo adds gfx103X-focused defaults, scrip
   - `/dev/kfd` and `/dev/dri` should exist.
 - Ensure your user can access the GPU:
   - membership in `video` and `render` groups is commonly required.
+### OpenCL (DaVinci Resolve)
+
+DaVinci Resolve uses **OpenCL** on AMD GPUs. If Resolve does not detect your GPU, first verify:
+```bash
+clinfo | head -n 40
+```
+Expected: **Number of platforms > 0** and an AMD GPU device.
+
+This repo can build the AMD OpenCL runtime (`features.enable_ocl_runtime: true`). A system-wide install via
+`install_to_opt.sh` also installs `/etc/OpenCL/vendors/amdocl64.icd` so OpenCL apps can find the platform.
 
 ### Build tools (host)
 
