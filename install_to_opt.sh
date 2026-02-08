@@ -200,18 +200,26 @@ ${SUDO} rsync "${RSYNC_ARGS[@]}" "${SRC_PREFIX}/" "${PREFIX}/"
 if (( DO_OPENCL_ICD )); then
   # OpenCL apps (DaVinci Resolve, etc.) use the system ICD loader. Provide an
   # AMD ICD entry that points at libamdocl64.so in this prefix.
-  if [[ -e "${PREFIX}/lib/libamdocl64.so" || -e "${PREFIX}/lib/opencl/libamdocl64.so" ]]; then
+  amdocl_path=""
+  if [[ -e "${PREFIX}/lib/libamdocl64.so" ]]; then
+    amdocl_path="${PREFIX}/lib/libamdocl64.so"
+  elif [[ -e "${PREFIX}/lib/opencl/libamdocl64.so" ]]; then
+    amdocl_path="${PREFIX}/lib/opencl/libamdocl64.so"
+  fi
+  if [[ -n "${amdocl_path}" ]]; then
     icd_dir="/etc/OpenCL/vendors"
     icd_path="${icd_dir}/amdocl64.icd"
     tmp="$(mktemp)"
-    echo "libamdocl64.so" >"${tmp}"
+    # Use an absolute path so it works even if lib/opencl is not in the global
+    # dynamic loader search path.
+    echo "${amdocl_path}" >"${tmp}"
     ${SUDO} mkdir -p "${icd_dir}"
     ${SUDO} install -m 0644 "${tmp}" "${icd_path}"
     rm -f "${tmp}"
     echo ""
     echo "== OpenCL ICD =="
     echo "installed: ${icd_path}"
-    echo "content  : libamdocl64.so"
+    echo "content  : ${amdocl_path}"
   else
     echo ""
     echo "WARN: libamdocl64.so not found under ${PREFIX}/lib{,/opencl}."
@@ -258,6 +266,7 @@ ${PREFIX}/lib
 ${PREFIX}/lib64
 ${PREFIX}/lib/llvm/lib
 ${PREFIX}/lib/host-math/lib
+${PREFIX}/lib/opencl
 ${PREFIX}/lib/rocm_sysdeps/lib
 EOF
   ${SUDO} install -m 0644 "${tmp}" "${ldconf_path}"
