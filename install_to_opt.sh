@@ -6,6 +6,8 @@ ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 BUILD_DIR="${BUILD_DIR:-build-stage2}"
 SRC_PREFIX="${SRC_PREFIX:-}"
 PREFIX="${PREFIX:-/opt/rocm}"
+PYTORCH_WHEEL="${PYTORCH_WHEEL:-}"
+DO_PYTORCH_WHEEL=1
 DO_DELETE=1
 DO_LDCONFIG=1
 DO_CHECK=1
@@ -30,6 +32,10 @@ Options:
   --build-dir <dir>     Build dir containing dist/rocm (default: build-stage2)
   --src-prefix <path>   Override source prefix (must contain bin/, lib/, include/)
   --prefix <path>       Destination prefix (default: /opt/rocm)
+  --pytorch-wheel <path>
+                       Also copy this custom-built torch wheel into <prefix>/wheels/pytorch_rocm711/
+                       (default: auto-discover in validation cache; best-effort)
+  --no-pytorch-wheel    Do not copy the custom torch wheel
   --no-delete           Do not delete extra files in destination
   --no-ldconfig         Do not write /etc/ld.so.conf.d snippet, do not run ldconfig
   --no-check            Do not run post-install checks
@@ -88,6 +94,14 @@ while [[ $# -gt 0 ]]; do
     --prefix)
       PREFIX="${2:-}"
       shift 2
+      ;;
+    --pytorch-wheel)
+      PYTORCH_WHEEL="${2:-}"
+      shift 2
+      ;;
+    --no-pytorch-wheel)
+      DO_PYTORCH_WHEEL=0
+      shift
       ;;
     --no-delete)
       DO_DELETE=0
@@ -150,6 +164,7 @@ fi
 echo "mode   : ${mode}"
 echo "ldconfig: $([[ ${DO_LDCONFIG} -eq 1 ]] && echo yes || echo no)"
 echo "check  : $([[ ${DO_CHECK} -eq 1 ]] && echo yes || echo no)"
+echo "pytorch wheel: $([[ ${DO_PYTORCH_WHEEL} -eq 1 ]] && echo best-effort || echo no)"
 echo ""
 
 if ! confirm "Proceed with install to '${PREFIX}'?"; then
@@ -166,12 +181,43 @@ RSYNC_ARGS=(-aH --numeric-ids --info=stats2,progress2)
 if (( DO_DELETE )); then
   RSYNC_ARGS+=(--delete)
 fi
+# Keep extras across mirror runs (wheels are not part of the ROCm dist).
+RSYNC_ARGS+=(--exclude 'wheels/')
 if (( DO_DRY_RUN )); then
   RSYNC_ARGS+=(--dry-run)
 fi
 
 ${SUDO} mkdir -p "${PREFIX}"
 ${SUDO} rsync "${RSYNC_ARGS[@]}" "${SRC_PREFIX}/" "${PREFIX}/"
+
+if (( DO_PYTORCH_WHEEL )); then
+  # Best-effort: copy a custom torch wheel (built against in-tree ROCm 7.11)
+  # into the system prefix for easy per-project installs.
+  if [[ -z "${PYTORCH_WHEEL}" ]]; then
+    PYTORCH_WHEEL="$(ls -1t "${ROOT}/validation/workspace/cache/wheels/pytorch_rocm711"/torch-*.whl 2>/dev/null | head -n 1 || true)"
+    if [[ -z "${PYTORCH_WHEEL}" ]]; then
+      PYTORCH_WHEEL="$(ls -1t "${ROOT}/validation/workspace/cache/git/pytorch_rocm711/dist"/torch-*.whl 2>/dev/null | head -n 1 || true)"
+    fi
+  fi
+  if [[ -n "${PYTORCH_WHEEL}" && -f "${PYTORCH_WHEEL}" ]]; then
+    wheel_dir="${PREFIX}/wheels/pytorch_rocm711"
+    echo ""
+    echo "== PyTorch wheel =="
+    echo "wheel  : ${PYTORCH_WHEEL}"
+    echo "dest   : ${wheel_dir}/"
+    ${SUDO} mkdir -p "${wheel_dir}"
+    if (( DO_DRY_RUN )); then
+      ${SUDO} rsync -a --dry-run --info=stats2 "${PYTORCH_WHEEL}" "${wheel_dir}/"
+    else
+      ${SUDO} rsync -a --info=stats2 "${PYTORCH_WHEEL}" "${wheel_dir}/"
+    fi
+  else
+    echo ""
+    echo "WARN: No custom torch wheel found. Skipping wheel copy."
+    echo "      Build it via:"
+    echo "        python3 validation/scripts/validate.py --profile pytorch_rocm711_source --build-dirs ${BUILD_DIR} --yes --power --log"
+  fi
+fi
 
 if (( DO_LDCONFIG )); then
   ldconf_path="/etc/ld.so.conf.d/rocm.conf"
@@ -215,3 +261,10 @@ echo "Install complete."
 echo "To use it in your shell:"
 echo "  export ROCM_PATH='${PREFIX}'"
 echo "  export PATH=\"\\$ROCM_PATH/bin:\\$ROCM_PATH/llvm/bin:\\$PATH\""
+if (( DO_PYTORCH_WHEEL )); then
+  echo ""
+  echo "Custom PyTorch wheel (if copied):"
+  echo "  ls -1 '${PREFIX}/wheels/pytorch_rocm711/'"
+  echo "  python3 -m venv .venv && source .venv/bin/activate"
+  echo "  python -m pip install '${PREFIX}/wheels/pytorch_rocm711/'/torch-*.whl"
+fi

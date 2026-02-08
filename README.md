@@ -307,6 +307,9 @@ use `install_to_opt.sh` to mirror the Stage‑2 dist to `/opt/rocm`.
 ./install_to_opt.sh --build-dir build-stage2 --prefix /opt/rocm
 ```
 
+`install_to_opt.sh` also (best-effort) copies the custom PyTorch wheel (if present) to:
+`/opt/rocm/wheels/pytorch_rocm711/`.
+
 ### Install the custom PyTorch (ROCm 7.11, built from source)
 
 The validation suite can build a custom `torch` wheel against the in-tree ROCm 7.11 dist.

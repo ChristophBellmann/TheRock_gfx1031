@@ -18,7 +18,7 @@ Installs the custom-built PyTorch (built against this repo's ROCm 7.11 dist) int
 
 Default:
   - venv:   ~/.venvs/torch-rocm711
-  - wheel:  validation/workspace/cache/wheels/pytorch_rocm711/torch-*.whl (latest by mtime)
+  - wheel:  /opt/rocm/wheels/pytorch_rocm711/torch-*.whl (if present), else validation cache (latest by mtime)
   - ROCm:   /opt/rocm if present, else <repo>/<build-dir>/dist/rocm
 
 Options:
@@ -61,12 +61,21 @@ need_cmd() {
 }
 
 auto_find_wheel() {
-  local dir="${ROOT}/validation/workspace/cache/wheels/pytorch_rocm711"
-  [[ -d "${dir}" ]] || return 1
-  local w
-  w="$(ls -1t "${dir}"/torch-*.whl 2>/dev/null | head -n 1 || true)"
-  [[ -n "${w}" ]] || return 1
-  echo "${w}"
+  local wdir
+  for wdir in \
+    "${ROCM_PREFIX}/wheels/pytorch_rocm711" \
+    "${ROOT}/validation/workspace/cache/wheels/pytorch_rocm711" \
+    "${ROOT}/validation/workspace/cache/git/pytorch_rocm711/dist"
+  do
+    [[ -d "${wdir}" ]] || continue
+    local w
+    w="$(ls -1t "${wdir}"/torch-*.whl 2>/dev/null | head -n 1 || true)"
+    if [[ -n "${w}" ]]; then
+      echo "${w}"
+      return 0
+    fi
+  done
+  return 1
 }
 
 choose_rocm_prefix() {
