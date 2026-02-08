@@ -352,6 +352,20 @@
      - Add `therock-host-blas` as a `BUILD_DEPS` when `THEROCK_BUILD_BENCHMARKS` is on (rocBLAS, rocSOLVER, hipSOLVER, hipBLAS).
      - Ensure bench binaries are packaged into `dist/rocm/bin` by running `dist-rocm` after rebuilding the affected subprojects.
    - Result: `./test_gfx1031.sh --stage2 --bench` runs `rocblas-bench` + `hipblas-bench` successfully (GFLOPS/TFLOPS parsed from CSV output).
+
+48. **2026-02-08: Build PyTorch from source against in-tree ROCm 7.11**
+   - Profile: `validation/config/profiles/pytorch_rocm711_source.yaml` (in-tree backend).
+   - Run:
+     ```
+     python3 validation/scripts/validate.py --profile pytorch_rocm711_source --build-dirs build-stage2 --yes --power --log
+     ```
+   - Build dependency: PyTorch's HIP tooling expects `find_package(hipblaslt REQUIRED)`, so `hipblaslt` must be present under `build-stage2/dist/rocm/lib/cmake/hipblaslt`.
+   - Fixes needed for a working install+import:
+     - **ABI/mangling mismatch (host clang++ vs HIP)**: PyTorch injects `-fclang-abi-compat=17` into HIP compilation units; host C++ must mirror it or `import torch` can fail with `libtorch_hip.so: undefined symbol: ...const_data_ptr<Half>()`. Implemented in `validation/src/steps/workloads/pytorch/setup.py` for the in-tree source build.
+     - **Version validation**: `torch.version.hip` reflects the HIP toolchain (can be 7.2.x) while `torch.version.rocm` reflects the ROCm release (7.11.x). The profile enforces `expected_rocm_substr: "7.11"`.
+     - **In-tree runtime enforcement**: `require_rocm_prefix: in-tree` checks the loaded `libamdhip64.so` path via `/proc/self/maps`; fixed the `.so.<ver>` regex so `libamdhip64.so.7...` is detected (`validation/src/steps/workloads/pytorch/functional.py`).
+     - **Wheel caching correctness**: always overwrite the cached wheel in `wheels_dir` after a rebuild to avoid accidentally reinstalling a stale/broken wheel (`validation/src/steps/workloads/pytorch/setup.py`).
+   - Result (RX 6700 XT / gfx1031, `--power`): both Conv1d (audio) and Conv3d (video) validate with clear GPU activity (high `dW`/`gpu%`).
 ## TODO / Watchouts
 
 - When new third-party packages are added, verify their `dist/` directories are populated before dependent projects configure.  

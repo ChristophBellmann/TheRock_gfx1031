@@ -23,16 +23,28 @@ import torch
 
 min_s=float(os.environ.get("ROCM_VALIDATION_PYTORCH_MIN_S","5"))
 kind=os.environ.get("ROCM_VALIDATION_PYTORCH_KIND","audio")
+expect_hip=os.environ.get("ROCM_VALIDATION_PYTORCH_EXPECT_HIP_SUBSTR","").strip()
+expect_rocm=os.environ.get("ROCM_VALIDATION_PYTORCH_EXPECT_ROCM_SUBSTR","").strip()
 
 print("torch", getattr(torch, "__version__", ""))
 print("torch.cuda.is_available", torch.cuda.is_available())
-print("torch.version.hip", getattr(getattr(torch, "version", None), "hip", None))
+v=getattr(torch, "version", None)
+hip_ver=getattr(v, "hip", None)
+rocm_ver=getattr(v, "rocm", None)
+print("torch.version.hip", hip_ver)
+print("torch.version.rocm", rocm_ver)
 if not torch.cuda.is_available():
     print("GPU_NOT_AVAILABLE")
     raise SystemExit(2)
-if getattr(getattr(torch, "version", None), "hip", None) in (None, "", "None"):
+if hip_ver in (None, "", "None"):
     print("GPU_NOT_ROCM")
     raise SystemExit(3)
+if expect_hip and (expect_hip not in str(hip_ver)):
+    print("HIP_VERSION_MISMATCH", expect_hip, hip_ver)
+    raise SystemExit(4)
+if expect_rocm and (expect_rocm not in str(rocm_ver)):
+    print("ROCM_VERSION_MISMATCH", expect_rocm, rocm_ver)
+    raise SystemExit(5)
 
 dev=torch.device("cuda")
 name=torch.cuda.get_device_name(0)
@@ -58,7 +70,7 @@ try:
 
     def _find_lib(paths, base):
         # Match libfoo.so or libfoo.so.<ver>
-        pat=_re.compile(_re.escape(base) + r"(\\..*)?$")
+        pat=_re.compile(_re.escape(base) + r"(\..*)?$")
         for p in paths:
             b=_os.path.basename(p)
             if pat.match(b):
@@ -130,7 +142,7 @@ def _step_pytorch_conv(ctx: Context, cfg: dict[str, Any], build_dir: str, rocm_d
     use_in_tree = bool(wl.get("use_in_tree_rocm", False))
     run_env = env if use_in_tree else deactivated_env(env, rocm_dist)
 
-    meta = ensure_pytorch(ctx, cfg, run_env, log)
+    meta = ensure_pytorch(ctx, cfg, run_env, log, rocm_dist=rocm_dist)
     if meta is not None and meta.status != "OK":
         return StepResult(build_dir, f"PyTorch ({kind})", meta.status, meta.duration, meta.metric)
 
@@ -139,6 +151,12 @@ def _step_pytorch_conv(ctx: Context, cfg: dict[str, Any], build_dir: str, rocm_d
     run_env = dict(run_env)
     run_env["ROCM_VALIDATION_PYTORCH_MIN_S"] = str(min_s)
     run_env["ROCM_VALIDATION_PYTORCH_KIND"] = kind
+    expect_hip = str(wl.get("expected_hip_substr", "") or "").strip()
+    if expect_hip:
+        run_env["ROCM_VALIDATION_PYTORCH_EXPECT_HIP_SUBSTR"] = expect_hip
+    expect_rocm = str(wl.get("expected_rocm_substr", "") or "").strip()
+    if expect_rocm:
+        run_env["ROCM_VALIDATION_PYTORCH_EXPECT_ROCM_SUBSTR"] = expect_rocm
     # Improve crash diagnostics (some ROCm/runtime mismatches can segfault).
     run_env.setdefault("PYTHONUNBUFFERED", "1")
     run_env.setdefault("PYTHONFAULTHANDLER", "1")
@@ -170,6 +188,28 @@ def _step_pytorch_conv(ctx: Context, cfg: dict[str, Any], build_dir: str, rocm_d
             return StepResult(build_dir, f"PyTorch ({kind})", "FAIL", fmt_duration(r.dur_ms), "torch.cuda.is_available=false (GPU required)")
         if "GPU_NOT_ROCM" in out:
             return StepResult(build_dir, f"PyTorch ({kind})", "FAIL", fmt_duration(r.dur_ms), "torch.version.hip missing (ROCm torch required)")
+        if "HIP_VERSION_MISMATCH" in out:
+            m = re.search(r"^HIP_VERSION_MISMATCH\s+(\S+)\s+(.+)$", out, re.MULTILINE)
+            if m:
+                return StepResult(
+                    build_dir,
+                    f"PyTorch ({kind})",
+                    "FAIL",
+                    fmt_duration(r.dur_ms),
+                    f"torch.version.hip mismatch: have={m.group(2).strip()} expected~={m.group(1).strip()}",
+                )
+            return StepResult(build_dir, f"PyTorch ({kind})", "FAIL", fmt_duration(r.dur_ms), "torch.version.hip mismatch")
+        if "ROCM_VERSION_MISMATCH" in out:
+            m = re.search(r"^ROCM_VERSION_MISMATCH\s+(\S+)\s+(.+)$", out, re.MULTILINE)
+            if m:
+                return StepResult(
+                    build_dir,
+                    f"PyTorch ({kind})",
+                    "FAIL",
+                    fmt_duration(r.dur_ms),
+                    f"torch.version.rocm mismatch: have={m.group(2).strip()} expected~={m.group(1).strip()}",
+                )
+            return StepResult(build_dir, f"PyTorch ({kind})", "FAIL", fmt_duration(r.dur_ms), "torch.version.rocm mismatch")
         if r.rc < 0:
             return StepResult(build_dir, f"PyTorch ({kind})", "FAIL", fmt_duration(r.dur_ms), f"signal={-r.rc} (crash) | try workloads.pytorch.use_in_tree_rocm=false")
         return StepResult(build_dir, f"PyTorch ({kind})", "FAIL", fmt_duration(r.dur_ms), f"rc={r.rc}")
@@ -191,6 +231,11 @@ def _step_pytorch_conv(ctx: Context, cfg: dict[str, Any], build_dir: str, rocm_d
         metric += f" hsa_override={run_env['HSA_OVERRIDE_GFX_VERSION']}"
     if tflops:
         metric += f" tflops_est={float(tflops):.2f}"
+    m = re.search(r"^torch\\.version\\.rocm\\s+(.+)$", out, re.MULTILINE)
+    if m:
+        rocm_ver = m.group(1).strip()
+        if rocm_ver and rocm_ver not in ("None", "null"):
+            metric += f" rocm={rocm_ver}"
     m = re.search(r"^shape\s+(.+)$", out, re.MULTILINE)
     if m:
         metric += f" shape={m.group(1).strip()}"

@@ -51,8 +51,16 @@ def _print_download_plan(cfg: dict) -> None:
         ref = str((wl.get("mfem", {}) or {}).get("ref", "") or "").strip()
         lines.append(f"- MFEM source clone + HIP build (ref={ref or 'master'})")
     if on("pytorch"):
-        pkgs = (wl.get("pytorch", {}) or {}).get("packages", [])
-        lines.append(f"- PyTorch (pip install ROCm wheels): {pkgs or '(packages not set)'}")
+        pwl = wl.get("pytorch", {}) or {}
+        sb = pwl.get("source_build", {}) or {}
+        if bool(sb.get("enabled", False)):
+            idx = str(sb.get("index_url", "") or "").strip()
+            ver = str(sb.get("rocm_sdk_version", "") or "").strip()
+            ref = str(sb.get("pytorch_repo_hashtag", "") or "").strip()
+            lines.append(f"- PyTorch (source build) + ROCm SDK (pip): index={idx or '(unset)'} rocm_sdk_version={ver or '(unset)'} ref={ref or '(default)'}")
+        else:
+            pkgs = pwl.get("packages", [])
+            lines.append(f"- PyTorch (pip install ROCm wheels): {pkgs or '(packages not set)'}")
     if on("petsc_hip"):
         ref = str((wl.get("petsc", {}) or {}).get("ref", "") or "").strip()
         lines.append(f"- PETSc source clone + HIP build (ref={ref or 'release'})")

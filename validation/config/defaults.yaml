@@ -28,6 +28,10 @@ workloads:
     # string contains this substring (e.g. "+rocm6.2"). If mismatched and
     # downloads are enabled, it will reinstall.
     expected_version_substr: ""
+    # Optional: if set, enforce that torch.version.hip contains this substring
+    # (e.g. "6.2" or "7.11"). This makes it obvious when a wrong wheel channel
+    # is installed.
+    expected_hip_substr: ""
     # If true, run pip install even if torch is already present (useful when
     # switching ROCm wheel channels or testing in-tree runtime compatibility).
     force_reinstall: false
@@ -35,6 +39,33 @@ workloads:
     # Special value: "in-tree" => require libs from <builddir>/dist/rocm.
     # Example (system install): "/opt/rocm"
     require_rocm_prefix: ""
+    # Optional: build and install PyTorch from source (very heavy).
+    # This uses the repo's `external-builds/pytorch/build_prod_wheels.py` tooling,
+    # which installs ROCm SDK Python packages and produces a ROCm-enabled `torch`
+    # wheel for the configured arch.
+    source_build:
+      enabled: false
+      # backend: "rocm-sdk" builds against ROCm SDK Python packages from a PEP503
+      # index (TheRock CI). backend: "in-tree" builds directly against this
+      # repo's in-tree ROCm dist under <builddir>/dist/rocm.
+      backend: "rocm-sdk"   # rocm-sdk|in-tree
+      # PEP503 index root that hosts rocm-sdk packages (gfx103X-dgpu for RDNA2).
+      index_url: "https://rocm.nightlies.amd.com/v2/gfx103X-dgpu/"
+      # Version constraint for `rocm[libraries,devel]` (comparison prefix allowed).
+      rocm_sdk_version: "~=7.11.0"
+      # Which PyTorch ref/tag/branch to build (default matches external-builds tooling).
+      pytorch_repo_hashtag: "nightly"
+      # Cache dirs (relative to repo root unless absolute).
+      pytorch_dir: "validation/workspace/cache/git/pytorch"
+      wheels_dir: "validation/workspace/cache/wheels/pytorch"
+      pip_cache_dir: "validation/workspace/cache/pip"
+      # If true, re-run checkout even if pytorch_dir already exists.
+      update_checkout: false
+      # If set (>0), do a shallow fetch for initial checkout.
+      depth: 0
+      # Build options (see external-builds/pytorch/build_prod_wheels.py).
+      use_ccache: true
+      clean: false
   llama_cpp:
     docker_image: ""   # optional override; empty => auto-detect from AMD docs
     prompt_file: "validation/src/assets/samples/prompts/tiny_prompt.txt"
@@ -121,5 +152,7 @@ timeouts_s:
   mfem_hip: 3600
   pytorch: 900
   pytorch_install: 1800
+  pytorch_checkout: 3600
+  pytorch_build: 21600
   petsc_configure: 3600
   petsc_build: 7200

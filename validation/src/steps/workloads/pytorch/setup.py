@@ -1,16 +1,398 @@
 from __future__ import annotations
 
+import json
 import sys
 from pathlib import Path
 from typing import Any
 
 from core.context import Context
 from core.reporting.models import StepResult
+from core.rocm_env import activated_env
 from core.runner import fmt_duration, run_cmd
-from steps.shared import downloads_enabled, pip_install
+from steps.shared import downloads_enabled
 
 
-def ensure_pytorch(ctx: Context, cfg: dict[str, Any], env: dict[str, str], log: Path | None) -> StepResult | None:
+def _as_abs(ctx: Context, p: str | Path) -> Path:
+    pp = Path(p)
+    return pp if pp.is_absolute() else (ctx.repo_root / pp)
+
+
+def _probe_torch(ctx: Context, env: dict[str, str], log: Path | None) -> tuple[int, str, str, str]:
+    probe = run_cmd(
+        ctx.repo_root,
+        env,
+        [
+            sys.executable,
+            "-c",
+            "import torch; "
+            "print(getattr(torch,'__version__','')); "
+            "v=getattr(torch,'version',None); "
+            "print(getattr(v,'hip',None) or ''); "
+            "print(getattr(v,'rocm',None) or '')",
+        ],
+        30,
+        log,
+    )
+    if probe.rc != 0:
+        return probe.rc, "", "", ""
+    lines = (probe.out or "").splitlines()
+    ver = lines[0].strip() if len(lines) >= 1 else ""
+    hip = lines[1].strip() if len(lines) >= 2 else ""
+    rocm = lines[2].strip() if len(lines) >= 3 else ""
+    return 0, ver, hip, rocm
+
+
+def _run_logged(
+    cwd: Path, env: dict[str, str], cmd: list[str], timeout_s: int | None, log: Path | None
+) -> tuple[int, int]:
+    """
+    Like `run_cmd`, but streams stdout/stderr to the log file to avoid storing
+    huge build output in memory (important for PyTorch builds).
+    """
+    import shlex
+    import subprocess
+    import time
+
+    start = time.time()
+    if log is None:
+        r = run_cmd(cwd, env, cmd, timeout_s, None)
+        return r.rc, r.dur_ms
+
+    log.parent.mkdir(parents=True, exist_ok=True)
+    with log.open("a", encoding="utf-8") as f:
+        f.write(f"$ {shlex.join(cmd)}\n")
+        f.flush()
+        try:
+            proc = subprocess.Popen(
+                cmd,
+                cwd=str(cwd),
+                env=env,
+                stdout=f,
+                stderr=subprocess.STDOUT,
+                text=True,
+            )
+        except FileNotFoundError as e:
+            dur_ms = int((time.time() - start) * 1000)
+            f.write(f"{e}\n\n")
+            return 127, dur_ms
+        try:
+            proc.wait(timeout=timeout_s)
+            rc = proc.returncode
+        except subprocess.TimeoutExpired:
+            proc.kill()
+            proc.wait()
+            rc = 124
+        finally:
+            f.write("\n")
+            f.flush()
+
+    dur_ms = int((time.time() - start) * 1000)
+    return int(rc or 0), dur_ms
+
+
+def _ensure_pytorch_source_build_rocm_sdk(ctx: Context, cfg: dict[str, Any], env: dict[str, str], log: Path | None) -> StepResult:
+    wl = cfg.get("workloads", {}).get("pytorch", {}) or {}
+    sb = wl.get("source_build", {}) or {}
+
+    if not downloads_enabled(cfg):
+        # If torch is already installed, proceed. Otherwise, we cannot build without downloads.
+        rc, ver, hip, rocm = _probe_torch(ctx, env, log)
+        if rc == 0 and ver:
+            extra = f" rocm={rocm}" if rocm else ""
+            return StepResult(
+                "<meta>",
+                "PyTorch setup",
+                "OK",
+                "0ms",
+                f"torch already installed (downloads disabled) torch={ver} hip={hip}{extra}",
+            )
+        return StepResult("<meta>", "PyTorch setup", "SKIP", "0ms", "downloads disabled (cannot build torch from source)")
+
+    index_url = str(sb.get("index_url", "") or "").strip()
+    if not index_url:
+        return StepResult("<meta>", "PyTorch setup", "FAIL", "0ms", "source_build.index_url is required")
+
+    rocm_sdk_version = str(sb.get("rocm_sdk_version", "") or "").strip()
+    hashtag = str(sb.get("pytorch_repo_hashtag", "nightly") or "nightly").strip()
+
+    pytorch_dir = _as_abs(ctx, str(sb.get("pytorch_dir", ctx.git_cache_dir() / "pytorch")))
+    wheels_dir = _as_abs(ctx, str(sb.get("wheels_dir", ctx.cache_dir() / "wheels" / "pytorch")))
+    pip_cache_dir = _as_abs(ctx, str(sb.get("pip_cache_dir", ctx.cache_dir() / "pip")))
+
+    update_checkout = bool(sb.get("update_checkout", False))
+    depth = int(sb.get("depth", 0) or 0)
+    use_ccache = bool(sb.get("use_ccache", True))
+    clean = bool(sb.get("clean", False))
+
+    # Checkout/update sources (cached under validation/workspace).
+    if update_checkout or not (pytorch_dir / ".git").exists():
+        wheels_dir.mkdir(parents=True, exist_ok=True)
+        pip_cache_dir.mkdir(parents=True, exist_ok=True)
+        t_checkout = int(cfg.get("timeouts_s", {}).get("pytorch_checkout", 3600))
+        checkout_script = ctx.repo_root / "external-builds" / "pytorch" / "pytorch_torch_repo.py"
+        cmd = [
+            sys.executable,
+            str(checkout_script),
+            "checkout",
+            "--checkout-dir",
+            str(pytorch_dir),
+            "--repo-hashtag",
+            hashtag,
+        ]
+        if depth > 0:
+            cmd += ["--depth", str(depth)]
+        r = run_cmd(ctx.repo_root, env, cmd, t_checkout, log)
+        if r.rc != 0:
+            return StepResult("<meta>", "PyTorch setup", "FAIL", fmt_duration(r.dur_ms), f"checkout rc={r.rc}")
+
+    # Build + install into the current venv via TheRock tooling.
+    build_script = ctx.repo_root / "external-builds" / "pytorch" / "build_prod_wheels.py"
+    arch = str(cfg.get("rocm", {}).get("amd_gpu_arch", "gfx1031"))
+    t_build = int(cfg.get("timeouts_s", {}).get("pytorch_build", 21600))
+
+    cmd = [
+        sys.executable,
+        str(build_script),
+        "build",
+        "--install-rocm",
+        "--index-url",
+        index_url,
+        "--output-dir",
+        str(wheels_dir),
+        "--pip-cache-dir",
+        str(pip_cache_dir),
+        "--pytorch-dir",
+        str(pytorch_dir),
+        "--pytorch-rocm-arch",
+        arch,
+        "--no-build-triton",
+        "--no-build-pytorch-audio",
+        "--no-build-pytorch-vision",
+    ]
+    if rocm_sdk_version:
+        cmd += ["--rocm-sdk-version", rocm_sdk_version]
+    if use_ccache:
+        cmd += ["--use-ccache"]
+    if clean:
+        cmd += ["--clean"]
+
+    r = run_cmd(ctx.repo_root, env, cmd, t_build, log)
+    if r.rc != 0:
+        return StepResult("<meta>", "PyTorch setup", "FAIL", fmt_duration(r.dur_ms), f"build rc={r.rc}")
+
+    # Probe the resulting install and store a small build marker for reuse/debug.
+    rc, ver, hip, rocm = _probe_torch(ctx, env, log)
+    if rc != 0 or not ver:
+        return StepResult("<meta>", "PyTorch setup", "FAIL", fmt_duration(r.dur_ms), "torch import failed after source build")
+
+    marker = {
+        "index_url": index_url,
+        "rocm_sdk_version": rocm_sdk_version,
+        "pytorch_repo_hashtag": hashtag,
+        "pytorch_dir": str(pytorch_dir),
+        "wheels_dir": str(wheels_dir),
+        "torch_version": ver,
+        "torch_hip_version": hip,
+        "torch_rocm_version": rocm,
+    }
+    try:
+        (wheels_dir / "BUILD_INFO.json").write_text(
+            json.dumps(marker, indent=2, sort_keys=True), encoding="utf-8"
+        )
+    except Exception:
+        pass
+
+    return StepResult(
+        "<meta>",
+        "PyTorch setup",
+        "OK",
+        fmt_duration(r.dur_ms),
+        f"source build torch={ver} hip={hip} rocm={rocm}",
+    )
+
+
+def _ensure_pytorch_source_build_in_tree(
+    ctx: Context,
+    cfg: dict[str, Any],
+    env: dict[str, str],
+    log: Path | None,
+    *,
+    rocm_dist: Path,
+) -> StepResult:
+    wl = cfg.get("workloads", {}).get("pytorch", {}) or {}
+    sb = wl.get("source_build", {}) or {}
+
+    if not rocm_dist.is_dir():
+        return StepResult("<meta>", "PyTorch setup", "FAIL", "0ms", f"ROCm dist not found: {rocm_dist}")
+
+    if not downloads_enabled(cfg):
+        # If torch is already installed, proceed. Otherwise, we cannot build without downloads.
+        rc, ver, hip, rocm = _probe_torch(ctx, env, log)
+        if rc == 0 and ver:
+            extra = f" rocm={rocm}" if rocm else ""
+            return StepResult(
+                "<meta>",
+                "PyTorch setup",
+                "OK",
+                "0ms",
+                f"torch already installed (downloads disabled) torch={ver} hip={hip}{extra}",
+            )
+        return StepResult("<meta>", "PyTorch setup", "SKIP", "0ms", "downloads disabled (cannot build torch from source)")
+
+    hashtag = str(sb.get("pytorch_repo_hashtag", "nightly") or "nightly").strip()
+    pytorch_dir = _as_abs(ctx, str(sb.get("pytorch_dir", ctx.git_cache_dir() / "pytorch_in_tree")))
+    wheels_dir = _as_abs(ctx, str(sb.get("wheels_dir", ctx.cache_dir() / "wheels" / "pytorch_in_tree")))
+    pip_cache_dir = _as_abs(ctx, str(sb.get("pip_cache_dir", ctx.cache_dir() / "pip")))
+
+    update_checkout = bool(sb.get("update_checkout", False))
+    depth = int(sb.get("depth", 0) or 0)
+    use_ccache = bool(sb.get("use_ccache", True))
+    clean = bool(sb.get("clean", False))
+
+    wheels_dir.mkdir(parents=True, exist_ok=True)
+    pip_cache_dir.mkdir(parents=True, exist_ok=True)
+
+    # Checkout/update sources (cached under validation/workspace).
+    if update_checkout or not (pytorch_dir / ".git").exists():
+        t_checkout = int(cfg.get("timeouts_s", {}).get("pytorch_checkout", 3600))
+        checkout_script = ctx.repo_root / "external-builds" / "pytorch" / "pytorch_torch_repo.py"
+        cmd = [
+            sys.executable,
+            str(checkout_script),
+            "checkout",
+            "--checkout-dir",
+            str(pytorch_dir),
+            "--repo-hashtag",
+            hashtag,
+            "--no-patch",
+        ]
+        if depth > 0:
+            cmd += ["--depth", str(depth)]
+        rc, dur_ms = _run_logged(ctx.repo_root, env, cmd, t_checkout, log)
+        if rc != 0:
+            return StepResult("<meta>", "PyTorch setup", "FAIL", fmt_duration(dur_ms), f"checkout rc={rc}")
+
+    build_env = activated_env(ctx.env_base(), rocm_dist)
+    build_env.update(env)
+    build_env["ROCM_HOME"] = str(rocm_dist)
+    build_env["ROCM_PATH"] = str(rocm_dist)
+    build_env["HIP_PATH"] = str(rocm_dist)
+    build_env["HSA_PATH"] = str(rocm_dist)
+    build_env["CMAKE_PREFIX_PATH"] = str(rocm_dist)
+    build_env.setdefault("CC", "clang")
+    build_env.setdefault("CXX", "clang++")
+
+    build_env.setdefault("USE_CUDA", "0")
+    build_env.setdefault("USE_ROCM", "1")
+    build_env.setdefault("USE_MPI", "0")
+    build_env.setdefault("USE_NUMA", "0")
+    build_env.setdefault("BUILD_TEST", "0")
+    build_env.setdefault("USE_NINJA", "1")
+
+    arch = str(cfg.get("rocm", {}).get("amd_gpu_arch", "gfx1031"))
+    build_env["PYTORCH_ROCM_ARCH"] = arch
+
+    # PyTorch's ROCm toolchain currently injects `-fclang-abi-compat=17` into
+    # HIP compilation units to avoid ABI/mangling mismatches. When the host C++
+    # code is built with clang++ (as we do for this repo), we must mirror that
+    # flag for the host compilation too, otherwise we can end up with runtime
+    # link errors such as:
+    #   libtorch_hip.so: undefined symbol: ...TensorBase::const_data_ptr<Half>()
+    cxx = build_env.get("CXXFLAGS", "")
+    if "-fclang-abi-compat=17" not in cxx.split():
+        build_env["CXXFLAGS"] = f"{cxx} -fclang-abi-compat=17".strip()
+
+    # Sysdeps include path (prevents missing libdrm headers in some builds).
+    sysdeps_dir = rocm_dist / "lib" / "rocm_sysdeps"
+    if sysdeps_dir.is_dir():
+        cxx = build_env.get("CXXFLAGS", "")
+        build_env["CXXFLAGS"] = (
+            f"{cxx} -I{sysdeps_dir / 'include'} -I{rocm_dist / 'include' / 'roctracer'}"
+        ).strip()
+        ld = build_env.get("LDFLAGS", "")
+        build_env["LDFLAGS"] = f"{ld} -L{sysdeps_dir / 'lib'}".strip()
+        build_env.setdefault("PKG_CONFIG_PATH", str(sysdeps_dir / "lib" / "pkgconfig"))
+
+    if use_ccache:
+        build_env.setdefault("CMAKE_C_COMPILER_LAUNCHER", "ccache")
+        build_env.setdefault("CMAKE_CXX_COMPILER_LAUNCHER", "ccache")
+
+    # Uninstall any existing torch to avoid mixing files.
+    run_cmd(ctx.repo_root, build_env, [sys.executable, "-m", "pip", "uninstall", "torch", "-y"], 300, log)
+
+    # Install Python requirements for the checked out PyTorch tree.
+    t_req = int(cfg.get("timeouts_s", {}).get("pytorch_install", 1800))
+    req = pytorch_dir / "requirements.txt"
+    if req.is_file():
+        cmd = [sys.executable, "-m", "pip", "install"]
+        if pip_cache_dir:
+            cmd += ["--cache-dir", str(pip_cache_dir)]
+        cmd += ["-r", str(req)]
+        r = run_cmd(pytorch_dir, build_env, cmd, t_req, log)
+        if r.rc != 0:
+            return StepResult("<meta>", "PyTorch setup", "FAIL", fmt_duration(r.dur_ms), f"requirements rc={r.rc}")
+
+    # Optional: MKL headers (best-effort).
+    run_cmd(ctx.repo_root, build_env, [sys.executable, "-m", "pip", "install", "mkl-static", "mkl-include"], t_req, log)
+
+    if clean:
+        import shutil
+
+        for d in (pytorch_dir / "build", pytorch_dir / "dist"):
+            if d.is_dir():
+                shutil.rmtree(d)
+
+    t_build = int(cfg.get("timeouts_s", {}).get("pytorch_build", 21600))
+    rc, dur_ms = _run_logged(pytorch_dir, build_env, [sys.executable, "setup.py", "bdist_wheel"], t_build, log)
+    if rc != 0:
+        return StepResult("<meta>", "PyTorch setup", "FAIL", fmt_duration(dur_ms), f"build rc={rc}")
+
+    dist_dir = pytorch_dir / "dist"
+    wheels = sorted(dist_dir.glob("torch-*.whl"))
+    if not wheels:
+        return StepResult("<meta>", "PyTorch setup", "FAIL", fmt_duration(dur_ms), f"no torch wheel found under {dist_dir}")
+    wheel = wheels[-1]
+    try:
+        import shutil
+
+        dst = wheels_dir / wheel.name
+        shutil.copyfile(wheel, dst)
+    except Exception:
+        pass
+
+    r2 = run_cmd(ctx.repo_root, build_env, [sys.executable, "-m", "pip", "install", "-I", "--no-deps", str(wheel)], 3600, log)
+    if r2.rc != 0:
+        return StepResult("<meta>", "PyTorch setup", "FAIL", fmt_duration(r2.dur_ms), f"install rc={r2.rc}")
+
+    rc2, ver, hip, rocm = _probe_torch(ctx, build_env, log)
+    if rc2 != 0 or not ver:
+        return StepResult("<meta>", "PyTorch setup", "FAIL", fmt_duration(r2.dur_ms), "torch import failed after in-tree source build")
+
+    marker = {
+        "backend": "in-tree",
+        "rocm_dist": str(rocm_dist),
+        "pytorch_repo_hashtag": hashtag,
+        "pytorch_dir": str(pytorch_dir),
+        "wheels_dir": str(wheels_dir),
+        "wheel": str(wheel),
+        "torch_version": ver,
+        "torch_hip_version": hip,
+        "torch_rocm_version": rocm,
+    }
+    try:
+        (wheels_dir / "BUILD_INFO.json").write_text(json.dumps(marker, indent=2, sort_keys=True), encoding="utf-8")
+    except Exception:
+        pass
+
+    metric = f"in-tree source build torch={ver} hip={hip}"
+    if rocm:
+        metric += f" rocm={rocm}"
+    return StepResult("<meta>", "PyTorch setup", "OK", fmt_duration(dur_ms + r2.dur_ms), metric)
+
+
+def ensure_pytorch(
+    ctx: Context, cfg: dict[str, Any], env: dict[str, str], log: Path | None, *, rocm_dist: Path | None = None
+) -> StepResult | None:
     """
     Ensure a ROCm-enabled PyTorch is available in the validation venv.
 
@@ -25,15 +407,50 @@ def ensure_pytorch(ctx: Context, cfg: dict[str, Any], env: dict[str, str], log: 
     auto = bool(wl.get("auto_install", False))
     if not auto:
         return None
+
+    sb = wl.get("source_build", {}) or {}
+    if bool(sb.get("enabled", False)):
+        backend = str(sb.get("backend", "rocm-sdk") or "rocm-sdk").strip().lower()
+        if backend == "in-tree":
+            if rocm_dist is None:
+                return StepResult("<meta>", "PyTorch setup", "FAIL", "0ms", "source_build.backend=in-tree requires rocm_dist")
+            # If torch is already installed and matches the requested version
+            # constraints, avoid rebuilding (PyTorch source builds can take a
+            # long time). Users can force a rebuild by setting
+            # `workloads.pytorch.force_reinstall=true`.
+            force = bool(wl.get("force_reinstall", False))
+            expected_ver = str(wl.get("expected_version_substr", "") or "").strip()
+            expected_hip = str(wl.get("expected_hip_substr", "") or "").strip()
+            expected_rocm = str(wl.get("expected_rocm_substr", "") or "").strip()
+            if not force:
+                probe_rc, installed_ver, installed_hip, installed_rocm = _probe_torch(ctx, env, log)
+                if probe_rc == 0 and installed_ver:
+                    if expected_ver and expected_ver not in installed_ver:
+                        pass
+                    elif expected_hip and expected_hip not in installed_hip:
+                        pass
+                    elif expected_rocm and expected_rocm not in installed_rocm:
+                        pass
+                    elif not installed_hip and not installed_rocm:
+                        # Likely a CPU-only torch.
+                        pass
+                    else:
+                        return None
+            return _ensure_pytorch_source_build_in_tree(ctx, cfg, env, log, rocm_dist=rocm_dist)
+        return _ensure_pytorch_source_build_rocm_sdk(ctx, cfg, env, log)
     force = bool(wl.get("force_reinstall", False))
     expected = str(wl.get("expected_version_substr", "") or "").strip()
+    expected_hip = str(wl.get("expected_hip_substr", "") or "").strip()
+    expected_rocm = str(wl.get("expected_rocm_substr", "") or "").strip()
 
     # If torch is already installed in the validation venv, we can proceed even
     # when downloads are disabled.
-    probe = run_cmd(ctx.repo_root, env, [sys.executable, "-c", "import torch; print(getattr(torch,'__version__',''))"], 30, log)
-    installed_ver = (probe.out or "").strip() if probe.rc == 0 else ""
-    need_reinstall = force
-    if probe.rc == 0 and not force:
+    probe_rc, installed_ver, installed_hip, installed_rocm = _probe_torch(ctx, env, log)
+    # If torch cannot be imported (rc != 0), treat it as "broken install" and
+    # force an overwrite install. Without this, pip may think requirements are
+    # satisfied and refuse to fix a corrupted environment.
+    need_reinstall = force or (probe_rc != 0)
+    if probe_rc == 0 and not force:
         if expected and expected not in installed_ver:
             # Installed torch does not match the requested wheel channel/version tag.
             # If downloads are disabled, proceed but warn (the step may still fail).
@@ -44,6 +461,26 @@ def ensure_pytorch(ctx: Context, cfg: dict[str, Any], env: dict[str, str], log: 
                     "OK",
                     "0ms",
                     f"torch already installed but version mismatch: have={installed_ver} expected~={expected} (downloads disabled; proceeding)",
+                )
+            need_reinstall = True
+        if expected_hip and expected_hip not in installed_hip:
+            if not downloads_enabled(cfg):
+                return StepResult(
+                    "<meta>",
+                    "PyTorch setup",
+                    "OK",
+                    "0ms",
+                    f"torch already installed but HIP version mismatch: have={installed_hip} expected~={expected_hip} (downloads disabled; proceeding)",
+                )
+            need_reinstall = True
+        if expected_rocm and expected_rocm not in installed_rocm:
+            if not downloads_enabled(cfg):
+                return StepResult(
+                    "<meta>",
+                    "PyTorch setup",
+                    "OK",
+                    "0ms",
+                    f"torch already installed but ROCm version mismatch: have={installed_rocm} expected~={expected_rocm} (downloads disabled; proceeding)",
                 )
             need_reinstall = True
         else:
@@ -71,4 +508,10 @@ def ensure_pytorch(ctx: Context, cfg: dict[str, Any], env: dict[str, str], log: 
     r = run_cmd(ctx.repo_root, env, cmd, t, log)
     if r.rc != 0:
         return StepResult("<meta>", "PyTorch setup", "FAIL", fmt_duration(r.dur_ms), f"pip rc={r.rc}")
-    return None
+    probe_rc, installed_ver, installed_hip, installed_rocm = _probe_torch(ctx, env, log)
+    if probe_rc != 0 or not installed_ver:
+        return StepResult("<meta>", "PyTorch setup", "FAIL", fmt_duration(r.dur_ms), "torch import failed after pip install")
+    metric = f"pip install torch={installed_ver} hip={installed_hip}"
+    if installed_rocm:
+        metric += f" rocm={installed_rocm}"
+    return StepResult("<meta>", "PyTorch setup", "OK", fmt_duration(r.dur_ms), metric)

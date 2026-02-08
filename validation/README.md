@@ -57,7 +57,12 @@ Run a focused subset instead of the full pipeline:
 - MFEM: `--profile mfem`
 - PyTorch GPU compute: `--profile pytorch` (requires ROCm-enabled `torch` in the validation venv unless configured for auto-install)
 - PyTorch + in-tree ROCm runtime: `--profile pytorch_in_tree` (enforces that ROCm runtime libs are loaded from `<builddir>/dist/rocm`)
+- PyTorch (ROCm 7.11, source build): `--profile pytorch_rocm711_source` (builds `torch` from source against the in-tree dist under `<builddir>/dist/rocm`; can take a long time)
 - PETSc HIP build+solve: `--profile petsc` (can take a while)
+
+Note: the default PyTorch profiles (`pytorch`, `all`) use the `rocm6.2` wheel channel because it is widely available and
+has been the most stable option for gfx1031 in this repo. If you specifically want a PyTorch build aligned with the repo's
+ROCm 7.11 stack, use `pytorch_rocm711_source`.
 
 Tip: list the profiles available in your checkout:
 ```bash

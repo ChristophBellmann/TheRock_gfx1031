@@ -15,6 +15,7 @@ workloads:
     pip_args: ["--index-url", "https://download.pytorch.org/whl/rocm6.2"]
     packages: ["torch"]
     expected_version_substr: "+rocm6.2"
+    expected_hip_substr: "6.2"
     use_in_tree_rocm: false
   whisper:
     auto_install: true

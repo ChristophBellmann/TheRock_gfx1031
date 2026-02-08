@@ -49,7 +49,8 @@ features:
   enable_fft: true
   enable_sparse: true
   enable_solver: true
-  enable_hipblaslt: false
+  # Needed for building PyTorch with ROCm support (PyTorch's CMake requires it).
+  enable_hipblaslt: true
   enable_hipsparselt: false
   enable_miopen: true
   enable_hipdnn: true

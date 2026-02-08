@@ -156,6 +156,11 @@ Validation profiles:
 - `quick`: ROCm env + power baseline + `rocminfo` + HIP compile+run (no downloads)
 - `full`: adds representative workloads (docker/pip/build) and prompts once before downloads
 - Focused: `llama_cpp`, `ollama`, `whisper`, `mfem`, `pytorch`, `petsc`
+- PyTorch (ROCm 7.11, source build): `pytorch_rocm711_source` (very heavy; builds `torch` from source against the in-tree dist under `<builddir>/dist/rocm`)
+
+Note: the default PyTorch validation uses the `rocm6.2` wheel channel because it is widely available and has been the most
+stable option for gfx1031. If you want PyTorch aligned with ROCm 7.11, use `pytorch_rocm711_source`.
+Also note: `torch.version.hip` is the HIP toolchain version (e.g. 7.2.x), while `torch.version.rocm` is the ROCm release (e.g. 7.11.x).
 
 Examples:
 ```bash
@@ -182,6 +187,19 @@ python3 validation/scripts/validate.py --profile all --yes --power --summary-mul
 This section documents a recent, complete end-to-end run to serve as a **baseline**.
 Numbers depend on GPU/driver/kernel and will vary, but **GPU usage should be obvious**
 from `dW` (power delta) and `gpu%`.
+
+### 2026-02-08 (PyTorch ROCm 7.11 source build, RX 6700 XT / gfx1031)
+
+Command used:
+- `python3 validation/scripts/validate.py --profile pytorch_rocm711_source --build-dirs build-stage2 --yes --power --log`
+
+Artifacts (local):
+- Validation report: `validation/workspace/runs/2026-02-08_050854/report.json`
+- Validation logs: `validation/workspace/runs/2026-02-08_050854/logs/`
+
+Key results (`pytorch_rocm711_source`, `build-stage2`):
+- PyTorch (audio): OK (`tflops_est≈9.83`, `avgW≈178W`, `dW≈+172W`, `gpu%≈85`)
+- PyTorch (video): OK (`tflops_est≈2.90`, `avgW≈201W`, `dW≈+195W`, `gpu%≈97`)
 
 ### 2026-02-02 (RX 6700 XT / gfx1031)
 
