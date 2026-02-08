@@ -15,6 +15,8 @@ Upstream project: `ROCm/TheRock` (this repo adds gfx103X-focused defaults, scrip
   - `test_gfx1031.sh` (sanity + consistency + benchmarks + MIOpen checks)
   - `test_docker_gfx1031.sh` (host vs docker comparison)
   - `validation/` (Python “usability & workloads” validation)
+  - `install_to_opt.sh` (optional: mirror dist to `/opt/rocm`)
+  - `install_pytorch_rocm711.sh` (optional: install custom PyTorch wheel to a venv)
 
 ## System requirements
 
@@ -303,6 +305,20 @@ use `install_to_opt.sh` to mirror the Stage‑2 dist to `/opt/rocm`.
 
 # Install to /opt/rocm (prompts once, uses rsync, sets ldconfig paths):
 ./install_to_opt.sh --build-dir build-stage2 --prefix /opt/rocm
+```
+
+### Install the custom PyTorch (ROCm 7.11, built from source)
+
+The validation suite can build a custom `torch` wheel against the in-tree ROCm 7.11 dist.
+To install that wheel into a user venv (recommended), use:
+
+```bash
+./install_pytorch_rocm711.sh --rocm-prefix /opt/rocm
+```
+
+If the wheel is missing, build it first (very heavy):
+```bash
+python3 validation/scripts/validate.py --profile pytorch_rocm711_source --build-dirs build-stage2 --yes --power --log
 ```
 
 
