@@ -260,7 +260,7 @@ echo ""
 echo "Install complete."
 echo "To use it in your shell:"
 echo "  export ROCM_PATH='${PREFIX}'"
-echo "  export PATH=\"\\$ROCM_PATH/bin:\\$ROCM_PATH/llvm/bin:\\$PATH\""
+echo '  export PATH="$ROCM_PATH/bin:$ROCM_PATH/llvm/bin:$PATH"'
 if (( DO_PYTORCH_WHEEL )); then
   echo ""
   echo "Custom PyTorch wheel (if copied):"
