@@ -201,6 +201,39 @@ Key results (`pytorch_rocm711_source`, `build-stage2`):
 - PyTorch (audio): OK (`tflops_est≈9.83`, `avgW≈178W`, `dW≈+172W`, `gpu%≈85`)
 - PyTorch (video): OK (`tflops_est≈2.90`, `avgW≈201W`, `dW≈+195W`, `gpu%≈97`)
 
+Versions (selected, from the in-tree Stage‑2 dist):
+
+| Component | Version |
+|---|---|
+| ROCm dist (`rocm-core`) | `7.11.0` |
+| LLVM / Clang / LLD | `22.0.0git` |
+| HIP / hip-lang / hiprtc | `7.2.53150` |
+| `amd_comgr` | `3.0.0` |
+| `hsa-runtime64` | `1.18.0` |
+| `hsakmt` | `7.3.53390-…-g1cedb43795` |
+| rocBLAS / hipBLAS / hipBLASLt | `5.3.0` / `3.3.0` / `1.2.0` |
+| rocSOLVER / hipSOLVER | `3.32.0` / `3.2.0` |
+| rocSPARSE / hipSPARSE | `4.3.0` / `4.3.0` |
+| rocFFT / hipFFT | `1.0.36` / `1.0.22` |
+| rocRAND / hipRAND | `4.2.0` / `3.1.0` |
+| MIOpen / RCCL | `3.5.1` / `2.27.3` |
+| rocPRIM / rocThrust / hipCUB | `4.2.0` / `4.2.0` / `4.2.0` |
+| composable_kernel / rocroller | `1.2.0` / `1.0.0` |
+| rocprofiler-sdk / rocprofiler-register | `1.1.0` / `0.6.0` |
+| roctracer64 / roctx64 | `4.1.0` (from library SONAME) |
+
+PyTorch (built from source against the in-tree dist):
+- `torch`: `2.11.0a0+git3b6829f`
+- `torch.version.rocm`: `7.11.0`
+- `torch.version.hip`: `7.2.53150`
+- venv Python: `3.12.3`
+
+Where this is recorded:
+- ROCm dist version: `build-stage2/dist/rocm/.info/version`
+- Per-package versions: `build-stage2/dist/rocm/lib/cmake/<pkg>/*ConfigVersion.cmake`
+- roctracer/roctx SONAME: `build-stage2/dist/rocm/lib/libroctracer64.so.*`, `build-stage2/dist/rocm/lib/libroctx64.so.*`
+- PyTorch build marker: `validation/workspace/cache/wheels/pytorch_rocm711/BUILD_INFO.json`
+
 ### 2026-02-02 (RX 6700 XT / gfx1031)
 
 Commands used:
