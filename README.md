@@ -191,15 +191,34 @@ from `dW` (power delta) and `gpu%`.
 ### 2026-02-08 (PyTorch ROCm 7.11 source build, RX 6700 XT / gfx1031)
 
 Command used:
+- `./test_gfx1031.sh --build-dir build-stage2 --consistency --miopen --miopen-smoke --bench --full --log test_gfx1031.stage2.full-2026-02-08.log`
 - `python3 validation/scripts/validate.py --profile pytorch_rocm711_source --build-dirs build-stage2 --yes --power --log`
 
 Artifacts (local):
+- Host test log: `test_gfx1031.stage2.full-2026-02-08.log`
 - Validation report: `validation/workspace/runs/2026-02-08_050854/report.json`
 - Validation logs: `validation/workspace/runs/2026-02-08_050854/logs/`
 
 Key results (`pytorch_rocm711_source`, `build-stage2`):
-- PyTorch (audio): OK (`tflops_est≈9.83`, `avgW≈178W`, `dW≈+172W`, `gpu%≈85`)
-- PyTorch (video): OK (`tflops_est≈2.90`, `avgW≈201W`, `dW≈+195W`, `gpu%≈97`)
+- ROCm sanity:
+  - Power idle baseline (5s): OK (`avgW≈5.9W`, `gpu%≈1`)
+  - HIP compile+run: OK (`avgW≈107W`, `dW≈+101W`, `gpu%≈87`)
+- ROCm micro-bench suite (sustained per-test power sampling):
+
+| Bench | Time | Perf | Energy | avgW | maxW | dW | gpu% | mem% |
+|---|---:|---|---:|---:|---:|---:|---:|---:|
+| rocBLAS GEMM f32 | 7.245s | `TFLOPS≈11.142` | 0.281Wh | 139.4W | 202.0W | +121.4W | 70 | 2 |
+| hipBLAS GEMM f32 | 8.071s | `TFLOPS≈11.191` | 0.276Wh | 125.5W | 200.0W | +107.8W | 60 | 1 |
+| rocSOLVER geqrf_strided_batched (d) | 6.837s | `gpu_time_us≈1014218` | 0.162Wh | 85.5W | 177.0W | +66.7W | 48 | 5 |
+| hipSOLVER (tiny solver) | 7.898s | — | 0.152Wh | 69.2W | 161.0W | +51.7W | 39 | 1 |
+| rocSPARSE axpyi (d) | 5.041s | `GB/s≈346.55, GFLOP/s≈24.75` | 0.180Wh | 126.8W | 142.0W | +109.4W | 85 | 24 |
+| hipSPARSE axpyi (d) | 5.061s | `GB/s≈358.39, GFLOP/s≈25.60` | 0.186Wh | 131.2W | 144.0W | +113.4W | 88 | 32 |
+| rocFFT complex fwd (524288, batch=4, d) | 4.136s | `ms≈0.60496` | 0.157Wh | 138.6W | 161.0W | +120.8W | 84 | 16 |
+| dyna-rocFFT complex fwd (524288, batch=4, d) | 4.414s | `ms≈0.603719` | 0.164Wh | 131.1W | 162.0W | +113.6W | 82 | 16 |
+| rocRAND generate (philox, uniform-float) | 5.458s | `GB/s≈313.161, GSample/s≈78.29` | 0.272Wh | 176.2W | 191.0W | +157.1W | 93 | 38 |
+- PyTorch (built from source vs in-tree ROCm 7.11):
+  - audio: OK (`tflops_est≈9.83`, `avgW≈178W`, `dW≈+172W`, `gpu%≈85`)
+  - video: OK (`tflops_est≈2.90`, `avgW≈201W`, `dW≈+195W`, `gpu%≈97`)
 
 Versions (selected, from the in-tree Stage‑2 dist):
 
