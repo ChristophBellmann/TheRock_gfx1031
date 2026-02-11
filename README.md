@@ -164,14 +164,14 @@ python3 validation/scripts/validate.py
 The validation scripts auto-create and manage a repo-local Python venv under `validation/workspace/` (no manual activation required).
 
 Validation profiles:
-- `all` (default): enables everything (ROCm benches + MIOpen + all workloads incl. PyTorch + PETSc) and prompts once before downloads
+- `all` (default): enables everything (ROCm benches + MIOpen + all workloads incl. Whisper/MFEM/PETSc/PyTorch/llama.cpp/Ollama) and prompts once before downloads
 - `quick`: ROCm env + power baseline + `rocminfo` + HIP compile+run (no downloads)
 - `full`: adds representative workloads (docker/pip/build) and prompts once before downloads
 - Focused: `llama_cpp`, `ollama`, `whisper`, `mfem`, `pytorch`, `petsc`
 - PyTorch (ROCm 7.11, source build): `pytorch_rocm711_source` (very heavy; builds `torch` from source against the in-tree dist under `<builddir>/dist/rocm`)
 
-Note: the default PyTorch validation uses the `rocm6.2` wheel channel because it is widely available and has been the most
-stable option for gfx1031. If you want PyTorch aligned with ROCm 7.11, use `pytorch_rocm711_source`.
+Note: the default `all` profile builds a ROCm 7.11-aligned PyTorch wheel from source (slow) to avoid accidental
+CPU fallback due to mismatched ROCm wheel channels. If you want a faster PyTorch check, use `--profile pytorch`.
 Also note: `torch.version.hip` is the HIP toolchain version (e.g. 7.2.x), while `torch.version.rocm` is the ROCm release (e.g. 7.11.x).
 
 Examples:
@@ -329,11 +329,37 @@ To install that wheel into a user venv (recommended), use:
 ./install_pytorch_rocm711.sh --rocm-prefix /opt/rocm
 ```
 
-If the wheel is missing, build it first (very heavy):
+If the wheel is missing, build it first:
 ```bash
 python3 validation/scripts/validate.py --profile pytorch_rocm711_source --build-dirs build-stage2 --yes --power --log
 ```
 
+### Using ROCm 7.11 PyTorch in new Python projects (recommended)
+
+To ensure you **always** use the custom ROCm 7.11 wheel (and never accidentally install a
+different ROCm/CUDA/CPU build), pin `torch` to the local wheel path in your project:
+
+Example `requirements.txt`:
+```txt
+torch @ file:///opt/rocm/wheels/pytorch_rocm711/torch-2.11.0a0+git3b6829f-cp312-cp312-linux_x86_64.whl
+numpy
+```
+
+Install:
+```bash
+python3 -m venv .venv
+source .venv/bin/activate
+python -m pip install -U pip
+python -m pip install -r requirements.txt
+```
+
+GPU smoke:
+```bash
+python -c "import torch; print(torch.__version__); print(torch.version.rocm); print(torch.cuda.is_available())"
+```
+
+Concrete working example project:
+- `/media/christoph/some_space/rocm711_torch_example`
 
 ## TODO
 

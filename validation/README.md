@@ -14,7 +14,9 @@ This suite includes small **sample inputs** under `validation/src/assets/samples
 
 ## Quick start
 
-Default (no args): **full suite (`all` profile)** with power metrics, prompts once before downloads/builds:
+Default (no args): **full suite (`all` profile)** with power metrics, prompts once before downloads/builds.
+
+Note: `all` is intentionally heavy and includes a **PyTorch ROCm 7.11 source build** against the in-tree dist.
 ```bash
 python3 validation/scripts/validate.py
 ```
@@ -60,9 +62,8 @@ Run a focused subset instead of the full pipeline:
 - PyTorch (ROCm 7.11, source build): `--profile pytorch_rocm711_source` (builds `torch` from source against the in-tree dist under `<builddir>/dist/rocm`; can take a long time)
 - PETSc HIP build+solve: `--profile petsc` (can take a while)
 
-Note: the default PyTorch profiles (`pytorch`, `all`) use the `rocm6.2` wheel channel because it is widely available and
-has been the most stable option for gfx1031 in this repo. If you specifically want a PyTorch build aligned with the repo's
-ROCm 7.11 stack, use `pytorch_rocm711_source`.
+Note: `all` defaults to a ROCm 7.11-aligned PyTorch **source build** (slow). If you want a faster PyTorch check
+using prebuilt wheels (ROCm 6.2 channel), use `--profile pytorch` instead.
 
 Tip: list the profiles available in your checkout:
 ```bash

@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import os
 import json
 import sys
 from pathlib import Path
@@ -17,10 +18,30 @@ def _as_abs(ctx: Context, p: str | Path) -> Path:
     return pp if pp.is_absolute() else (ctx.repo_root / pp)
 
 
+def with_openmp_runtime_env(env: dict[str, str]) -> dict[str, str]:
+    """
+    Some torch builds may require an OpenMP runtime that provides __kmpc_* symbols.
+
+    On this repo's ROCm 7.11 setup we provide libomp under /opt/rocm. Preloading
+    it is the most robust way to satisfy missing __kmpc_* at import time.
+    """
+    out = dict(env)
+    cur = out.get("LD_PRELOAD", "")
+
+    # Prefer ROCM_PATH if present; fall back to system /opt/rocm.
+    rocm = (out.get("ROCM_PATH", "") or os.environ.get("ROCM_PATH", "") or "/opt/rocm").strip()
+    cand = Path(rocm) / "lib" / "llvm" / "lib" / "libomp.so"
+    if cand.is_file():
+        if str(cand) not in cur.split(":"):
+            out["LD_PRELOAD"] = ":".join([str(cand)] + ([cur] if cur else []))
+    return out
+
+
 def _probe_torch(ctx: Context, env: dict[str, str], log: Path | None) -> tuple[int, str, str, str]:
+    env2 = env
     probe = run_cmd(
         ctx.repo_root,
-        env,
+        env2,
         [
             sys.executable,
             "-c",
@@ -34,6 +55,30 @@ def _probe_torch(ctx: Context, env: dict[str, str], log: Path | None) -> tuple[i
         log,
     )
     if probe.rc != 0:
+        out = ((probe.out or "") + "\n" + (probe.err or "")).strip()
+        # Retry with libomp preload if we hit missing __kmpc_* symbols.
+        if "__kmpc_" in out:
+            env3 = with_openmp_runtime_env(env2)
+            if env3.get("LD_PRELOAD") != env2.get("LD_PRELOAD"):
+                probe = run_cmd(
+                    ctx.repo_root,
+                    env3,
+                    [
+                        sys.executable,
+                        "-c",
+                        "import torch; "
+                        "print(getattr(torch,'__version__','')); "
+                        "v=getattr(torch,'version',None); "
+                        "print(getattr(v,'hip',None) or ''); "
+                        "print(getattr(v,'rocm',None) or '')",
+                    ],
+                    30,
+                    log,
+                )
+                if probe.rc == 0:
+                    env2 = env3
+                else:
+                    return probe.rc, "", "", ""
         return probe.rc, "", "", ""
     lines = (probe.out or "").splitlines()
     ver = lines[0].strip() if len(lines) >= 1 else ""
@@ -407,6 +452,9 @@ def ensure_pytorch(
     auto = bool(wl.get("auto_install", False))
     if not auto:
         return None
+
+    # Ensure the env can import torch even if the wheel needs libomp for __kmpc_*.
+    env = with_openmp_runtime_env(env)
 
     sb = wl.get("source_build", {}) or {}
     if bool(sb.get("enabled", False)):

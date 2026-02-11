@@ -60,10 +60,17 @@ require_cmd() {
 }
 
 need_sudo() {
-  # Returns 0 if we should use sudo for writes to PREFIX and /etc.
+  # Returns 0 if we should use sudo for writes to PREFIX and/or /etc.
   if [[ "${EUID}" -eq 0 ]]; then
     return 1
   fi
+
+  # Even if PREFIX is writable, we still need sudo for system integration
+  # (OpenCL ICD + ldconfig snippets live under /etc by default).
+  if (( DO_OPENCL_ICD )) || (( DO_LDCONFIG )); then
+    return 0
+  fi
+
   if [[ -w "${PREFIX}" ]] || [[ -w "$(dirname "${PREFIX}")" ]]; then
     # PREFIX (or parent) is writable without root.
     return 1
@@ -182,6 +189,17 @@ fi
 SUDO=""
 if need_sudo; then
   SUDO="sudo"
+fi
+
+# If we need sudo but have no controlling TTY and no askpass helper, fail early
+# with a clear message. Otherwise we may partially install and then fail during
+# /etc integration (OpenCL ICD / ldconfig).
+if [[ "${SUDO}" == "sudo" ]]; then
+  if [[ ! -t 0 && ! -t 1 && -z "${SUDO_ASKPASS:-}" ]]; then
+    echo "ERROR: sudo is required for system integration (/etc and/or ${PREFIX}) but no TTY is available." >&2
+    echo "       Re-run from an interactive terminal, or configure SUDO_ASKPASS." >&2
+    exit 1
+  fi
 fi
 
 RSYNC_ARGS=(-aH --numeric-ids --info=stats2,progress2)

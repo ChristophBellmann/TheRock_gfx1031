@@ -9,18 +9,18 @@ run:
 
 workloads:
   pytorch:
+    # Default: build a ROCm 7.11-aligned torch wheel from source (heavy).
+    # This avoids accidental CPU fallback due to mismatched ROCm wheel channels.
     auto_install: true
-    # NOTE: ROCm torch wheels are large and ROCm-version-specific.
-    # This is a best-effort default; adjust as needed for your environment.
-    pip_args: ["--index-url", "https://download.pytorch.org/whl/rocm6.2"]
-    packages: ["torch"]
-    expected_version_substr: "+rocm6.2"
-    expected_hip_substr: "6.2"
-    use_in_tree_rocm: false
+    expected_hip_substr: "7.11"
+    require_rocm_prefix: "in-tree"
+    source_build:
+      enabled: true
+      backend: "in-tree"
   whisper:
     auto_install: true
     packages: ["openai-whisper"]
-    use_in_tree_rocm: false
+    use_in_tree_rocm: true
     # Heavier than the default tiny model to make GPU usage more visible.
     model: "base"
     beam_size: 5

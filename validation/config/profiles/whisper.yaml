@@ -5,10 +5,19 @@ run:
   downloads_enabled: true
 
 workloads:
+  # Whisper requires ROCm-enabled PyTorch. Default to the locally-installed
+  # ROCm 7.11 torch wheel under /opt/rocm (deps still come from PyPI).
+  pytorch:
+    auto_install: true
+    packages:
+      - "torch @ file:///opt/rocm/wheels/pytorch_rocm711/torch-2.11.0a0+git3b6829f-cp312-cp312-linux_x86_64.whl"
+    expected_rocm_substr: "7.11"
   whisper:
     auto_install: true
     packages: ["openai-whisper"]
     use_in_tree_rocm: false
+    # The bundled sample is very short; repeat to make GPU usage visible.
+    audio_target_s: 300
 
 steps:
   rocm_sanity: true
@@ -17,5 +26,6 @@ steps:
   llama_cpp_docker: false
   ollama: false
   open_interpreter: false
+  pytorch: false
   whisper: true
   mfem_hip: false

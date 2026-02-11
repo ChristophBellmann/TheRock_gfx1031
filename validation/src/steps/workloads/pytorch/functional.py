@@ -11,7 +11,7 @@ from core.reporting.models import StepResult
 from core.rocm_env import deactivated_env
 from core.runner import fmt_duration, run_cmd
 from steps.shared import append_power, baseline_avg_w, with_power_sampler
-from steps.workloads.pytorch.setup import ensure_pytorch
+from steps.workloads.pytorch.setup import ensure_pytorch, with_openmp_runtime_env
 
 
 def _gpu_required_script(kind: str) -> str:
@@ -141,6 +141,7 @@ def _step_pytorch_conv(ctx: Context, cfg: dict[str, Any], build_dir: str, rocm_d
     wl = cfg.get("workloads", {}).get("pytorch", {}) or {}
     use_in_tree = bool(wl.get("use_in_tree_rocm", False))
     run_env = env if use_in_tree else deactivated_env(env, rocm_dist)
+    run_env = with_openmp_runtime_env(run_env)
 
     meta = ensure_pytorch(ctx, cfg, run_env, log, rocm_dist=rocm_dist)
     if meta is not None and meta.status != "OK":
@@ -161,12 +162,10 @@ def _step_pytorch_conv(ctx: Context, cfg: dict[str, Any], build_dir: str, rocm_d
     run_env.setdefault("PYTHONUNBUFFERED", "1")
     run_env.setdefault("PYTHONFAULTHANDLER", "1")
     # Some prebuilt ROCm wheels ship code objects for gfx1030 but not gfx1031.
-    # Allow opting into the common compatibility workaround.
+    # Allow opting into the common compatibility workaround (only if explicitly configured).
     if not use_in_tree:
         arch = str(cfg.get("rocm", {}).get("amd_gpu_arch", "gfx1031"))
         override = str(wl.get("hsa_override_gfx_version", "") or "").strip()
-        if not override and arch == "gfx1031":
-            override = "10.3.0"
         if override and "HSA_OVERRIDE_GFX_VERSION" not in run_env:
             run_env["HSA_OVERRIDE_GFX_VERSION"] = override
 

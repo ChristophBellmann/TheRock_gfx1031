@@ -13,6 +13,7 @@ from core.reporting.models import StepResult
 from core.rocm_env import deactivated_env
 from core.runner import fmt_duration, run_cmd
 from steps.shared import append_power, baseline_avg_w, downloads_enabled, with_power_sampler
+from steps.workloads.pytorch.setup import ensure_pytorch, with_openmp_runtime_env
 
 
 def _ffprobe_duration_s(env: dict[str, str], path: Path) -> float | None:
@@ -140,6 +141,14 @@ def step_whisper(ctx: Context, cfg: dict[str, Any], build_dir: str, rocm_dist: P
     wl = cfg.get("workloads", {}).get("whisper", {}) or {}
     use_in_tree = bool(wl.get("use_in_tree_rocm", False))
     run_env = env if use_in_tree else deactivated_env(env, rocm_dist)
+    run_env = with_openmp_runtime_env(run_env)
+
+    # Whisper requires ROCm-enabled PyTorch. If the config enables PyTorch
+    # auto-install (e.g. from a local wheel), ensure it before attempting the
+    # Whisper workload so we don't silently SKIP due to missing torch.
+    pt = ensure_pytorch(ctx, cfg, run_env, log, rocm_dist=rocm_dist)
+    if pt is not None and pt.status in {"FAIL", "SKIP"}:
+        return StepResult(build_dir, "Whisper (python) smoke", pt.status, pt.duration, f"pytorch setup: {pt.metric}")
 
     meta = ensure_whisper(ctx, cfg, run_env, log)
     if meta is not None:
@@ -174,9 +183,11 @@ def step_whisper(ctx: Context, cfg: dict[str, Any], build_dir: str, rocm_dist: P
     env["ROCM_VALIDATION_WHISPER_MODEL"] = model_name
     env["ROCM_VALIDATION_WHISPER_BEAM_SIZE"] = str(max(1, beam_size))
     env["ROCM_VALIDATION_WHISPER_BEST_OF"] = str(max(1, best_of))
-    # Match PyTorch wheels that often ship gfx1030 but not gfx1031 code objects.
-    if str(cfg.get("rocm", {}).get("amd_gpu_arch", "gfx1031")) == "gfx1031" and "HSA_OVERRIDE_GFX_VERSION" not in env:
-        env["HSA_OVERRIDE_GFX_VERSION"] = "10.3.0"
+    # Optional compatibility override (only if explicitly configured).
+    # Some prebuilt ROCm artifacts ship gfx1030 but not gfx1031 code objects.
+    override = str(wl.get("hsa_override_gfx_version", "") or "").strip()
+    if override and "HSA_OVERRIDE_GFX_VERSION" not in env:
+        env["HSA_OVERRIDE_GFX_VERSION"] = override
 
     script = r"""
 import os, time, sys
@@ -207,7 +218,10 @@ device="cuda"
 model_name=os.environ.get("ROCM_VALIDATION_WHISPER_MODEL","tiny.en")
 beam_size=int(os.environ.get("ROCM_VALIDATION_WHISPER_BEAM_SIZE","5"))
 best_of=int(os.environ.get("ROCM_VALIDATION_WHISPER_BEST_OF","5"))
-model=whisper.load_model(model_name, device=device)
+# Workaround: `whisper.load_model(..., map_location='cuda')` can crash on some
+# torch/ROCm combinations when deserializing directly onto the GPU. Load the
+# checkpoint on CPU first, then move the model.
+model=whisper.load_model(model_name, device="cpu").to(device)
 t0=time.time()
 runs=0
 text_len=0
