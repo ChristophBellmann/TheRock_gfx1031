@@ -8,6 +8,13 @@ Validation runs without installing anything system-wide (no `/opt/rocm` required
 
 Upstream project: `ROCm/TheRock` (this repo adds gfx103X-focused defaults, scripts, and validation).
 
+## Status (2026-03-01)
+
+- Aktueller HEAD: `30637be`.
+- Für den jüngsten Mogli/ORT-Workflow wurden hier **keine neuen Quellcode-Änderungen** committed.
+- Die funktionalen Änderungen lagen im separaten ORT-Source-Repo (TLS-Fix) und im `mogli_wakeword_lab`.
+- Dieser TheRock-Stand bleibt weiterhin die Basis für den Custom-ROCm-Stack und die Wheels in `/opt/rocm/wheels/...`.
+
 ## Quick start
 
   - `build_gfx1031.sh` (configure/bootstrap/build/rebuild)
