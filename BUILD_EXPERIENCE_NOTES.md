@@ -148,6 +148,27 @@
    - hipBLASLt/hipSPARSELt artifacts marked optional so packaging won't expect them.
    - README and recommended profile updated to disable unsupported Lt components for gfx1031.
 
+13a. **2026-03-01: Custom ROCm Python feed + PyTorch wheel validation (green)**
+   - Built local ROCm Python packages from `build-stage2/artifacts`:
+     - `rocm-7.11.0a20260301`
+     - `rocm-sdk-core-7.11.0a20260301`
+     - `rocm-sdk-devel-7.11.0a20260301`
+     - `rocm-sdk-libraries-gfx1031-7.11.0a20260301`
+   - Created a local `simple/` index under:
+     - `build-stage2/python_packages_gfx1031/dist/simple`
+   - Installed ROCm packages from local index into `.venv` and verified:
+     - `python -m rocm_sdk version -> 7.11.0a20260301`
+     - `python -m rocm_sdk targets -> gfx1031`
+   - Rebuilt PyTorch wheel against this custom ROCm package set:
+     - `PYTORCH_EXTRA_INSTALL_REQUIREMENTS=rocm[libraries]==7.11.0a20260301`
+     - wheel OpenMP dependency validation passes (`libtorch_cpu.so` depends on `libomp`)
+     - runtime sanity check passes (`torch.cuda.is_available() == True`)
+   - Root cause for prior import failure:
+     - `hipsparselt` not present in custom `gfx1031` runtime package (expected for this profile).
+   - Mitigation applied:
+     - `_rocm_init.py` generation now filters preload shortnames to only libraries found by
+       `rocm_sdk.find_libraries(...)`, so missing optional libs do not abort import.
+
 14. **2025-12-18: Clean gfx1031 build helper**
    - Added `build_gfx1031.sh` for a clean full build with memory limits and ccache.
    - Script refuses to run if `build/` is not clean (unless `--clean` or `--no-check-clean` is used).

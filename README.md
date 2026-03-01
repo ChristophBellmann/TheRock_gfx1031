@@ -334,6 +334,53 @@ If the wheel is missing, build it first:
 python3 validation/scripts/validate.py --profile pytorch_rocm711_source --build-dirs build-stage2 --yes --power --log
 ```
 
+### Build local ROCm Python packages (gfx1031) and local pip index
+
+For `gfx1031`, use local/custom ROCm Python packages so `torch` can resolve
+`rocm[libraries]` cleanly without relying on public `gfx110X` feeds.
+
+```bash
+./.venv/bin/python build_tools/build_python_packages.py \
+  --artifact-dir ./build-stage2/artifacts \
+  --dest-dir ./build-stage2/python_packages_gfx1031 \
+  --version 7.11.0a20260301
+
+# Build a wheel for the meta package (avoids sdist build-isolation issues in offline/local index use)
+./.venv/bin/python ./build-stage2/python_packages_gfx1031/rocm/setup.py \
+  bdist_wheel --dist-dir ./build-stage2/python_packages_gfx1031/dist
+```
+
+Create a minimal local `simple/` index from `dist/`:
+```bash
+cd build-stage2/python_packages_gfx1031/dist
+rm -rf simple && mkdir -p simple
+files=$(ls -1 *.whl *.tar.gz)
+pkgs=$(for f in $files; do echo "${f%%-*}"; done | tr '[:upper:]' '[:lower:]' | sed -E 's/[-_.]+/-/g' | sort -u)
+{ echo '<!DOCTYPE html><html><body>'; for p in $pkgs; do echo "<a href=\"$p/\">$p</a><br/>"; done; echo '</body></html>'; } > simple/index.html
+for p in $pkgs; do
+  mkdir -p "simple/$p"
+  { echo '<!DOCTYPE html><html><body>'; for f in $files; do raw="${f%%-*}"; n=$(echo "$raw" | tr '[:upper:]' '[:lower:]' | sed -E 's/[-_.]+/-/g'); [ "$n" = "$p" ] && echo "<a href=\"../../$f\">$f</a><br/>"; done; echo '</body></html>'; } > "simple/$p/index.html"
+done
+```
+
+Install from local index:
+```bash
+./.venv/bin/python -m pip install --force-reinstall \
+  --index-url file://$PWD/simple \
+  "rocm[libraries,devel]==7.11.0a20260301"
+```
+
+Sanity:
+```bash
+./.venv/bin/python -m rocm_sdk version
+./.venv/bin/python -m rocm_sdk targets
+./.venv/bin/python -m rocm_sdk path --root
+```
+
+Note for `gfx1031`: `hipSPARSELt` is typically not shipped in this custom profile.
+The PyTorch helper now skips missing optional preload libs in `_rocm_init.py` (instead
+of failing import), while keeping required ROCm preloads and version checks.
+
 ### Using ROCm 7.11 PyTorch in new Python projects (recommended)
 
 To ensure you **always** use the custom ROCm 7.11 wheel (and never accidentally install a

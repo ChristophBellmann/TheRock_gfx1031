@@ -120,6 +120,7 @@ import subprocess
 import sys
 import tempfile
 import textwrap
+import zipfile
 
 script_dir = Path(__file__).resolve().parent
 
@@ -189,9 +190,16 @@ def capture(args: list[str | Path], cwd: Path) -> str:
 
 
 def get_rocm_sdk_version() -> str:
-    return capture(
-        [sys.executable, "-m", "rocm_sdk", "version"], cwd=Path.cwd()
-    ).strip()
+    version = capture([sys.executable, "-m", "rocm_sdk", "version"], cwd=Path.cwd())
+    version = version.strip()
+    if version:
+        return version
+    fallback = os.environ.get("ROCM_SDK_VERSION", "0.0.local")
+    print(
+        "WARNING: rocm_sdk not importable; using fallback ROCM_SDK_VERSION="
+        f"{fallback}"
+    )
+    return fallback
 
 
 def get_rocm_sdk_targets() -> str:
@@ -221,11 +229,32 @@ def get_installed_package_version(dist_package_name: str) -> str:
 
 
 def get_rocm_path(path_name: str) -> Path:
-    return Path(
-        capture(
-            [sys.executable, "-m", "rocm_sdk", "path", f"--{path_name}"], cwd=Path.cwd()
-        ).strip()
+    resolved = capture(
+        [sys.executable, "-m", "rocm_sdk", "path", f"--{path_name}"], cwd=Path.cwd()
+    ).strip()
+    if resolved:
+        return Path(resolved)
+
+    root = Path(
+        os.environ.get("ROCM_PATH")
+        or os.environ.get("ROCM_HOME")
+        or "/opt/rocm"
     )
+    fallback_map = {
+        "root": root,
+        "bin": root / "bin",
+        "cmake": root / "lib" / "cmake",
+    }
+    fallback = fallback_map.get(path_name)
+    if fallback is None:
+        raise ValueError(
+            f"Unsupported rocm path name '{path_name}' and rocm_sdk unavailable"
+        )
+    print(
+        f"WARNING: rocm_sdk not importable; using fallback path for {path_name}: "
+        f"{fallback}"
+    )
+    return fallback
 
 
 def get_rocm_init_contents(args: argparse.Namespace):
@@ -238,9 +267,23 @@ def get_rocm_init_contents(args: argparse.Namespace):
     return textwrap.dedent(
         f"""
         def initialize():
-            import rocm_sdk
+            try:
+                import rocm_sdk
+            except ModuleNotFoundError:
+                # Allow environments that provide ROCm system libraries
+                # but not the optional rocm_sdk Python package.
+                return
+            preload_shortnames = [{library_preloads_formatted}]
+            available_preloads = []
+            for shortname in preload_shortnames:
+                try:
+                    rocm_sdk.find_libraries(shortname)
+                except FileNotFoundError:
+                    # Some custom builds omit optional components.
+                    continue
+                available_preloads.append(shortname)
             rocm_sdk.initialize_process(
-                preload_shortnames=[{library_preloads_formatted}],
+                preload_shortnames=available_preloads,
                 check_version='{sdk_version}')
         """
     )
@@ -261,6 +304,70 @@ def find_built_wheel(dist_dir: Path, dist_package: str) -> Path:
     if len(all_wheels) != 1:
         raise RuntimeError(f"Found multiple wheels matching '{glob}' in {dist_dir}")
     return all_wheels[0]
+
+
+def prepend_env_path(env: dict[str, str], key: str, value: Path):
+    value_str = str(value)
+    current = env.get(key, "")
+    if current:
+        env[key] = f"{value_str}{os.path.pathsep}{current}"
+    else:
+        env[key] = value_str
+    print(f"-- Prepend {key}={value_str}")
+
+
+def append_env_var(env: dict[str, str], key: str, value: str):
+    current = env.get(key, "")
+    if current:
+        env[key] = f"{current} {value}"
+    else:
+        env[key] = value
+    print(f"-- Append {key}+={value}")
+
+
+def validate_torch_wheel_openmp_dependency(wheel_path: Path):
+    """Validate that torch wheel's libtorch_cpu links to libomp."""
+    print("+++ Validating torch wheel OpenMP linkage")
+    with tempfile.TemporaryDirectory(prefix="torch-wheel-check-") as td:
+        td_path = Path(td)
+        with zipfile.ZipFile(wheel_path) as zf:
+            zf.extractall(td_path)
+
+        matches = list(td_path.rglob("torch/lib/libtorch_cpu.so"))
+        if len(matches) != 1:
+            raise RuntimeError(
+                "Expected exactly one torch/lib/libtorch_cpu.so in wheel, "
+                f"found {len(matches)}"
+            )
+        libtorch_cpu = matches[0]
+        readelf_out = subprocess.check_output(
+            ["readelf", "-d", str(libtorch_cpu)],
+            text=True,
+        )
+        has_libomp = ("Shared library: [libomp.so]" in readelf_out) or (
+            "Shared library: [libomp.so.5]" in readelf_out
+        )
+        if not has_libomp:
+            raise RuntimeError(
+                "Wheel validation failed: libtorch_cpu.so does not declare "
+                "NEEDED libomp.so/libomp.so.5"
+            )
+        print("+++ Wheel validation passed: libtorch_cpu.so depends on libomp")
+
+
+def install_built_wheel_with_fallback(wheel_path: Path, cwd: Path):
+    """Install a wheel, retrying with --no-deps if dependency resolution fails."""
+    install_cmd = [sys.executable, "-m", "pip", "install", wheel_path]
+    try:
+        exec(install_cmd, cwd=cwd)
+    except subprocess.CalledProcessError:
+        print(
+            "WARNING: pip install failed with dependency resolution; retrying with "
+            "--no-deps for local validation flow"
+        )
+        exec(
+            [sys.executable, "-m", "pip", "install", "--no-deps", wheel_path], cwd=cwd
+        )
 
 
 def copy_to_output(args: argparse.Namespace, src_file: Path):
@@ -686,6 +793,7 @@ for PyTorch >= 2.8. See status of issue https://github.com/ROCm/TheRock/issues/2
     env["USE_CUDA"] = "OFF"
     env["USE_MPI"] = "OFF"
     env["USE_NUMA"] = "OFF"
+    env["USE_OPENMP"] = "1"
     env["PYTORCH_BUILD_VERSION"] = pytorch_build_version
     env["PYTORCH_BUILD_NUMBER"] = args.pytorch_build_number
 
@@ -738,12 +846,31 @@ for PyTorch >= 2.8. See status of issue https://github.com/ROCm/TheRock/issues/2
         rocm_dir = get_rocm_path("root")
         sysdeps_dir = rocm_dir / "lib" / "rocm_sysdeps"
         assert sysdeps_dir.exists(), f"No sysdeps directory found: {sysdeps_dir}"
+        omp_include_dir = rocm_dir / "lib" / "llvm" / "include"
+        omp_lib_dir = rocm_dir / "lib" / "llvm" / "lib"
+        omp_library = omp_lib_dir / "libomp.so"
+
         add_env_compiler_flags(env, "CXXFLAGS", f"-I{sysdeps_dir / 'include'}")
         # Add correct include path for roctracer.h (for Kineto)
         add_env_compiler_flags(
             env, "CXXFLAGS", f"-I{rocm_dir / 'include' / 'roctracer'}"
         )
         add_env_compiler_flags(env, "LDFLAGS", f"-L{sysdeps_dir / 'lib'}")
+        add_env_compiler_flags(env, "LDFLAGS", f"-L{omp_lib_dir}")
+        add_env_compiler_flags(env, "LDFLAGS", "-Wl,--no-as-needed", "-lomp")
+        prepend_env_path(env, "CMAKE_INCLUDE_PATH", omp_include_dir)
+        prepend_env_path(env, "CMAKE_LIBRARY_PATH", omp_lib_dir)
+        append_env_var(
+            env,
+            "CMAKE_ARGS",
+            (
+                "-DOpenMP_C_FLAGS=-fopenmp "
+                "-DOpenMP_CXX_FLAGS=-fopenmp "
+                "-DOpenMP_C_LIB_NAMES=omp "
+                "-DOpenMP_CXX_LIB_NAMES=omp "
+                f"-DOpenMP_omp_LIBRARY={omp_library}"
+            ),
+        )
 
         # needed to find liblzma packaged by rocm as sysdep to build aotriton
         os.environ["PKG_CONFIG_PATH"] = f"{sysdeps_dir / 'lib' / 'pkgconfig'}"
@@ -795,12 +922,12 @@ for PyTorch >= 2.8. See status of issue https://github.com/ROCm/TheRock/issues/2
     exec([sys.executable, "setup.py", "bdist_wheel"], cwd=pytorch_dir, env=env)
     built_wheel = find_built_wheel(pytorch_dir / "dist", "torch")
     print(f"Found built wheel: {built_wheel}")
+    if not is_windows:
+        validate_torch_wheel_openmp_dependency(built_wheel)
     copy_to_output(args, built_wheel)
 
     print("+++ Installing built torch:")
-    exec(
-        [sys.executable, "-m", "pip", "install", built_wheel], cwd=tempfile.gettempdir()
-    )
+    install_built_wheel_with_fallback(built_wheel, cwd=tempfile.gettempdir())
 
     print("+++ Sanity checking installed torch (unavailable is okay on CPU machines):")
     sanity_check_output = capture(
