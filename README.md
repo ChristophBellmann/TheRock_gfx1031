@@ -388,7 +388,7 @@ different ROCm/CUDA/CPU build), pin `torch` to the local wheel path in your proj
 
 Example `requirements.txt`:
 ```txt
-torch @ file:///opt/rocm/wheels/pytorch_rocm711/torch-2.11.0a0+git3b6829f-cp312-cp312-linux_x86_64.whl
+torch @ file:///opt/rocm/wheels/pytorch_rocm711/torch-2.11.0a0+devrocm20260301-cp312-cp312-linux_x86_64.whl
 numpy
 ```
 
