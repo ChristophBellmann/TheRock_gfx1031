@@ -48,6 +48,69 @@ Upstream project: `ROCm/TheRock` (this repo adds gfx103X-focused defaults, scrip
   - openWakeWord-Training/Deploy-Skripte im separaten Repo:
     - `/media/christoph/some_space/Compute/mogli_wakeword_lab`
 
+### End-to-end Ablauf (Build -> Validate -> Install/Promote)
+
+Der Ablauf ist bewusst zweistufig:
+- `Build`: erzeugt neue Wheels lokal im Build-/Cache-Verzeichnis.
+- `Install/Promote`: kopiert exakt diese Wheels nach `/opt/rocm/wheels/...` (mit Backup/Hash).
+
+#### A) Build (Source -> Wheel)
+
+1) PyTorch (mit MIOpen-Fixes) bauen:
+
+```bash
+cd /media/christoph/some_space/Compute/TheRock_gfx1031
+./.venv/bin/python external-builds/pytorch/build_prod_wheels.py build \
+  --output-dir /media/christoph/some_space/Compute/TheRock_gfx1031/validation/workspace/cache/wheels/pytorch_rocm711_wsfix \
+  --pytorch-dir /media/christoph/some_space/Compute/TheRock_gfx1031/validation/workspace/cache/git/pytorch_rocm711 \
+  --no-build-pytorch-audio --no-build-pytorch-vision --no-build-triton \
+  --no-install-rocm --pytorch-rocm-arch gfx1031 --no-clean
+```
+
+2) ONNX Runtime (TLS-fix) wird im ORT-Fork gebaut (siehe ORT-Referenz oben), danach Wheel-Artefakt bereitstellen.
+
+#### B) Validate (A/B und Funktionscheck)
+
+1) PyTorch-/ROCm-Sanity:
+
+```bash
+python -c "import torch; print(torch.__version__, torch.version.rocm, torch.cuda.is_available())"
+```
+
+2) MIOpen-Workspace-Fix gegen echten Wakeword-Workload prüfen (im `mogli_wakeword_lab`):
+
+```bash
+cd /media/christoph/some_space/Compute/mogli_wakeword_lab
+STEPS=50 AUG_ROUNDS=1 CONVERT_TFLITE=0 ./scripts/retrain_mogli_from_mic.sh > /tmp/retrain_check.log 2>&1
+grep -E -c "IsEnoughWorkspace|GemmFwdRest" /tmp/retrain_check.log
+```
+
+#### C) Install/Promote nach /opt (mit Backup)
+
+1) PyTorch-Wheel:
+
+```bash
+/media/christoph/some_space/Compute/mogli_wakeword_lab/scripts/install_torch_wheel_to_opt.sh
+```
+
+2) ORT-Wheel:
+
+```bash
+/media/christoph/some_space/Compute/mogli_wakeword_lab/scripts/install_ort_wheel_to_opt.sh
+```
+
+Beide Skripte machen:
+- Zielablage unter `/opt/rocm/wheels/...`
+- Backup bestehender Datei (`.bak_<timestamp>`)
+- SHA256-Vergleich Quelle vs Ziel
+
+#### D) Verify nach Promote
+
+```bash
+python -c "import torch; print(torch.__version__, torch.version.rocm, torch.cuda.is_available())"
+python -c "import onnxruntime as ort; print(ort.__version__, ort.get_available_providers())"
+```
+
 ## Quick start
 
   - `build_gfx1031.sh` (configure/bootstrap/build/rebuild)
