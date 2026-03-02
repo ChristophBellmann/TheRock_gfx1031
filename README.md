@@ -10,6 +10,7 @@ Upstream project: `ROCm/TheRock` (this repo adds gfx103X-focused defaults, scrip
 
 ## Status (2026-03-01)
 
+- Aktueller Arbeits-Branch: `hashcat/rocm-7.11-gfx103X`.
 - Aktueller HEAD: `30637be`.
 - Für den jüngsten Mogli/ORT-Workflow wurden hier **keine neuen Quellcode-Änderungen** committed.
 - Die funktionalen Änderungen lagen im separaten ORT-Source-Repo (TLS-Fix) und im `mogli_wakeword_lab`.
