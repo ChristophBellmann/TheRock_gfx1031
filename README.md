@@ -29,6 +29,25 @@ Upstream project: `ROCm/TheRock` (this repo adds gfx103X-focused defaults, scrip
     - `0a13a865d6` (`miopen: query workspace size by solution_id for immediate conv path`)
     - `7c67cbd8d1` (`miopen: size find() workspace from max immediate-solution requirement`)
 
+### Custom build artefakte (aktueller Stand)
+
+- Systemweiter Custom-ROCm-Stack:
+  - Prefix: `/opt/rocm`
+  - Beispiel: `libMIOpen.so*` unter `/opt/rocm/lib/`
+- Custom-PyTorch-Wheels (ROCm 7.11):
+  - Zielablage: `/opt/rocm/wheels/pytorch_rocm711/`
+  - Aktuelles Wheel: `torch-2.11.0a0+devrocm20260302-cp312-cp312-linux_x86_64.whl`
+  - Build-Cache: `validation/workspace/cache/wheels/pytorch_rocm711_wsfix/`
+- Custom-ONNXRuntime-Wheel (ROCm):
+  - Zielablage: `/opt/rocm/wheels/onnxruntime_rocm711/`
+  - Aktuelles Wheel: `onnxruntime_rocm-1.22.2-cp312-cp312-linux_x86_64.whl`
+  - Upstream-Fix-Quelle: siehe ORT-Fork oben (`christoph/gfx1031-tls-fix`)
+- Weitere custom aus Source (im Umfeld dieses Stacks):
+  - `torchaudio` passend zum custom `torch`
+  - `torchcodec` gegen den lokalen ROCm/PyTorch-Stack
+  - openWakeWord-Training/Deploy-Skripte im separaten Repo:
+    - `/media/christoph/some_space/Compute/mogli_wakeword_lab`
+
 ## Quick start
 
   - `build_gfx1031.sh` (configure/bootstrap/build/rebuild)
