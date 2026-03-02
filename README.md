@@ -15,6 +15,19 @@ Upstream project: `ROCm/TheRock` (this repo adds gfx103X-focused defaults, scrip
 - Die funktionalen Änderungen lagen im separaten ORT-Source-Repo (TLS-Fix) und im `mogli_wakeword_lab`.
 - Dieser TheRock-Stand bleibt weiterhin die Basis für den Custom-ROCm-Stack und die Wheels in `/opt/rocm/wheels/...`.
 
+### Downstream patch references (for reproducibility)
+
+- ONNX Runtime (ROCm provider TLS fix):
+  - Repo/Fork: `https://github.com/ChristophBellmann/onnxruntime`
+  - Branch: `christoph/gfx1031-tls-fix`
+  - Commit: `f4660e2`
+- PyTorch (MIOpen workspace fixes for immediate/find path):
+  - Repo/Fork: `https://github.com/ChristophBellmann/pytorch-rocm-gfx1031`
+  - Branch: `christoph/miopen-workspace-fix`
+  - Commits:
+    - `0a13a865d6` (`miopen: query workspace size by solution_id for immediate conv path`)
+    - `7c67cbd8d1` (`miopen: size find() workspace from max immediate-solution requirement`)
+
 ## Quick start
 
   - `build_gfx1031.sh` (configure/bootstrap/build/rebuild)
