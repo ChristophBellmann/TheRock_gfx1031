@@ -1,147 +1,24 @@
-# AI-assisted work follows `AI_WORKFLOW.md`; a concrete workflow for this repo is documented in `AI_WORKFLOW_THEROCK_GFX1031.md`.
+> AI-assisted work follows `AI_WORKFLOW.md`; concrete repo workflow: `AI_WORKFLOW_THEROCK_GFX1031.md`.
 
 # TheRock_gfx1031 (ROCm 7.11, RDNA2 gfx103X)
 
 This repository is a custom TheRock branch that builds a repo-local ROCm/HIP stack.
 For **RDNA2 gfx103X**, tested on **Radeon RX 6700 XT / gfx1031**.
 Validation runs without installing anything system-wide (no `/opt/rocm` required).
+Core motivation: this GPU class is not reliably supported by default in the required workflow depth,
+so this repo provides the custom build, fixes, and validation needed to make it practically usable.
 
 Upstream project: `ROCm/TheRock` (this repo adds gfx103X-focused defaults, scripts, and validation).
 
-## Status (2026-03-01)
+## System and requirements (Ubuntu first)
 
-- Aktueller Arbeits-Branch: `hashcat/rocm-7.11-gfx103X`.
-- Aktueller HEAD: `30637be`.
-- Für den jüngsten Mogli/ORT-Workflow wurden hier **keine neuen Quellcode-Änderungen** committed.
-- Die funktionalen Änderungen lagen im separaten ORT-Source-Repo (TLS-Fix) und im `mogli_wakeword_lab`.
-- Dieser TheRock-Stand bleibt weiterhin die Basis für den Custom-ROCm-Stack und die Wheels in `/opt/rocm/wheels/...`.
-
-### Downstream patch references (for reproducibility)
-
-- ONNX Runtime (ROCm provider TLS fix):
-  - Repo/Fork: `https://github.com/ChristophBellmann/onnxruntime`
-  - Branch: `christoph/gfx1031-tls-fix`
-  - Commit: `f4660e2`
-- PyTorch (MIOpen workspace fixes for immediate/find path):
-  - Repo/Fork: `https://github.com/ChristophBellmann/pytorch-rocm-gfx1031`
-  - Branch: `christoph/miopen-workspace-fix`
-  - Commits:
-    - `0a13a865d6` (`miopen: query workspace size by solution_id for immediate conv path`)
-    - `7c67cbd8d1` (`miopen: size find() workspace from max immediate-solution requirement`)
-
-### Custom build artefakte (aktueller Stand)
-
-- Systemweiter Custom-ROCm-Stack:
-  - Prefix: `/opt/rocm`
-  - Beispiel: `libMIOpen.so*` unter `/opt/rocm/lib/`
-- Custom-PyTorch-Wheels (ROCm 7.11):
-  - Zielablage: `/opt/rocm/wheels/pytorch_rocm711/`
-  - Aktuelles Wheel: `torch-2.11.0a0+devrocm20260302-cp312-cp312-linux_x86_64.whl`
-  - Build-Cache: `validation/workspace/cache/wheels/pytorch_rocm711_wsfix/`
-- Custom-ONNXRuntime-Wheel (ROCm):
-  - Zielablage: `/opt/rocm/wheels/onnxruntime_rocm711/`
-  - Aktuelles Wheel: `onnxruntime_rocm-1.22.2-cp312-cp312-linux_x86_64.whl`
-  - Upstream-Fix-Quelle: siehe ORT-Fork oben (`christoph/gfx1031-tls-fix`)
-- Weitere custom aus Source (im Umfeld dieses Stacks):
-  - `torchaudio` passend zum custom `torch`
-  - `torchcodec` gegen den lokalen ROCm/PyTorch-Stack
-  - openWakeWord-Training/Deploy-Skripte im separaten Repo:
-    - `/media/christoph/some_space/Compute/mogli_wakeword_lab`
-
-### End-to-end Ablauf (Build -> Validate -> Install/Promote)
-
-Der Ablauf ist bewusst zweistufig:
-- `Build`: erzeugt neue Wheels lokal im Build-/Cache-Verzeichnis.
-- `Install/Promote`: kopiert exakt diese Wheels nach `/opt/rocm/wheels/...` (mit Backup/Hash).
-
-#### A) Build (Source -> Wheel)
-
-1) PyTorch (mit MIOpen-Fixes) bauen:
-
-```bash
-cd /media/christoph/some_space/Compute/TheRock_gfx1031
-./.venv/bin/python external-builds/pytorch/build_prod_wheels.py build \
-  --output-dir /media/christoph/some_space/Compute/TheRock_gfx1031/validation/workspace/cache/wheels/pytorch_rocm711_wsfix \
-  --pytorch-dir /media/christoph/some_space/Compute/TheRock_gfx1031/validation/workspace/cache/git/pytorch_rocm711 \
-  --no-build-pytorch-audio --no-build-pytorch-vision --no-build-triton \
-  --no-install-rocm --pytorch-rocm-arch gfx1031 --no-clean
-```
-
-2) ONNX Runtime (TLS-fix) wird im ORT-Fork gebaut (siehe ORT-Referenz oben), danach Wheel-Artefakt bereitstellen.
-
-#### B) Validate (A/B und Funktionscheck)
-
-1) PyTorch-/ROCm-Sanity:
-
-```bash
-python -c "import torch; print(torch.__version__, torch.version.rocm, torch.cuda.is_available())"
-```
-
-2) MIOpen-Workspace-Fix gegen echten Wakeword-Workload prüfen (im `mogli_wakeword_lab`):
-
-```bash
-cd /media/christoph/some_space/Compute/mogli_wakeword_lab
-STEPS=50 AUG_ROUNDS=1 CONVERT_TFLITE=0 ./scripts/retrain_mogli_from_mic.sh > /tmp/retrain_check.log 2>&1
-grep -E -c "IsEnoughWorkspace|GemmFwdRest" /tmp/retrain_check.log
-```
-
-#### C) Install/Promote nach /opt (mit Backup)
-
-1) PyTorch-Wheel:
-
-```bash
-/media/christoph/some_space/Compute/mogli_wakeword_lab/scripts/install_torch_wheel_to_opt.sh
-```
-
-2) ORT-Wheel:
-
-```bash
-/media/christoph/some_space/Compute/mogli_wakeword_lab/scripts/install_ort_wheel_to_opt.sh
-```
-
-Beide Skripte machen:
-- Zielablage unter `/opt/rocm/wheels/...`
-- Backup bestehender Datei (`.bak_<timestamp>`)
-- SHA256-Vergleich Quelle vs Ziel
-
-#### D) Verify nach Promote
-
-```bash
-python -c "import torch; print(torch.__version__, torch.version.rocm, torch.cuda.is_available())"
-python -c "import onnxruntime as ort; print(ort.__version__, ort.get_available_providers())"
-```
-
-## Quick start
-
-  - `build_gfx1031.sh` (configure/bootstrap/build/rebuild)
-  - `monitor_gfx1031.sh` (build status snapshots / polling)
-  - `test_gfx1031.sh` (sanity + consistency + benchmarks + MIOpen checks)
-  - `test_docker_gfx1031.sh` (host vs docker comparison)
-  - `validation/` (Python “usability & workloads” validation)
-  - `install_to_opt.sh` (optional: mirror dist to `/opt/rocm`)
-  - `install_pytorch_rocm711.sh` (optional: install custom PyTorch wheel to a venv)
-
-## System requirements
-
-### Kernel / driver / permissions
-- Ensure the ROCm kernel interfaces are present:
-  - `/dev/kfd` and `/dev/dri` should exist.
-- Ensure your user can access the GPU:
-  - membership in `video` and `render` groups is commonly required.
-### OpenCL (DaVinci Resolve)
-
-DaVinci Resolve uses **OpenCL** on AMD GPUs. If Resolve does not detect your GPU, first verify:
-```bash
-clinfo | head -n 40
-```
-Expected: **Number of platforms > 0** and an AMD GPU device.
-
-This repo can build the AMD OpenCL runtime (`features.enable_ocl_runtime: true`). A system-wide install via
-`install_to_opt.sh` also installs `/etc/OpenCL/vendors/amdocl64.icd` so OpenCL apps can find the platform.
+### Platform target
+- Recommended host OS baseline: **Ubuntu 24.04**.
+- GPU target: **RDNA2 gfx103X** (validated on **RX 6700 XT / gfx1031**).
+- Kernel devices required: `/dev/kfd`, `/dev/dri`.
+- Typical group membership required: `video`, `render`.
 
 ### Build tools (host)
-
-Ubuntu (recommended baseline):
 ```bash
 sudo apt update
 sudo apt install -y \
@@ -153,12 +30,63 @@ sudo apt install -y \
   ccache
 ```
 
-Notes:
-- For the full workload validation (`validation/`, default `all`), also install:
-  ```bash
-  sudo apt install -y ffmpeg docker.io
-  ```
-- If you install docker: ensure your user can run it (e.g. `sudo usermod -aG docker $USER`, then re-login).
+### Validation/workload extras
+For the comprehensive validation/workload profile (`validation`, default `all`):
+```bash
+sudo apt install -y ffmpeg docker.io
+```
+
+If docker is installed, ensure your user can run it:
+```bash
+sudo usermod -aG docker "$USER"
+```
+Then log out/in once.
+
+### OpenCL note (DaVinci Resolve)
+DaVinci Resolve uses OpenCL on AMD GPUs. Quick check:
+```bash
+clinfo | head -n 40
+```
+Expected: platform count > 0 and an AMD GPU device.
+
+This repo can build the AMD OpenCL runtime (`features.enable_ocl_runtime: true`).
+`install_to_opt.sh` also installs `/etc/OpenCL/vendors/amdocl64.icd` for system OpenCL discovery.
+
+## Status (2026-03-01)
+
+- Active working branch: `hashcat/rocm-7.11-gfx103X`.
+- Current HEAD: `30637be`.
+- For recent downstream validation/wheel workflows, **no new source changes** were committed in this repo.
+- This TheRock state remains the base for the custom ROCm stack and wheels in `/opt/rocm/wheels/...`.
+
+### Custom wheel/build references
+
+Custom builds against this ROCm stack (PyTorch, ONNX Runtime, TensorFlow), including
+wheel output locations and promote/install notes, are documented in:
+- `validation/README.md` (section: **Custom builds against this ROCm stack**)
+
+### Compilers used (reproducible)
+
+- Host-C/C++ Compiler:
+  - `gcc (Ubuntu 13.3.0-6ubuntu2~24.04.1) 13.3.0`
+  - `AMD clang version 22.0.0git` (host `clang` is AMD LLVM in this setup)
+- ROCm/HIP Compiler:
+  - `hipcc` from `/opt/rocm/bin/hipcc`
+  - reported HIP version: `7.2.53150-1cedb43795`
+  - ROCm clang++: `/opt/rocm/lib/llvm/bin/clang++` (`AMD clang version 22.0.0git`)
+- Clang resource includes (relevant for HIP/TF builds):
+  - `/opt/rocm/lib/llvm/lib/clang/22/include`
+  - Note: for TensorFlow v2.19, `third_party/gpus/rocm_configure.bzl` is extended in the build script because upstream lists built-in clang include dirs only up to v20.
+
+## Quick start
+
+  - `build_gfx1031.sh` (configure/bootstrap/build/rebuild)
+  - `monitor_gfx1031.sh` (build status snapshots / polling)
+  - `test_gfx1031.sh` (sanity + consistency + benchmarks + MIOpen checks)
+  - `test_docker_gfx1031.sh` (host vs docker comparison)
+  - `validation/` (Python “usability & workloads” validation)
+  - `install_to_opt.sh` (optional: mirror dist to `/opt/rocm`)
+  - `install_pytorch_rocm711.sh` (optional: install custom PyTorch wheel to a venv)
 
 ## Configuration
 
@@ -177,7 +105,7 @@ see `./build_gfx1031.sh --help`
 - To make Stage‑2 the default, either run `./build_gfx1031.sh configure --stage2` (recommended) or change the YAML defaults to `build.stage: 2` and `build.build_dir: build-stage2`.
 - If you want to configure both stages in one go (still configure-only): `./build_gfx1031.sh configure --all`.
 
-## workflow 
+## Workflow
 
 Stage‑1 builds an in-tree toolchain using system clang.
 Stage‑2 reconfigures in a **fresh build dir**.
@@ -271,9 +199,9 @@ Validation profiles:
 - `quick`: ROCm env + power baseline + `rocminfo` + HIP compile+run (no downloads)
 - `full`: adds representative workloads (docker/pip/build) and prompts once before downloads
 - Focused: `llama_cpp`, `ollama`, `whisper`, `mfem`, `pytorch`, `petsc`
-- PyTorch (ROCm 7.11, source build): `pytorch_rocm711_source` (very heavy; builds `torch` from source against the in-tree dist under `<builddir>/dist/rocm`)
+- PyTorch (ROCm 7.11, source build): `pytorch_rocm711_source` (builds `torch` from source against the in-tree dist under `<builddir>/dist/rocm`)
 
-Note: the default `all` profile builds a ROCm 7.11-aligned PyTorch wheel from source (slow) to avoid accidental
+Note: the default `all` profile builds a ROCm 7.11-aligned PyTorch wheel from source to avoid accidental
 CPU fallback due to mismatched ROCm wheel channels. If you want a faster PyTorch check, use `--profile pytorch`.
 Also note: `torch.version.hip` is the HIP toolchain version (e.g. 7.2.x), while `torch.version.rocm` is the ROCm release (e.g. 7.11.x).
 
@@ -420,8 +348,14 @@ use `install_to_opt.sh` to mirror the Stage‑2 dist to `/opt/rocm`.
 ./install_to_opt.sh --build-dir build-stage2 --prefix /opt/rocm
 ```
 
-`install_to_opt.sh` also (best-effort) copies the custom PyTorch wheel (if present) to:
-`/opt/rocm/wheels/pytorch_rocm711/`.
+`install_to_opt.sh` also (best-effort) copies custom framework wheels (if present) to:
+- `/opt/rocm/wheels/pytorch_rocm711/`
+- `/opt/rocm/wheels/onnxruntime_rocm711/`
+- `/opt/rocm/wheels/tensorflow_rocm_custom/` (via the TensorFlow install helper)
+
+System integration files written during `/opt` install:
+- `/etc/ld.so.conf.d/rocm.conf`
+- `/etc/OpenCL/vendors/amdocl64.icd`
 
 ### Install the custom PyTorch (ROCm 7.11, built from source)
 

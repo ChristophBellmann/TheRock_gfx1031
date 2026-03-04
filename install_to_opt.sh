@@ -7,8 +7,10 @@ BUILD_DIR="${BUILD_DIR:-build-stage2}"
 SRC_PREFIX="${SRC_PREFIX:-}"
 PREFIX="${PREFIX:-/opt/rocm}"
 PYTORCH_WHEEL="${PYTORCH_WHEEL:-}"
+ONNXRUNTIME_WHEEL="${ONNXRUNTIME_WHEEL:-}"
 DO_OPENCL_ICD=1
 DO_PYTORCH_WHEEL=1
+DO_ONNXRUNTIME_WHEEL=1
 DO_DELETE=1
 DO_LDCONFIG=1
 DO_CHECK=1
@@ -37,6 +39,12 @@ Options:
                        Also copy this custom-built torch wheel into <prefix>/wheels/pytorch_rocm711/
                        (default: auto-discover in validation cache; best-effort)
   --no-pytorch-wheel    Do not copy the custom torch wheel
+  --onnxruntime-wheel <path>
+                       Also copy this custom-built ONNX Runtime ROCm wheel into
+                       <prefix>/wheels/onnxruntime_rocm711/
+                       (default: auto-discover in validation cache; best-effort)
+  --no-onnxruntime-wheel
+                       Do not copy the custom ONNX Runtime ROCm wheel
   --no-opencl-icd       Do not install /etc/OpenCL/vendors/amdocl64.icd (OpenCL apps like DaVinci Resolve)
   --no-delete           Do not delete extra files in destination
   --no-ldconfig         Do not write /etc/ld.so.conf.d snippet, do not run ldconfig
@@ -112,6 +120,14 @@ while [[ $# -gt 0 ]]; do
       DO_PYTORCH_WHEEL=0
       shift
       ;;
+    --onnxruntime-wheel)
+      ONNXRUNTIME_WHEEL="${2:-}"
+      shift 2
+      ;;
+    --no-onnxruntime-wheel)
+      DO_ONNXRUNTIME_WHEEL=0
+      shift
+      ;;
     --no-opencl-icd)
       DO_OPENCL_ICD=0
       shift
@@ -179,6 +195,7 @@ echo "ldconfig: $([[ ${DO_LDCONFIG} -eq 1 ]] && echo yes || echo no)"
 echo "check  : $([[ ${DO_CHECK} -eq 1 ]] && echo yes || echo no)"
 echo "opencl icd: $([[ ${DO_OPENCL_ICD} -eq 1 ]] && echo yes || echo no)"
 echo "pytorch wheel: $([[ ${DO_PYTORCH_WHEEL} -eq 1 ]] && echo best-effort || echo no)"
+echo "onnxruntime wheel: $([[ ${DO_ONNXRUNTIME_WHEEL} -eq 1 ]] && echo best-effort || echo no)"
 echo ""
 
 if ! confirm "Proceed with install to '${PREFIX}'?"; then
@@ -275,6 +292,32 @@ if (( DO_PYTORCH_WHEEL )); then
   fi
 fi
 
+if (( DO_ONNXRUNTIME_WHEEL )); then
+  # Best-effort: copy a custom ONNX Runtime ROCm wheel built against this ROCm
+  # prefix for reproducible downstream venv installs.
+  if [[ -z "${ONNXRUNTIME_WHEEL}" ]]; then
+    ONNXRUNTIME_WHEEL="$(ls -1t "${ROOT}/validation/workspace/cache/wheels/onnxruntime_rocm711"/onnxruntime_rocm-*.whl 2>/dev/null | head -n 1 || true)"
+  fi
+  if [[ -n "${ONNXRUNTIME_WHEEL}" && -f "${ONNXRUNTIME_WHEEL}" ]]; then
+    wheel_dir="${PREFIX}/wheels/onnxruntime_rocm711"
+    echo ""
+    echo "== ONNX Runtime wheel =="
+    echo "wheel  : ${ONNXRUNTIME_WHEEL}"
+    echo "dest   : ${wheel_dir}/"
+    ${SUDO} mkdir -p "${wheel_dir}"
+    if (( DO_DRY_RUN )); then
+      ${SUDO} rsync -a --dry-run --info=stats2 "${ONNXRUNTIME_WHEEL}" "${wheel_dir}/"
+    else
+      ${SUDO} rsync -a --info=stats2 "${ONNXRUNTIME_WHEEL}" "${wheel_dir}/"
+    fi
+  else
+    echo ""
+    echo "WARN: No custom ONNX Runtime ROCm wheel found. Skipping wheel copy."
+    echo "      Build it via:"
+    echo "        python3 validation/scripts/onnxruntime_validate.py --log"
+  fi
+fi
+
 if (( DO_LDCONFIG )); then
   ldconf_path="/etc/ld.so.conf.d/rocm.conf"
   tmp="$(mktemp)"
@@ -329,4 +372,11 @@ if (( DO_PYTORCH_WHEEL )); then
   echo "  ls -1 '${PREFIX}/wheels/pytorch_rocm711/'"
   echo "  python3 -m venv .venv && source .venv/bin/activate"
   echo "  python -m pip install '${PREFIX}/wheels/pytorch_rocm711/'/torch-*.whl"
+fi
+if (( DO_ONNXRUNTIME_WHEEL )); then
+  echo ""
+  echo "Custom ONNX Runtime ROCm wheel (if copied):"
+  echo "  ls -1 '${PREFIX}/wheels/onnxruntime_rocm711/'"
+  echo "  python3 -m venv .venv && source .venv/bin/activate"
+  echo "  python -m pip install '${PREFIX}/wheels/onnxruntime_rocm711/'/onnxruntime_rocm-*.whl"
 fi

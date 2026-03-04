@@ -10,6 +10,20 @@
 - Python: `.venv` is auto-created/activated by `build_gfx1031.sh` (for build tools + YAML parsing)
 - `ccache` enabled via `eval "$(./build_tools/setup_ccache.py --init)"` inside `build_gfx1031.sh`
 - Memory limits (default): `systemd-run --user --scope -p MemoryHigh=28G -p MemoryMax=31G ...`
+- Compiler stack used in this repo:
+  - Host GCC: `gcc 13.3.0`
+  - Host clang: `AMD clang 22.0.0git`
+  - ROCm HIP compiler: `/opt/rocm/bin/hipcc` (`HIP version 7.2.53150-1cedb43795`)
+  - ROCm clang++: `/opt/rocm/lib/llvm/bin/clang++` (`AMD clang 22.0.0git`)
+  - Clang resource includes used by ROCm toolchain: `/opt/rocm/lib/llvm/lib/clang/22/include`
+
+0a. **2026-03-03: TensorFlow ROCm build and clang-22 include handling**
+   - TensorFlow `v2.19.0` `third_party/gpus/rocm_configure.bzl` only listed builtin clang include dirs up to version 20 for ROCm.
+   - On this system ROCm ships clang resource headers under `.../clang/22/include`.
+   - Build helper `validation/scripts/tensorflow_rocm/build_tensorflow_rocm_wheel.sh` now patches `rocm_configure.bzl` during build setup to append:
+     - `/lib/llvm/lib/clang/21/include`
+     - `/lib/llvm/lib/clang/22/include`
+   - This keeps the TensorFlow ROCm build path deterministic for this local compiler stack.
 
 0. **2025-12-20: Config moved to `config_gfx1031.yaml`**
    - `configure_gfx1031.sh` was removed.

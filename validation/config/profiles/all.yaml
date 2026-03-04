@@ -43,4 +43,5 @@ steps:
   whisper: true
   mfem_hip: true
   pytorch: true
+  onnxruntime_rocm_wheel: true
   petsc_hip: true

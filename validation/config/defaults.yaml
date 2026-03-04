@@ -121,6 +121,25 @@ workloads:
     # Pinned for reproducibility (was: release).
     ref: "v3.24.2"
     min_bench_s: 5.0
+  onnxruntime:
+    # Build settings for validation/src/steps/workloads/onnxruntime/rocm_wheel.py
+    repo_url: "https://github.com/ChristophBellmann/onnxruntime.git"
+    ref: "christoph/gfx1031-tls-fix"
+    jobs: 24
+    rocm_path: "/opt/rocm"
+    rocm_version: "7.11.0"
+    hip_arch: "gfx1031"
+    work_root: "validation/workspace/builds/onnxruntime_rocm"
+    wheel_out_dir: "validation/workspace/cache/wheels/onnxruntime_rocm711"
+    do_update: true
+  tensorflow:
+    # Build settings for validation/src/steps/workloads/tensorflow/rocm_wheel.py
+    repo_url: "https://github.com/ROCm/tensorflow-upstream.git"
+    ref: "r2.20-rocm-enhanced"
+    jobs: 24
+    rocm_path: "/opt/rocm"
+    work_root: "validation/workspace/builds/tensorflow_rocm"
+    wheel_out_dir: "validation/workspace/cache/wheels/tensorflow_rocm_custom"
 
 steps:
   rocm_sanity: true
@@ -133,6 +152,8 @@ steps:
   mfem_hip: true
   pytorch: false
   petsc_hip: false
+  onnxruntime_rocm_wheel: false
+  tensorflow_rocm_wheel: false
 
 timeouts_s:
   rocminfo: 10
@@ -154,5 +175,7 @@ timeouts_s:
   pytorch_install: 1800
   pytorch_checkout: 3600
   pytorch_build: 21600
+  onnxruntime_build: 21600
+  tensorflow_build: 43200
   petsc_configure: 3600
   petsc_build: 7200

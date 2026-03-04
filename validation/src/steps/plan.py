@@ -23,6 +23,8 @@ from steps.workloads.ollama.functional import step_ollama
 from steps.workloads.open_interpreter.functional import step_open_interpreter
 from steps.workloads.petsc.hip_build import step_petsc_hip
 from steps.workloads.pytorch.functional import step_pytorch_audio, step_pytorch_video
+from steps.workloads.onnxruntime.rocm_wheel import step_onnxruntime_rocm_wheel
+from steps.workloads.tensorflow.rocm_wheel import step_tensorflow_rocm_wheel
 from steps.workloads.whisper.setup import step_whisper
 
 
@@ -434,6 +436,8 @@ def build_plan(cfg: dict[str, Any], *, doctor_only: bool = False) -> list[Step]:
     add("pytorch", "pytorch_audio", "PyTorch (audio) conv", "typ. ~5s (sustained)", step_pytorch_audio)
     add("pytorch", "pytorch_video", "PyTorch (video) conv", "typ. ~5s (sustained)", step_pytorch_video)
     add("petsc_hip", "petsc_hip", "PETSc (HIP) build+solve", "minutes (clone/build), ~5s solve", step_petsc_hip)
+    add("onnxruntime_rocm_wheel", "onnxruntime_rocm_wheel", "ONNX Runtime (ROCm) wheel build", "hours (clone/build)", step_onnxruntime_rocm_wheel)
+    add("tensorflow_rocm_wheel", "tensorflow_rocm_wheel", "TensorFlow (ROCm) wheel build", "hours (clone/build)", step_tensorflow_rocm_wheel)
     return plan
 
 

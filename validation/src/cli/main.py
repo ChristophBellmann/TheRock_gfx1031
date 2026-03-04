@@ -64,6 +64,24 @@ def _print_download_plan(cfg: dict) -> None:
     if on("petsc_hip"):
         ref = str((wl.get("petsc", {}) or {}).get("ref", "") or "").strip()
         lines.append(f"- PETSc source clone + HIP build (ref={ref or 'release'})")
+    if on("onnxruntime_rocm_wheel"):
+        owl = wl.get("onnxruntime", {}) or {}
+        repo = str(owl.get("repo_url", "https://github.com/microsoft/onnxruntime.git") or "https://github.com/microsoft/onnxruntime.git")
+        ref = str(owl.get("ref", "main") or "main")
+        work_root = str(
+            owl.get("work_root", "validation/workspace/builds/onnxruntime_rocm")
+            or "validation/workspace/builds/onnxruntime_rocm"
+        )
+        lines.append(f"- ONNX Runtime source clone + ROCm wheel build (repo={repo}, ref={ref}, work_root={work_root})")
+    if on("tensorflow_rocm_wheel"):
+        twl = wl.get("tensorflow", {}) or {}
+        repo = str(twl.get("repo_url", "https://github.com/tensorflow/tensorflow.git") or "https://github.com/tensorflow/tensorflow.git")
+        ref = str(twl.get("ref", "v2.20.0") or "v2.20.0")
+        work_root = str(
+            twl.get("work_root", "validation/workspace/builds/tensorflow_rocm")
+            or "validation/workspace/builds/tensorflow_rocm"
+        )
+        lines.append(f"- TensorFlow source clone + ROCm wheel build (repo={repo}, ref={ref}, work_root={work_root})")
 
     # Size policy hint.
     max_gb = cfg.get("run", {}).get("max_download_gb", 0)

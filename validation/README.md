@@ -1,299 +1,307 @@
-# Validation (ROCm usability & app-style checks)
+# Validation (ROCm usability + workload validation)
 
-This directory contains a **repo-local validation suite** that validates the in-tree ROCm
-artifact(s) under `<builddir>/dist/rocm` without requiring a system install (no `/opt/rocm`).
+This directory contains the **repo-local validation suite** for `TheRock_gfx1031`.
+It validates in-tree ROCm artifacts under `<builddir>/dist/rocm` and avoids depending on `/opt/rocm` for runtime checks.
 
-It has two goals:
-1) **ROCm usability proof**: `rocminfo`, HIP compile+run, and a few small library smokes/benches.
-2) **Representative apps (optional, download/build)**: smoke checks for typical workloads:
-   llama.cpp (docker), Ollama, Whisper, Open Interpreter, MFEM (HIP build).
+Goals:
+1. **ROCm usability proof**: `rocminfo`, HIP compile+run, and small library smokes/benches.
+2. **Representative workloads (optional)**: llama.cpp, Ollama, Whisper, Open Interpreter, MFEM, PETSc, PyTorch, TensorFlow wheel build.
 
-This suite includes small **sample inputs** under `validation/src/assets/samples/`:
-- `audio/` contains a short WAV used by the Whisper smoke test.
-- `prompts/` contains short LLM prompts used by future functional inference checks.
+Bundled sample inputs:
+- `validation/src/assets/samples/audio/Take2_Audio1-1.wav`
+- `validation/src/assets/samples/prompts/tiny_prompt.txt`
 
 ## Quick start
 
-Default (no args): **full suite (`all` profile)** with power metrics, prompts once before downloads/builds.
-
-Note: `all` is intentionally heavy and includes a **PyTorch ROCm 7.11 source build** against the in-tree dist.
+Default run (`run.profile` from `validation/config/defaults.yaml`, currently `all`):
 ```bash
 python3 validation/scripts/validate.py
 ```
 
-Run the lightweight ROCm-only checks (no downloads):
+Lightweight ROCm-only checks (no downloads):
 ```bash
 python3 validation/scripts/validate.py --profile quick --no-downloads
 ```
 
-## Validation modes / CLI overview
-
-All validation runs are **repo-local** and target the in-tree ROCm artifact under `<builddir>/dist/rocm` (no `/opt/rocm` required).
-
-### Core modes
-
-- Default quick suite (power on, no logs, no downloads prompt for `quick`):
-  ```bash
-  python3 validation/scripts/validate.py
-  ```
-- Quick, explicitly no downloads:
-  ```bash
-  python3 validation/scripts/validate.py --profile quick --no-downloads
-  ```
-- Full suite (enables workloads; prompts once before downloads/builds):
-  ```bash
-  python3 validation/scripts/validate.py --profile full
-  ```
-- Full suite, non-interactive (assume “yes”):
-  ```bash
-  python3 validation/scripts/validate.py --profile full --yes
-  ```
-
-### Workload-specific profiles
-
-Run a focused subset instead of the full pipeline:
-
-- llama.cpp: `--profile llama_cpp`, `llama_cpp_infer`, `llama_cpp_smoke`
-- Ollama: `--profile ollama`, `ollama_smoke`
-- Whisper: `--profile whisper`
-- MFEM: `--profile mfem`
-- PyTorch GPU compute: `--profile pytorch` (requires ROCm-enabled `torch` in the validation venv unless configured for auto-install)
-- PyTorch + in-tree ROCm runtime: `--profile pytorch_in_tree` (enforces that ROCm runtime libs are loaded from `<builddir>/dist/rocm`)
-- PyTorch (ROCm 7.11, source build): `--profile pytorch_rocm711_source` (builds `torch` from source against the in-tree dist under `<builddir>/dist/rocm`; can take a long time)
-- PETSc HIP build+solve: `--profile petsc` (can take a while)
-
-Note: `all` defaults to a ROCm 7.11-aligned PyTorch **source build** (slow). If you want a faster PyTorch check
-using prebuilt wheels (ROCm 6.2 channel), use `--profile pytorch` instead.
-
-Tip: list the profiles available in your checkout:
-```bash
-python3 validation/scripts/validate.py --help
-```
-
-### Build-dir selection
-
-- Default: auto-select the preferred build dir in this order:
-  `build-stage2`, then `build`, then `build-stage1`.
-- Force specific build dirs:
-  ```bash
-  python3 validation/scripts/validate.py --build-dirs build-stage2
-  ```
-- Validate all detected build dirs:
-  ```bash
-  python3 validation/scripts/validate.py --all-build-dirs
-  ```
-
-### Output / logging / power sampling
-
-- Power sampling on/off:
-  ```bash
-  python3 validation/scripts/validate.py --power
-  python3 validation/scripts/validate.py --no-power
-  ```
-- More readable output (prints metrics under each step):
-  ```bash
-  python3 validation/scripts/validate.py --summary-multiline
-  ```
-- Write per-step logs under `validation/workspace/runs/<run_id>/logs/`:
-  ```bash
-  python3 validation/scripts/validate.py --log
-  ```
-
-### One-shot utilities
-
-- System + in-tree diagnosis (no downloads):
-  ```bash
-  python3 validation/scripts/doctor.py
-  ```
-- Cache cleanup:
-  ```bash
-  python3 validation/scripts/cache_gc.py
-  python3 validation/scripts/cache_gc.py --all
-  ```
-- Show last report location (and optionally open HTML report):
-  ```bash
-  python3 validation/scripts/report_open.py
-  python3 validation/scripts/report_open.py --open
-  ```
-
-More readable summary output (prints params/power under each test):
-```bash
-python3 validation/scripts/validate.py --summary-multiline
-```
-
-Explicit ROCm-only smoke (no downloads):
-```bash
-python3 validation/scripts/validate.py --profile quick
-```
-
-Full validation (enables workloads; prompts once before downloads/builds):
-```bash
-python3 validation/scripts/validate.py --profile full
-```
-
-Non-interactive full validation (assume “yes” to the prompt):
+Non-interactive default run:
 ```bash
 python3 validation/scripts/validate.py --yes
 ```
 
-## Workloads (functional inputs)
-
-Workload steps use small repo-local inputs by default:
-- Prompt: `validation/src/assets/samples/prompts/tiny_prompt.txt`
-- Audio: `validation/src/assets/samples/audio/Take2_Audio1-1.wav`
-
-Some workload steps have **optional functional modes** which are disabled unless configured:
-- **Ollama**: enabled by default (model `llama3.2:3b-instruct-q4_0`, ~1.9GB). The suite measures:
-  - `tok/s` (generation throughput)
-  - `ttft` (time to first token, ms)
-  - `avg_tok` (avg ms/token)
-  - optional power/energy when `--power` is enabled
-- **llama.cpp (docker)**: set `workloads.llama_cpp.model_url` (and optionally `model_sha256`) to download a GGUF and run a sustained **`llama-bench`** run inside the container.
-  - Reports `pp_tok/s` (prompt processing) and `tg_tok/s` (token generation) plus optional power/energy.
-  - Strict inference mode (must run GPU inference) is the default: `python3 validation/scripts/llama_cpp_validate.py`.
-  - Smoke-only mode (no model download / no inference): `python3 validation/scripts/llama_cpp_validate.py --smoke`.
-
-### llama.cpp vs Ollama (why both)
-
-- **llama.cpp** is a low-level inference engine that runs GGUF models directly. In this repo’s validation it runs **inside Docker** via the `rocm/llama.cpp` wrapper image and we measure `pp_tok/s` + `tg_tok/s` via `llama-bench`.
-- **Ollama** is a higher-level runtime/serving layer (model management + HTTP API). It can use a GPU backend when available and we measure `tok/s`, `ttft`, `avg_tok` via its API. In this repo’s validation, Ollama runs in **docker ROCm** when the host `ollama` binary lacks a ROCm backend (`workloads.ollama.use_docker: auto`).
-
-Tip: run just the Ollama workload:
-```bash
-python3 validation/scripts/validate.py --profile ollama --yes --power --log
-```
-
-One-shot self-contained validation + diagnosis:
-```bash
-python3 validation/scripts/ollama_doctor.py --yes
-```
-
-One-shot self-contained workload validators (GPU required):
-```bash
-python3 validation/scripts/llama_cpp_validate.py
-python3 validation/scripts/ollama_validate.py
-python3 validation/scripts/whisper_validate.py
-python3 validation/scripts/mfem_validate.py
-```
-
-Additional GPU compute validations:
-```bash
-# PyTorch audio/video style GPU compute (requires ROCm-enabled torch in the venv):
-python3 validation/scripts/validate.py --profile pytorch --yes --power
-
-# PETSc HIP build + KSP solve (downloads + builds PETSc; can take a while):
-python3 validation/scripts/validate.py --profile petsc --yes --power --log
-```
-
-MFEM notes:
-- The HIP CMake package sometimes ends up with an empty `HIP_PLATFORM` during early configure in external projects; the validator pins `-DHIP_PLATFORM=amd`.
-- MFEM examples are often excluded from the default build target; the validator builds `ex1` explicitly and falls back to smaller runtime parameters if a HIP OOM occurs.
-
-llama.cpp options:
-- Default (strict GPU inference via `llama-bench`): `python3 validation/scripts/llama_cpp_validate.py`
-- Smoke-only (no model download / no inference): `python3 validation/scripts/llama_cpp_validate.py --smoke`
-
-If Ollama falls back to CPU, the suite marks the step as `FAIL` and the per-step log contains the docker logs
-showing why (e.g. `entering low vram mode` / `total vram=0 B`).
-
-Write per-step logs + a JSON report:
+Write per-step logs:
 ```bash
 python3 validation/scripts/validate.py --log
 ```
 
-Add optional GPU power/util sampling during sustained-load tests:
-```bash
-python3 validation/scripts/validate.py --profile quick --power --log
-```
+## Daily commands
 
-When `--power` is enabled, the run starts with a **5s idle baseline** (no GPU load) and then
-reports per-test energy deltas (`dW`) relative to that baseline.
+### Main runner
 
-## How it works
+- Default profile (`all`, comprehensive):
+  ```bash
+  python3 validation/scripts/validate.py
+  ```
+- Explicit `all` profile:
+  ```bash
+  python3 validation/scripts/validate.py --profile all
+  ```
+- Compat profile (`full`, mostly defaults, reduced scope vs `all`):
+  ```bash
+  python3 validation/scripts/validate.py --profile full
+  ```
+- Quick profile:
+  ```bash
+  python3 validation/scripts/validate.py --profile quick
+  ```
+- Quick + hard no-downloads:
+  ```bash
+  python3 validation/scripts/validate.py --profile quick --no-downloads
+  ```
 
-- **Explicit in-tree activation:** each step runs with `ROCM_PATH`, `PATH`, and `LD_LIBRARY_PATH`
-  set to `<builddir>/dist/rocm` so it doesn’t accidentally use system ROCm.
-- **Sustained-load checks:** core ROCm tests are parameterized to run for ~5 seconds each, so it’s
-  easier to observe *continuous* GPU/CPU utilization (no “pulses”) and confirm hardware acceleration before running workloads.
-- **Optional power/energy sampling:** with `--power`, sustained-load tests sample AMDGPU sysfs
-  power (`power1_average`, µW) and integrate to an approximate energy in **Ws**. With `--log`,
-  per-test samples are written as `*.power.csv` under the run’s `logs/` directory.
-- **Repo-local Python environment:** the scripts auto-create a venv under
-  `validation/workspace/envs/py/` and install only minimal dependencies (see `validation/requirements-lock.txt`).
-- **Downloads are gated:** third-party checks are enabled by default in `full` and guarded by
-  a single **Y/n prompt** on startup (use `--yes` to skip prompting).
-- **Workloads are best-effort:** workload steps may `SKIP` if prerequisites aren’t present
-  (e.g. `docker` missing for llama.cpp, or Python packages missing for Whisper).
-  The goal is to keep the suite reproducible and avoid surprise multi-GB installs.
-- **GPU is mandatory for workloads:** if a workload runs but cannot prove GPU acceleration (CPU fallback),
-  it is treated as `FAIL` (with hints in the metric and optional logs).
-- **gfx1031 note:** some prebuilt ROCm docker images ship HIP code objects for `gfx1030` but not `gfx1031`.
-  For such images, the suite uses `HSA_OVERRIDE_GFX_VERSION=10.3.0` automatically when `rocm.amd_gpu_arch=gfx1031`.
-- **All runtime artifacts live in `validation/workspace/`** and are gitignored.
+### Build-dir selection
 
-## Build dirs (Stage-1 vs Stage-2)
+Default build-dir priority:
+- `build-stage2`
+- `build`
+- `build-stage1`
 
-If you don’t specify anything, validation auto-detects and uses the **preferred** build dir
-in this order: `build-stage2`, `build`, `build-stage1`.
-
-This is why results can differ per build dir:
-- **Stage-2** typically contains `hipcc`, benches (e.g. `rocblas-bench`), and is the main target.
-- **Stage-1** may be a bootstrap toolchain stage and can legitimately `SKIP` GPU runtime steps.
-
-To force one build dir:
+Commands:
 ```bash
 python3 validation/scripts/validate.py --build-dirs build-stage2
-```
-
-To validate all detected build dirs:
-```bash
 python3 validation/scripts/validate.py --all-build-dirs
 ```
 
-## Doctor / cache / reports
+### Output and monitoring options
 
-System + in-tree sanity (no downloads):
+```bash
+python3 validation/scripts/validate.py --power
+python3 validation/scripts/validate.py --no-power
+python3 validation/scripts/validate.py --summary-multiline
+python3 validation/scripts/validate.py --log
+```
+
+### Utilities
+
 ```bash
 python3 validation/scripts/doctor.py
-```
-
-Delete old run artifacts (and optionally downloads/build caches):
-```bash
 python3 validation/scripts/cache_gc.py
 python3 validation/scripts/cache_gc.py --all
-```
-
-Print the latest report path (and optionally open a browser for HTML reports if present):
-```bash
 python3 validation/scripts/report_open.py
 python3 validation/scripts/report_open.py --open
 ```
 
-## Configuration
+## Profiles and what they mean
 
-- Defaults: `validation/config/defaults.yaml`
-- Profiles:
-  - `validation/config/profiles/full.yaml` (default; everything enabled, downloads gated)
-  - `validation/config/profiles/quick.yaml` (ROCm-only smoke)
-  - `validation/config/profiles/airgapped.yaml` (same as quick; future-proof name)
-  - `validation/config/profiles/ollama.yaml` (Ollama-only)
-  - `validation/config/profiles/ollama_smoke.yaml` (Ollama smoke-only; no model/inference)
-  - `validation/config/profiles/llama_cpp.yaml` (llama.cpp-only)
-  - `validation/config/profiles/llama_cpp_infer.yaml` (llama.cpp inference-only; requires a model URL)
-  - `validation/config/profiles/llama_cpp_smoke.yaml` (llama.cpp smoke-only; no model/inference)
-  - `validation/config/profiles/whisper.yaml` (Whisper-only)
-  - `validation/config/profiles/mfem.yaml` (MFEM-only)
-  - `validation/config/profiles/pytorch.yaml` (PyTorch GPU compute: audio+video conv)
-  - `validation/config/profiles/petsc.yaml` (PETSc HIP build+solve)
-- Workload inputs (URLs/refs): `validation/config/defaults.yaml` under `workloads:`
-- Layout/env hints:
-  - `validation/config/layout/gfx_targets.yaml`
-  - `validation/config/layout/install_layouts.yaml`
-  - `validation/config/layout/env_exports.yaml`
+Focused profiles:
+- llama.cpp: `llama_cpp`, `llama_cpp_infer`, `llama_cpp_smoke`
+- Ollama: `ollama`, `ollama_smoke`
+- Whisper: `whisper`
+- MFEM: `mfem`
+- PETSc: `petsc`
+- ONNX Runtime ROCm wheel build: `onnxruntime`
+- PyTorch GPU compute: `pytorch`
+- PyTorch in-tree ROCm enforcement: `pytorch_in_tree`
+- PyTorch ROCm 7.11 source build: `pytorch_rocm711_source`
+- TensorFlow ROCm wheel build: `tensorflow`
 
-## Layout
-
+Show CLI help:
+```bash
+python3 validation/scripts/validate.py --help
 ```
+
+## Workload-focused one-shot commands
+
+```bash
+python3 validation/scripts/llama_cpp_validate.py
+python3 validation/scripts/llama_cpp_validate.py --smoke
+
+python3 validation/scripts/ollama_validate.py
+python3 validation/scripts/ollama_doctor.py --yes
+
+python3 validation/scripts/whisper_validate.py
+python3 validation/scripts/mfem_validate.py
+python3 validation/scripts/onnxruntime_validate.py
+python3 validation/scripts/tensorflow_validate.py
+```
+
+Additional targeted runs:
+```bash
+python3 validation/scripts/validate.py --profile ollama --yes --power --log
+python3 validation/scripts/validate.py --profile petsc --yes --power --log
+python3 validation/scripts/validate.py --profile onnxruntime --yes --log
+python3 validation/scripts/validate.py --profile pytorch --yes --power
+python3 validation/scripts/validate.py --profile tensorflow --yes --log
+```
+
+## Custom builds against this ROCm stack
+
+This section documents custom framework builds/wheels that are intended to run against
+the custom ROCm stack produced by this repository.
+
+### PyTorch (ROCm 7.11-aligned, source build)
+
+- Primary path in this repo:
+  - `validation/config/profiles/pytorch_rocm711_source.yaml`
+  - `external-builds/pytorch/build_prod_wheels.py`
+- Typical wheel output:
+  - `validation/workspace/cache/wheels/pytorch_rocm711/` (or configured wheel dir)
+- Typical promote target:
+  - `/opt/rocm/wheels/pytorch_rocm711/`
+
+### ONNX Runtime (ROCm)
+
+- Common workflow in this setup:
+  - build ONNX Runtime wheel from a dedicated ORT fork/branch
+  - then validate against the same ROCm stack used here
+- Build helpers in this repo:
+  - `validation/scripts/onnxruntime_rocm/build_onnxruntime_rocm_wheel.sh`
+  - `validation/scripts/onnxruntime_rocm/start_onnxruntime_rocm_build_systemd.sh`
+  - `validation/scripts/onnxruntime_rocm/monitor_onnxruntime_rocm_build.sh`
+  - `validation/scripts/onnxruntime_rocm/install_onnxruntime_rocm_wheel_to_opt.sh`
+- Artifacts:
+  - build workspace: `validation/workspace/builds/onnxruntime_rocm/`
+  - wheels: `validation/workspace/cache/wheels/onnxruntime_rocm711/`
+- Known fork reference (for reproducibility):
+  - Repo: `https://github.com/ChristophBellmann/onnxruntime`
+  - Branch: `christoph/gfx1031-tls-fix`
+  - Commit: `f4660e2`
+- Typical promote target:
+  - `/opt/rocm/wheels/onnxruntime_rocm711/`
+
+### TensorFlow ROCm wheel
+
+- Build helpers in this repo:
+  - `validation/scripts/tensorflow_rocm/build_tensorflow_rocm_wheel.sh`
+  - `validation/scripts/tensorflow_rocm/start_tensorflow_rocm_build_systemd.sh`
+  - `validation/scripts/tensorflow_rocm/monitor_tensorflow_rocm_build.sh`
+  - `validation/scripts/tensorflow_rocm/install_tensorflow_rocm_wheel_to_opt.sh`
+- Artifacts:
+  - build workspace: `validation/workspace/builds/tensorflow_rocm/`
+  - wheels: `validation/workspace/cache/wheels/tensorflow_rocm_custom/`
+- Typical promote target:
+  - `/opt/rocm/wheels/tensorflow_rocm_custom/`
+- Default source config:
+  - `workloads.tensorflow.repo_url`: `https://github.com/ROCm/tensorflow-upstream.git`
+  - `workloads.tensorflow.ref`: `r2.20-rocm-enhanced`
+
+### Quick post-build verification
+
+```bash
+python -c "import torch; print(torch.__version__, torch.version.rocm, torch.cuda.is_available())"
+python -c "import onnxruntime as ort; print(ort.__version__, ort.get_available_providers())"
+```
+
+## Workloads: behavior and metrics
+
+### Ollama
+
+Enabled by default in `all` with model `llama3.2:3b-instruct-q4_0` (~1.9GB).
+Measured metrics:
+- `tok/s`
+- `ttft` (ms)
+- `avg_tok` (ms/token)
+- optional power/energy when `--power` is enabled
+
+### llama.cpp (docker)
+
+- Uses AMD ROCm llama.cpp container path.
+- Inference mode needs a GGUF model URL (`workloads.llama_cpp.model_url`).
+- Reports:
+  - `pp_tok/s` (prompt processing)
+  - `tg_tok/s` (token generation)
+  - optional power/energy
+
+Modes:
+- strict GPU inference (default for wrapper):
+  ```bash
+  python3 validation/scripts/llama_cpp_validate.py
+  ```
+- smoke-only (no model download/inference):
+  ```bash
+  python3 validation/scripts/llama_cpp_validate.py --smoke
+  ```
+
+### Whisper
+
+Uses bundled short WAV by default; can repeat audio to a target duration (`audio_target_s`) for sustained load.
+
+### MFEM
+
+- Uses pinned MFEM ref from config.
+- Forces `-DHIP_PLATFORM=amd` to avoid empty HIP platform edge cases.
+- Builds `ex1` explicitly (many MFEM examples are not in default target).
+
+### PETSc
+
+Builds PETSc with HIP and runs a solver check. This can be long.
+
+### PyTorch
+
+`all` defaults to ROCm 7.11-aligned source build to avoid channel mismatch and hidden CPU fallback.
+If you need a faster wheel-based check, run `--profile pytorch`.
+
+### TensorFlow ROCm wheel
+
+Heavy source build workflow. See section **Custom builds against this ROCm stack** for scripts,
+artifact paths, and default source configuration.
+
+## How the suite works
+
+- **In-tree ROCm activation**:
+  each step sets `ROCM_PATH`, `PATH`, `LD_LIBRARY_PATH` to target `<builddir>/dist/rocm`.
+- **Sustained-load tests**:
+  core checks run long enough to make GPU usage visible, not only short bursts.
+- **Optional power sampling**:
+  with `--power`, reads AMDGPU sysfs power and integrates approximate energy (`Ws`).
+- **Repo-local Python runtime**:
+  auto-venv under `validation/workspace/envs/py/`.
+- **Download gating**:
+  download/build workloads are guarded by one startup prompt (`--yes` to skip prompt).
+- **Workload strictness**:
+  workload CPU fallback is treated as `FAIL`.
+- **gfx1031 compatibility hint**:
+  for docker images without `gfx1031` code objects, suite can use `HSA_OVERRIDE_GFX_VERSION=10.3.0`.
+- **Artifacts location**:
+  runtime artifacts remain under `validation/workspace/`.
+
+## Build stage differences
+
+Why results differ between build dirs:
+- `build-stage2`: usually complete runtime/tooling, primary target.
+- `build-stage1`: bootstrap stage; some runtime checks may legitimately `SKIP`.
+
+## Configuration reference
+
+Base config:
+- `validation/config/defaults.yaml`
+
+Profiles:
+- `validation/config/profiles/all.yaml` (default profile via `run.profile`)
+- `validation/config/profiles/full.yaml` (compat profile)
+- `validation/config/profiles/quick.yaml`
+- `validation/config/profiles/airgapped.yaml`
+- `validation/config/profiles/ollama.yaml`
+- `validation/config/profiles/ollama_smoke.yaml`
+- `validation/config/profiles/llama_cpp.yaml`
+- `validation/config/profiles/llama_cpp_infer.yaml`
+- `validation/config/profiles/llama_cpp_smoke.yaml`
+- `validation/config/profiles/whisper.yaml`
+- `validation/config/profiles/mfem.yaml`
+- `validation/config/profiles/pytorch.yaml`
+- `validation/config/profiles/pytorch_in_tree.yaml`
+- `validation/config/profiles/pytorch_rocm711_source.yaml`
+- `validation/config/profiles/onnxruntime.yaml`
+- `validation/config/profiles/petsc.yaml`
+- `validation/config/profiles/tensorflow.yaml`
+
+Layout/env hints:
+- `validation/config/layout/gfx_targets.yaml`
+- `validation/config/layout/install_layouts.yaml`
+- `validation/config/layout/env_exports.yaml`
+
+## Directory layout
+
+```text
 validation/
 ├─ README.md
 ├─ AI_WORKFLOW_VALIDATION.md
@@ -303,12 +311,13 @@ validation/
 ├─ .gitignore
 ├─ .env.example
 ├─ config/
-├─ scripts/                # user entrypoints (auto-venv bootstrap)
-├─ src/                    # implementation (cli/core/steps/assets/data)
-└─ workspace/              # runtime artifacts (gitignored)
+├─ scripts/
+├─ src/
+├─ tests/
+└─ workspace/
 ```
 
 ## Legal / third-party
 
-Third-party projects used by optional checks are referenced in:
-`validation/src/assets/notices/THIRD_PARTY_NOTICES.md`.
+Third-party references used by optional workload checks:
+- `validation/src/assets/notices/THIRD_PARTY_NOTICES.md`

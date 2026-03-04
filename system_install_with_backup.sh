@@ -9,6 +9,8 @@ PREFIX="${PREFIX:-/opt/rocm}"
 BACKUP_ROOT="${BACKUP_ROOT:-/opt/rocm_backups}"
 WHEEL_GLOB_DEFAULT="/tmp/therock_torch_wheels_custom_rocm/torch-*.whl"
 WHEEL_GLOB="${WHEEL_GLOB:-$WHEEL_GLOB_DEFAULT}"
+ORT_WHEEL_GLOB_DEFAULT="${ROOT}/validation/workspace/cache/wheels/onnxruntime_rocm711/onnxruntime_rocm-*.whl"
+ORT_WHEEL_GLOB="${ORT_WHEEL_GLOB:-$ORT_WHEEL_GLOB_DEFAULT}"
 DO_VALIDATE="${DO_VALIDATE:-1}"
 
 echo "== system_install_with_backup.sh =="
@@ -17,6 +19,7 @@ echo "build dir : ${BUILD_DIR}"
 echo "prefix    : ${PREFIX}"
 echo "backup    : ${BACKUP_ROOT}"
 echo "wheel glob: ${WHEEL_GLOB}"
+echo "ort wheel glob: ${ORT_WHEEL_GLOB}"
 echo ""
 
 if [[ ! -x "${ROOT}/install_to_opt.sh" ]]; then
@@ -30,6 +33,14 @@ if ! compgen -G "${WHEEL_GLOB}" >/dev/null; then
 fi
 WHEEL="$(ls -1 ${WHEEL_GLOB} | tail -n 1)"
 echo "Using wheel: ${WHEEL}"
+
+ORT_WHEEL=""
+if compgen -G "${ORT_WHEEL_GLOB}" >/dev/null; then
+  ORT_WHEEL="$(ls -1 ${ORT_WHEEL_GLOB} | tail -n 1)"
+  echo "Using ONNX Runtime wheel: ${ORT_WHEEL}"
+else
+  echo "INFO: no ONNX Runtime wheel found matching ${ORT_WHEEL_GLOB} (install continues without ORT wheel copy)"
+fi
 
 TS="$(date +%F-%H%M%S)"
 BACKUP_DIR="${BACKUP_ROOT}/${TS}"
@@ -58,11 +69,16 @@ fi
 
 echo ""
 echo "== Install new prefix =="
-sudo "${ROOT}/install_to_opt.sh" \
-  --build-dir "${BUILD_DIR}" \
-  --prefix "${PREFIX}" \
-  --pytorch-wheel "${WHEEL}" \
+INSTALL_ARGS=(
+  --build-dir "${BUILD_DIR}"
+  --prefix "${PREFIX}"
+  --pytorch-wheel "${WHEEL}"
   -y
+)
+if [[ -n "${ORT_WHEEL}" ]]; then
+  INSTALL_ARGS+=(--onnxruntime-wheel "${ORT_WHEEL}")
+fi
+sudo "${ROOT}/install_to_opt.sh" "${INSTALL_ARGS[@]}"
 
 if [[ "${DO_VALIDATE}" == "1" ]]; then
   echo ""
@@ -75,6 +91,8 @@ if [[ "${DO_VALIDATE}" == "1" ]]; then
   fi
   echo "Wheel dir:"
   ls -1 "${PREFIX}/wheels/pytorch_rocm711/" || true
+  echo "ONNX Runtime wheel dir:"
+  ls -1 "${PREFIX}/wheels/onnxruntime_rocm711/" || true
 fi
 
 echo ""

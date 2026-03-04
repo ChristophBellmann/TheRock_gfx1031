@@ -1,0 +1,137 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../../.." && pwd)"
+WORK_ROOT="${WORK_ROOT:-${ROOT}/validation/workspace/builds/onnxruntime_rocm}"
+ORT_SRC_DIR="${ORT_SRC_DIR:-${WORK_ROOT}/onnxruntime}"
+BUILD_DIR="${BUILD_DIR:-${WORK_ROOT}/build-gfx1031-tlsfix-wheel}"
+LOG_FILE="${LOG_FILE:-${WORK_ROOT}/ort_build_live.log}"
+WHEEL_OUT_DIR="${WHEEL_OUT_DIR:-${ROOT}/validation/workspace/cache/wheels/onnxruntime_rocm711}"
+
+ORT_REPO_URL="${ORT_REPO_URL:-https://github.com/microsoft/onnxruntime.git}"
+ORT_REF="${ORT_REF:-main}"
+PYTHON_BIN="${PYTHON_BIN:-python3}"
+ROCM_PATH="${ROCM_PATH:-/opt/rocm}"
+ROCM_VERSION="${ROCM_VERSION:-7.11.0}"
+HIP_ARCH="${HIP_ARCH:-gfx1031}"
+HIP_PLATFORM="${HIP_PLATFORM:-amd}"
+PARALLEL="${PARALLEL:-$(nproc)}"
+DO_UPDATE="${DO_UPDATE:-1}"
+
+TLS_C_FLAGS="${TLS_C_FLAGS:--ftls-model=global-dynamic}"
+TLS_CXX_FLAGS="${TLS_CXX_FLAGS:--ftls-model=global-dynamic}"
+TLS_LINK_FLAGS="${TLS_LINK_FLAGS:--Wl,--no-as-needed}"
+
+mkdir -p "${WORK_ROOT}" "${WHEEL_OUT_DIR}" "$(dirname "${LOG_FILE}")"
+
+verify_wheel_tls() {
+  local wheel_path="$1"
+  local tmp_dir so_path
+  tmp_dir="$(mktemp -d)"
+  cleanup() { rm -rf "${tmp_dir}"; }
+  trap cleanup RETURN
+
+  "${PYTHON_BIN}" -c 'import zipfile,sys; z=zipfile.ZipFile(sys.argv[1]); n=[x for x in z.namelist() if x.endswith("onnxruntime/capi/libonnxruntime_providers_rocm.so")][0]; z.extract(n, sys.argv[2])' "${wheel_path}" "${tmp_dir}"
+  so_path="$(find "${tmp_dir}" -name libonnxruntime_providers_rocm.so | head -n1 || true)"
+  if [[ -z "${so_path}" || ! -f "${so_path}" ]]; then
+    echo "Could not extract provider .so from wheel: ${wheel_path}" >&2
+    return 2
+  fi
+
+  if readelf -dW "${so_path}" | grep -q "STATIC_TLS"; then
+    echo "TLS check FAILED: provider contains STATIC_TLS" >&2
+    return 3
+  fi
+
+  if readelf -rW "${so_path}" | grep -Eq "_ZSt11__once_call|_ZSt15__once_callable|R_X86_64_TPOFF64"; then
+    echo "TLS check FAILED: provider still has once/TPOFF TLS relocations" >&2
+    return 4
+  fi
+
+  echo "TLS check OK (no STATIC_TLS / no once-call TLS relocations)."
+}
+
+if [[ ! -x "${PYTHON_BIN}" ]]; then
+  echo "Python not found/executable: ${PYTHON_BIN}" >&2
+  exit 1
+fi
+
+if [[ ! -d "${ORT_SRC_DIR}/.git" ]]; then
+  echo "[ORT] Clone ${ORT_REPO_URL} -> ${ORT_SRC_DIR}"
+  git clone --recursive "${ORT_REPO_URL}" "${ORT_SRC_DIR}"
+fi
+
+cd "${ORT_SRC_DIR}"
+
+if [[ "${DO_UPDATE}" == "1" ]]; then
+  echo "[ORT] Fetch updates"
+  git fetch --all --tags --prune
+fi
+
+echo "[ORT] Checkout ${ORT_REF}"
+git checkout "${ORT_REF}"
+if [[ "${DO_UPDATE}" == "1" ]]; then
+  git pull --ff-only || true
+  git submodule sync --recursive
+  git submodule update --init --recursive
+fi
+
+export HIP_PLATFORM
+
+echo "== ONNX Runtime ROCm wheel build =="
+echo "ROOT=${ROOT}"
+echo "WORK_ROOT=${WORK_ROOT}"
+echo "ORT_SRC_DIR=${ORT_SRC_DIR}"
+echo "BUILD_DIR=${BUILD_DIR}"
+echo "WHEEL_OUT_DIR=${WHEEL_OUT_DIR}"
+echo "PYTHON_BIN=${PYTHON_BIN}"
+echo "ROCM_PATH=${ROCM_PATH}"
+echo "ROCM_VERSION=${ROCM_VERSION}"
+echo "HIP_ARCH=${HIP_ARCH}"
+echo "HIP_PLATFORM=${HIP_PLATFORM}"
+echo "PARALLEL=${PARALLEL}"
+echo "DO_UPDATE=${DO_UPDATE}"
+echo "LOG_FILE=${LOG_FILE}"
+
+BUILD_ARGS=()
+if [[ "${DO_UPDATE}" == "1" ]]; then
+  BUILD_ARGS+=(--update)
+fi
+
+"${PYTHON_BIN}" tools/ci_build/build.py \
+  --build_dir "${BUILD_DIR}" \
+  --config Release \
+  "${BUILD_ARGS[@]}" \
+  --build \
+  --build_wheel \
+  --enable_pybind \
+  --skip_tests \
+  --parallel "${PARALLEL}" \
+  --use_rocm \
+  --rocm_home "${ROCM_PATH}" \
+  --rocm_version "${ROCM_VERSION}" \
+  --cmake_extra_defines \
+    "CMAKE_HIP_ARCHITECTURES=${HIP_ARCH}" \
+    "onnxruntime_USE_COMPOSABLE_KERNEL=OFF" \
+    "onnxruntime_BUILD_UNIT_TESTS=OFF" \
+    "onnxruntime_DISABLE_CONTRIB_OPS=ON" \
+    "CMAKE_C_FLAGS=${TLS_C_FLAGS}" \
+    "CMAKE_CXX_FLAGS=${TLS_CXX_FLAGS}" \
+    "CMAKE_SHARED_LINKER_FLAGS=${TLS_LINK_FLAGS}" \
+  2>&1 | tee "${LOG_FILE}"
+
+WHEEL_PATH="$(find "${BUILD_DIR}/Release/dist" -maxdepth 1 -type f -name 'onnxruntime_rocm-*.whl' | head -n1 || true)"
+if [[ -z "${WHEEL_PATH}" ]]; then
+  echo "No wheel found under ${BUILD_DIR}/Release/dist" >&2
+  exit 2
+fi
+
+verify_wheel_tls "${WHEEL_PATH}"
+
+cp -f "${WHEEL_PATH}" "${WHEEL_OUT_DIR}/"
+
+echo
+echo "Built wheel:"
+echo "${WHEEL_PATH}"
+echo "Copied to:"
+ls -lh "${WHEEL_OUT_DIR}"/onnxruntime_rocm-*.whl
